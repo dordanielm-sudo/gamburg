@@ -258,5 +258,75 @@ begin
 end $$;
 reset role;
 
+-- ---------------------------------------------------------------------------
+-- 13. handler A cannot elevate/deactivate anyone via admin_set_user_status,
+--     not even themselves
+-- ---------------------------------------------------------------------------
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000002","role":"authenticated"}';
+set role authenticated;
+do $$
+begin
+  perform public.admin_set_user_status(
+    '00000000-0000-0000-0000-000000000002', 'manager', true);
+  raise exception 'TEST FAILED: handler A should not be able to call admin_set_user_status';
+exception
+  when insufficient_privilege then
+    raise notice 'PASS: handler A blocked from calling admin_set_user_status';
+end $$;
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 14. manager deactivates handler B -> handler B immediately loses all
+--     case visibility, even though their JWT/session is unchanged
+-- ---------------------------------------------------------------------------
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000001","role":"authenticated"}';
+set role authenticated;
+do $$
+begin
+  perform public.admin_set_user_status(
+    '00000000-0000-0000-0000-000000000003', 'handler', false);
+  raise notice 'PASS: manager deactivated handler B';
+end $$;
+reset role;
+
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000003","role":"authenticated"}';
+set role authenticated;
+do $$
+declare cnt int;
+begin
+  select count(*) into cnt from public.cases;
+  if cnt <> 0 then
+    raise exception 'TEST FAILED: deactivated handler B should see 0 cases, got %', cnt;
+  end if;
+  raise notice 'PASS: deactivated handler B sees 0 cases';
+end $$;
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 15. manager reactivates handler B -> visibility restored
+-- ---------------------------------------------------------------------------
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000001","role":"authenticated"}';
+set role authenticated;
+do $$
+begin
+  perform public.admin_set_user_status(
+    '00000000-0000-0000-0000-000000000003', 'handler', true);
+  raise notice 'PASS: manager reactivated handler B';
+end $$;
+reset role;
+
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000003","role":"authenticated"}';
+set role authenticated;
+do $$
+declare cnt int;
+begin
+  select count(*) into cnt from public.cases;
+  if cnt <> 1 then
+    raise exception 'TEST FAILED: reactivated handler B expected 1 visible case, got %', cnt;
+  end if;
+  raise notice 'PASS: reactivated handler B sees their case again';
+end $$;
+reset role;
+
 reset request.jwt.claims;
 select 'ALL RLS CHECKS PASSED' as result;

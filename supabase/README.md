@@ -9,6 +9,10 @@
   `cases` are writable from the app.
 - `migrations/0003_auth_sync.sql` — trigger that creates a `profiles` row from
   `auth.users` metadata whenever a user is invited.
+- `migrations/0004_user_management.sql` — `is_active` (soft-delete) on
+  `profiles`, and `admin_set_user_status()`, the only way role/is_active can
+  be changed (checks the caller is a manager itself, since "manager" and
+  "handler" are the same Postgres DB role).
 - `tests/` — a local-only Postgres shim (fake `auth` schema/roles) plus seed
   data and RLS assertions, so the policies above can be exercised without a
   live Supabase project. Never apply `tests/00_local_shim.sql` or
@@ -22,7 +26,7 @@ supabase link --project-ref <ref>
 supabase db push
 ```
 
-(or paste the three `migrations/*.sql` files, in order, into the SQL Editor).
+(or paste the `migrations/*.sql` files, in order, into the SQL Editor).
 
 ## Creating users
 
@@ -46,15 +50,16 @@ Requires Docker only (no Supabase project needed):
 ```
 
 Spins up a throwaway `postgres:16-alpine` container, applies the migrations
-plus the local shim/seed data, and runs 14 assertions covering all 3 roles
+plus the local shim/seed data, and runs 19 assertions covering all 3 roles
 (row visibility, column-level write restrictions, task/notification
-automation). Prints `ALL RLS CHECKS PASSED` on success, or the first failing
-assertion otherwise.
+automation, deactivation). Prints `ALL RLS CHECKS PASSED` on success, or the
+first failing assertion otherwise.
 
 ## Confirmed role permissions (stage 1-2)
 
 - **manager** — sees and (within the CRM-only fields) edits every case,
-  creates tasks for any handler.
+  creates tasks for any handler, and is the only role that can call
+  `admin_set_user_status()` to change someone's role or deactivate them.
 - **handler** — sees only cases where `handler_id` is them; can edit the
   CRM-only fields (flags/note/follow-up) on those cases; can only change the
   `status`/`completed_at` of tasks assigned to them.
@@ -64,3 +69,16 @@ assertion otherwise.
 No role can edit the עדכנית-sourced fields (`case_number`, `case_name`,
 `status`, client details, ...) from the CRM — those are only ever written by
 the Make sync job via the `service_role` key, which bypasses RLS.
+
+## User management (in-app panel, built in stage 3)
+
+"Removing" a user is a soft-delete: `admin_set_user_status(id, role, false)`
+sets `is_active = false`, which makes `current_user_role()` stop recognizing
+them, immediately locking them out of every RLS-gated table - their history
+(past cases' handler_id, tasks, notifications, case_sync_log) is untouched.
+The panel's server-side route additionally calls the Supabase Admin API to
+disable their actual login (e.g. ban the auth.users record), since
+`is_active` alone only gates data access inside our tables, not
+authentication itself. Reassigning a deactivated handler's open cases is not
+part of this flow - `handler_id` is a source field owned by עדכנית, so that
+reassignment happens there (via Make), not in the CRM.

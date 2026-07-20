@@ -34,6 +34,7 @@ PSQL=(psql -h 127.0.0.1 -p "$PORT" -U postgres -v ON_ERROR_STOP=1 -q)
 "${PSQL[@]}" -f supabase/tests/00b_default_grants.sql
 "${PSQL[@]}" -f supabase/migrations/0002_rls.sql
 "${PSQL[@]}" -f supabase/migrations/0003_auth_sync.sql
+"${PSQL[@]}" -f supabase/migrations/0004_user_management.sql
 "${PSQL[@]}" -f supabase/tests/01_seed.sql
 "${PSQL[@]}" -f supabase/tests/02_rls_assertions.sql
 
