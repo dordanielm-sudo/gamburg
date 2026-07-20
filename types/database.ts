@@ -5,6 +5,7 @@
 export type UserRole = "manager" | "handler" | "secretary";
 export type TaskStatus = "open" | "done";
 export type NotificationType = "new_task" | "new_document" | "stuck_case";
+export type WebhookStatus = "pending" | "success" | "failure" | "warning";
 
 export interface Profile {
   id: string;
@@ -63,6 +64,19 @@ export interface Notification {
   body: string | null;
   is_read: boolean;
   created_at: string;
+}
+
+export interface CaseSyncLogEntry {
+  id: string;
+  case_id: string;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  changed_by: string | null;
+  webhook_status: WebhookStatus;
+  webhook_message: string | null;
+  created_at: string;
+  responded_at: string | null;
 }
 
 export interface TaskWithNames extends Task {

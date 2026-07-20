@@ -6,6 +6,18 @@ import { isCaseStuck, type CaseWithHandler } from "@/types/database";
 
 type SortKey = "case_number" | "case_name" | "opened_date" | "last_touched_at";
 
+type EditableField =
+  | "flag_problematic_client"
+  | "flag_non_paying"
+  | "flag_transferring_documents"
+  | "manager_follow_up"
+  | "manager_note";
+
+interface SyncStatus {
+  phase: "saving" | "success" | "warning" | "failure";
+  message?: string;
+}
+
 const FLAG_DEFS = [
   { key: "flag_problematic_client", label: "לקוח בעייתי" },
   { key: "flag_non_paying", label: "לא משלם" },
@@ -28,8 +40,7 @@ export function CasesTable({
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("last_touched_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [errorId, setErrorId] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<Record<string, SyncStatus>>({});
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -62,30 +73,61 @@ export function CasesTable({
     }
   }
 
+  // section 4.2: (1) save immediately to Supabase (optimistic), (2) tell
+  // Make about the change via /api/case-updates, (3) show its
+  // success/failure/warning response, (4) on failure, undo the optimistic
+  // write both in the UI and in Supabase.
   async function updateCase(
     id: string,
-    patch: Partial<
-      Pick<
-        CaseWithHandler,
-        | "flag_problematic_client"
-        | "flag_non_paying"
-        | "flag_transferring_documents"
-        | "manager_follow_up"
-        | "manager_note"
-      >
-    >,
+    field: EditableField,
+    value: boolean | string,
   ) {
-    const previous = rows;
-    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    setSavingId(id);
-    setErrorId(null);
+    const current = rows.find((r) => r.id === id);
+    if (!current) return;
+    const oldValue = current[field];
 
-    const { error } = await supabase.from("cases").update(patch).eq("id", id);
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+    setSyncStatus((s) => ({ ...s, [id]: { phase: "saving" } }));
 
-    setSavingId(null);
+    const { error } = await supabase
+      .from("cases")
+      .update({ [field]: value })
+      .eq("id", id);
+
     if (error) {
-      setRows(previous);
-      setErrorId(id);
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [field]: oldValue } : r)));
+      setSyncStatus((s) => ({ ...s, [id]: { phase: "failure", message: "שגיאה בשמירה" } }));
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/case-updates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          case_id: id,
+          case_number: current.case_number,
+          field_name: field,
+          old_value: oldValue,
+          new_value: value,
+        }),
+      });
+      const result = await res.json();
+
+      setSyncStatus((s) => ({
+        ...s,
+        [id]: { phase: result.status ?? "failure", message: result.message },
+      }));
+
+      if (result.status === "failure") {
+        await supabase.from("cases").update({ [field]: oldValue }).eq("id", id);
+        setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [field]: oldValue } : r)));
+      }
+    } catch {
+      setSyncStatus((s) => ({
+        ...s,
+        [id]: { phase: "failure", message: "לא ניתן להתחבר לשרת הסנכרון" },
+      }));
     }
   }
 
@@ -127,6 +169,7 @@ export function CasesTable({
           <tbody>
             {filtered.map((c) => {
               const stuck = isCaseStuck(c.last_touched_at);
+              const sync = syncStatus[c.id];
               return (
                 <tr key={c.id} className="border-b border-gray-100">
                   <td className="px-4 py-3 whitespace-nowrap">
@@ -162,7 +205,7 @@ export function CasesTable({
                             checked={c[f.key]}
                             disabled={!canEdit}
                             onChange={(e) =>
-                              updateCase(c.id, { [f.key]: e.target.checked })
+                              updateCase(c.id, f.key, e.target.checked)
                             }
                           />
                           {f.label}
@@ -176,9 +219,7 @@ export function CasesTable({
                       checked={c.manager_follow_up}
                       disabled={!canEdit}
                       onChange={(e) =>
-                        updateCase(c.id, {
-                          manager_follow_up: e.target.checked,
-                        })
+                        updateCase(c.id, "manager_follow_up", e.target.checked)
                       }
                     />
                   </td>
@@ -190,7 +231,7 @@ export function CasesTable({
                       placeholder={canEdit ? "הערה..." : ""}
                       onBlur={(e) =>
                         e.target.value !== (c.manager_note ?? "") &&
-                        updateCase(c.id, { manager_note: e.target.value })
+                        updateCase(c.id, "manager_note", e.target.value)
                       }
                       className="w-full rounded-md border border-transparent px-2 py-1 text-sm focus:border-gray-300 focus:outline-none disabled:bg-transparent"
                     />
@@ -208,14 +249,7 @@ export function CasesTable({
                           תיק תקוע
                         </span>
                       )}
-                      {savingId === c.id && (
-                        <span className="text-xs text-gray-400">שומר…</span>
-                      )}
-                      {errorId === c.id && (
-                        <span className="text-xs text-red-600">
-                          שגיאה בשמירה
-                        </span>
-                      )}
+                      <SyncBadge sync={sync} />
                     </div>
                   </td>
                 </tr>
@@ -232,6 +266,35 @@ export function CasesTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function SyncBadge({ sync }: { sync?: SyncStatus }) {
+  if (!sync) return null;
+  if (sync.phase === "saving") {
+    return <span className="text-xs text-gray-400">שומר…</span>;
+  }
+  if (sync.phase === "success") {
+    return (
+      <span className="text-xs text-green-700" title={sync.message}>
+        מסונכרן
+      </span>
+    );
+  }
+  if (sync.phase === "warning") {
+    return (
+      <span
+        className="text-xs text-amber-700"
+        title={sync.message ?? "אזהרה מהסנכרון"}
+      >
+        אזהרת סנכרון
+      </span>
+    );
+  }
+  return (
+    <span className="text-xs text-red-600" title={sync.message}>
+      כשל בסנכרון
+    </span>
   );
 }
 
