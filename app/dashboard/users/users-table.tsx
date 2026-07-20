@@ -29,7 +29,7 @@ export function UsersTable({ users }: { users: Profile[] }) {
   }
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4">
+    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
       <h2 className="mb-3 font-semibold">משתמשים</h2>
       <table className="w-full text-sm">
         <thead className="text-right text-gray-500">

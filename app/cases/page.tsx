@@ -17,7 +17,7 @@ export default async function CasesPage() {
     .returns<CaseWithHandler[]>();
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col bg-gray-50">
       <AppHeader
         fullName={profile.full_name}
         role={profile.role}
