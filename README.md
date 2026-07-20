@@ -13,6 +13,9 @@ npm run dev
 Database schema, RLS policies, and how to run the RLS test suite locally are
 documented in [`supabase/README.md`](./supabase/README.md).
 
+Deploying to a Cloudways server (Node install, PM2, Nginx reverse proxy,
+SSL, redeploy script) is documented step by step in [`DEPLOY.md`](./DEPLOY.md).
+
 ## Pages
 
 - `/login` - email/password sign-in.
