@@ -23,6 +23,7 @@ export default async function UsersPage() {
       <AppHeader
         fullName={profile.full_name}
         role={profile.role}
+        userId={profile.id}
         title="ניהול משתמשים"
       />
       <main className="flex-1 space-y-6 p-6">

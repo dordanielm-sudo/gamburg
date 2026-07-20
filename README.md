@@ -22,6 +22,11 @@ documented in [`supabase/README.md`](./supabase/README.md).
 - `/dashboard/users` - manager-only user management: add a user (shown a
   temporary password once, to relay manually), change role, deactivate/
   reactivate.
+- `/tasks` - task list (open/done); only the manager creates tasks, everyone
+  sees their own. The header's notification bell (all pages) shows new-task,
+  new-document (stage 4), and stuck-case pushes in real time via Supabase
+  Realtime - see `supabase/migrations/0006_realtime_and_cron.sql`, which must
+  be applied for the bell to receive anything.
 
 ## Notes for this codebase
 

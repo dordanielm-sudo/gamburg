@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { logout } from "@/app/login/actions";
+import { NotificationBell } from "@/components/notification-bell";
 
 const ROLE_LABELS: Record<string, string> = {
   manager: "מנהלת",
@@ -11,10 +12,12 @@ export function AppHeader({
   fullName,
   role,
   title,
+  userId,
 }: {
   fullName: string;
   role: string;
   title: string;
+  userId: string;
 }) {
   return (
     <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
@@ -23,6 +26,9 @@ export function AppHeader({
         <nav className="flex items-center gap-3 text-sm text-gray-600">
           <Link href="/cases" className="hover:text-gray-900">
             ניהול תיקים
+          </Link>
+          <Link href="/tasks" className="hover:text-gray-900">
+            משימות
           </Link>
           {role === "manager" && (
             <>
@@ -39,6 +45,7 @@ export function AppHeader({
         <span className="text-sm text-gray-600">{title}</span>
       </div>
       <div className="flex items-center gap-4 text-sm">
+        <NotificationBell userId={userId} />
         <span className="text-gray-600">
           {fullName} ({ROLE_LABELS[role] ?? role})
         </span>

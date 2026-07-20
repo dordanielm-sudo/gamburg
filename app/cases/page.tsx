@@ -22,6 +22,7 @@ export default async function CasesPage() {
         fullName={profile.full_name}
         role={profile.role}
         title="ניהול תיקים פתוחים"
+        userId={profile.id}
       />
       <main className="flex-1 p-6">
         {error ? (

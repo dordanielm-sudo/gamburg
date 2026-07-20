@@ -13,6 +13,13 @@
   `profiles`, and `admin_set_user_status()`, the only way role/is_active can
   be changed (checks the caller is a manager itself, since "manager" and
   "handler" are the same Postgres DB role).
+- `migrations/0005_stuck_case_check.sql` — `check_stuck_cases()`: notifies
+  the handler and every active manager once per "stuck episode" (30+ days
+  since `last_touched_at`, section 4.4). Portable, tested locally.
+- `migrations/0006_realtime_and_cron.sql` — **Supabase-only**, not run
+  against the local test harness: adds `notifications` to the
+  `supabase_realtime` publication (the notification bell subscribes to
+  INSERT on it) and schedules `check_stuck_cases()` daily via `pg_cron`.
 - `tests/` — a local-only Postgres shim (fake `auth` schema/roles) plus seed
   data and RLS assertions, so the policies above can be exercised without a
   live Supabase project. Never apply `tests/00_local_shim.sql` or
@@ -49,11 +56,13 @@ Requires Docker only (no Supabase project needed):
 ./scripts/test-rls.sh
 ```
 
-Spins up a throwaway `postgres:16-alpine` container, applies the migrations
-plus the local shim/seed data, and runs 19 assertions covering all 3 roles
-(row visibility, column-level write restrictions, task/notification
-automation, deactivation). Prints `ALL RLS CHECKS PASSED` on success, or the
-first failing assertion otherwise.
+Spins up a throwaway `postgres:16-alpine` container, applies migrations
+0001-0005 plus the local shim/seed data, and runs 18 assertions covering all
+3 roles (row visibility, column-level write restrictions, task/notification
+automation, deactivation, stuck-case notifications). Prints
+`ALL RLS CHECKS PASSED` on success, or the first failing assertion
+otherwise. `0006_realtime_and_cron.sql` is Supabase-only and is not part of
+this local run - apply it directly on the real project.
 
 ## Confirmed role permissions (stage 1-2)
 

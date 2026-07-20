@@ -65,6 +65,12 @@ export interface Notification {
   created_at: string;
 }
 
+export interface TaskWithNames extends Task {
+  assigned_to_profile: Pick<Profile, "id" | "full_name"> | null;
+  created_by_profile: Pick<Profile, "id" | "full_name"> | null;
+  case: Pick<Case, "id" | "case_number" | "case_name"> | null;
+}
+
 // section 4.4: no touch for 30+ days
 export const STUCK_CASE_DAYS = 30;
 

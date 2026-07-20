@@ -75,6 +75,7 @@ export default async function DashboardPage() {
       <AppHeader
         fullName={profile.full_name}
         role={profile.role}
+        userId={profile.id}
         title="דשבורד מנהלים"
       />
       <main className="flex-1 space-y-6 p-6">

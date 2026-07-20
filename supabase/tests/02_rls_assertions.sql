@@ -328,5 +328,63 @@ begin
 end $$;
 reset role;
 
+-- ---------------------------------------------------------------------------
+-- 16. check_stuck_cases(): notifies the handler and every active manager,
+--     exactly once per stuck episode (section 4.4 / 7q7)
+-- ---------------------------------------------------------------------------
+update public.cases
+set last_touched_at = now() - interval '40 days'
+where id = '10000000-0000-0000-0000-000000000003';
+
+select public.check_stuck_cases();
+
+do $$
+declare cnt int;
+begin
+  select count(*) into cnt from public.notifications
+    where case_id = '10000000-0000-0000-0000-000000000003' and type = 'stuck_case';
+  if cnt <> 2 then
+    raise exception 'TEST FAILED: expected 2 stuck_case notifications (handler + manager), got %', cnt;
+  end if;
+  raise notice 'PASS: check_stuck_cases() notified the handler and the manager';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 17. running it again does not duplicate notifications for the same
+--     stuck episode
+-- ---------------------------------------------------------------------------
+select public.check_stuck_cases();
+
+do $$
+declare cnt int;
+begin
+  select count(*) into cnt from public.notifications
+    where case_id = '10000000-0000-0000-0000-000000000003' and type = 'stuck_case';
+  if cnt <> 2 then
+    raise exception 'TEST FAILED: check_stuck_cases() should be idempotent, got % notifications', cnt;
+  end if;
+  raise notice 'PASS: check_stuck_cases() does not duplicate notifications on rerun';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 18. once the case is touched again, it stops being flagged as stuck
+-- ---------------------------------------------------------------------------
+update public.cases
+set manager_follow_up = true
+where id = '10000000-0000-0000-0000-000000000003';
+
+select public.check_stuck_cases();
+
+do $$
+declare cnt int;
+begin
+  select count(*) into cnt from public.notifications
+    where case_id = '10000000-0000-0000-0000-000000000003' and type = 'stuck_case';
+  if cnt <> 2 then
+    raise exception 'TEST FAILED: touched case should not get new stuck_case notifications, got %', cnt;
+  end if;
+  raise notice 'PASS: touching the case stops new stuck_case notifications';
+end $$;
+
 reset request.jwt.claims;
 select 'ALL RLS CHECKS PASSED' as result;
