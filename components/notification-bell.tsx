@@ -10,6 +10,16 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   stuck_case: "תיק תקוע",
 };
 
+function timeAgo(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return "עכשיו";
+  if (minutes < 60) return `לפני ${minutes} דקות`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `לפני ${hours} שעות`;
+  return `לפני ${Math.floor(hours / 24)} ימים`;
+}
+
 export function NotificationBell({ userId }: { userId: string }) {
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<Notification[]>([]);
@@ -63,38 +73,84 @@ export function NotificationBell({ userId }: { userId: string }) {
     await supabase.from("notifications").update({ is_read: true }).eq("id", id);
   }
 
+  async function markAllRead() {
+    const unreadIds = items.filter((n) => !n.is_read).map((n) => n.id);
+    if (unreadIds.length === 0) return;
+    setItems((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    await supabase.from("notifications").update({ is_read: true }).in("id", unreadIds);
+  }
+
   return (
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="relative rounded-md px-2 py-1 text-sm text-gray-600 hover:text-gray-900"
+        aria-label="התראות"
+        className="relative flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800"
       >
-        התראות
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          className="h-5 w-5"
+        >
+          <path
+            d="M6 9a6 6 0 1 1 12 0c0 3.2 1 4.8 2 6H4c1-1.2 2-2.8 2-6Z"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M10 19a2 2 0 0 0 4 0" strokeLinecap="round" />
+        </svg>
         {unread > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] text-white">
+          <span className="absolute -top-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
             {unread}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute left-0 z-10 mt-2 w-80 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+        <div className="absolute left-0 z-10 mt-2 w-96 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+            <span className="font-semibold text-gray-900">
+              התראות אחרונות
+            </span>
+            <button
+              onClick={markAllRead}
+              className="text-xs font-medium text-blue-600 hover:text-blue-800"
+            >
+              סמן הכל כנקרא
+            </button>
+          </div>
           {items.length === 0 ? (
-            <p className="p-3 text-sm text-gray-400">אין התראות</p>
+            <p className="p-6 text-center text-sm text-gray-400">
+              אין התראות
+            </p>
           ) : (
-            <ul className="max-h-96 overflow-y-auto">
+            <ul className="max-h-96 divide-y divide-gray-100 overflow-y-auto">
               {items.map((n) => (
                 <li key={n.id}>
                   <button
                     onClick={() => markRead(n.id)}
-                    className={`block w-full rounded-md p-2 text-right text-sm ${
-                      n.is_read ? "text-gray-400" : "bg-blue-50 font-medium"
-                    } hover:bg-gray-50`}
+                    className={`block w-full px-4 py-3 text-right text-sm hover:bg-gray-50 ${
+                      n.is_read ? "" : "bg-blue-50/60"
+                    }`}
                   >
-                    <div>{TYPE_LABELS[n.type]}</div>
+                    <div className="flex items-center gap-2">
+                      {!n.is_read && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600" />
+                      )}
+                      <span className="font-medium text-gray-900">
+                        {n.title || TYPE_LABELS[n.type]}
+                      </span>
+                    </div>
                     {n.body && (
-                      <div className="text-xs text-gray-500">{n.body}</div>
+                      <div className="mt-0.5 text-xs text-gray-500">
+                        {n.body}
+                      </div>
                     )}
+                    <div className="mt-1 text-[11px] text-gray-400">
+                      {timeAgo(n.created_at)}
+                    </div>
                   </button>
                 </li>
               ))}

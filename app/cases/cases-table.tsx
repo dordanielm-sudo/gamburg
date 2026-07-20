@@ -134,19 +134,31 @@ export function CasesTable({
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <input
-          type="text"
-          placeholder="חיפוש לפי מספר תיק, שם, ת.ז או טלפון..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-80 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-        />
-        <span className="text-sm text-gray-500">
+        <div className="relative w-80">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+          </svg>
+          <input
+            type="text"
+            placeholder="חיפוש לפי מספר תיק, שם, ת.ז או טלפון..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 bg-white py-2 pr-9 pl-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+        <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
           {filtered.length} תיקים
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
         <table className="w-full min-w-[900px] text-sm">
           <thead className="border-b border-gray-200 bg-gray-50 text-right">
             <tr>
@@ -171,31 +183,39 @@ export function CasesTable({
               const stuck = isCaseStuck(c.last_touched_at);
               const sync = syncStatus[c.id];
               return (
-                <tr key={c.id} className="border-b border-gray-100">
-                  <td className="px-4 py-3 whitespace-nowrap">
+                <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50/60">
+                  <td className="px-4 py-3 font-medium text-gray-500 whitespace-nowrap">
                     {c.case_number}
                   </td>
-                  <td className="px-4 py-3">{c.case_name}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    {c.case_name}
+                  </td>
                   <td className="px-4 py-3 text-gray-600">
                     {c.case_type ?? "—"}
                   </td>
                   <td className="px-4 py-3 text-gray-600">
                     {c.handler?.full_name ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {c.status ?? "—"}
+                  <td className="px-4 py-3">
+                    {c.status ? (
+                      <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                        {c.status}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-gray-600">
                     {formatDate(c.opened_date)}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-1.5">
                       {FLAG_DEFS.map((f) => (
                         <label
                           key={f.key}
                           className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
                             c[f.key]
-                              ? "border-red-300 bg-red-50 text-red-700"
+                              ? "border-rose-200 bg-rose-50 text-rose-700"
                               : "border-gray-200 text-gray-400"
                           } ${canEdit ? "cursor-pointer" : ""}`}
                         >
@@ -221,6 +241,7 @@ export function CasesTable({
                       onChange={(e) =>
                         updateCase(c.id, "manager_follow_up", e.target.checked)
                       }
+                      className="h-4 w-4 accent-blue-600"
                     />
                   </td>
                   <td className="px-4 py-3">
@@ -233,7 +254,7 @@ export function CasesTable({
                         e.target.value !== (c.manager_note ?? "") &&
                         updateCase(c.id, "manager_note", e.target.value)
                       }
-                      className="w-full rounded-md border border-transparent px-2 py-1 text-sm focus:border-gray-300 focus:outline-none disabled:bg-transparent"
+                      className="w-full rounded-md border border-transparent px-2 py-1 text-sm focus:border-blue-300 focus:ring-1 focus:ring-blue-300 focus:outline-none disabled:bg-transparent"
                     />
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
@@ -244,7 +265,7 @@ export function CasesTable({
                       {stuck && (
                         <span
                           title="לא טופל מעל 30 יום"
-                          className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
+                          className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
                         >
                           תיק תקוע
                         </span>
