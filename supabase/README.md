@@ -1,0 +1,66 @@
+# Gamburg CRM — Supabase schema (Stage 1-2)
+
+## Layout
+
+- `migrations/0001_schema.sql` — tables, enums, indexes, and the triggers that
+  maintain `updated_at` / `last_touched_at` and auto-create notifications.
+- `migrations/0002_rls.sql` — RLS policies for the 3 roles (manager / handler
+  / secretary), plus column-level GRANT/REVOKE so only the CRM-only fields on
+  `cases` are writable from the app.
+- `migrations/0003_auth_sync.sql` — trigger that creates a `profiles` row from
+  `auth.users` metadata whenever a user is invited.
+- `tests/` — a local-only Postgres shim (fake `auth` schema/roles) plus seed
+  data and RLS assertions, so the policies above can be exercised without a
+  live Supabase project. Never apply `tests/00_local_shim.sql` or
+  `tests/00b_default_grants.sql` to a real project — it already has that
+  infrastructure.
+
+## Applying to a real Supabase project
+
+```
+supabase link --project-ref <ref>
+supabase db push
+```
+
+(or paste the three `migrations/*.sql` files, in order, into the SQL Editor).
+
+## Creating users
+
+Invite each of the ~5-7 staff via the Dashboard ("Authentication → Invite
+user") or the Admin API, setting `user_metadata`:
+
+```json
+{ "full_name": "חנה גמבורג", "role": "manager" }
+```
+
+`role` is one of `manager` / `handler` / `secretary` and defaults to
+`handler` if omitted. The `0003_auth_sync.sql` trigger creates the matching
+`profiles` row automatically.
+
+## Running the RLS tests locally
+
+Requires Docker only (no Supabase project needed):
+
+```
+./scripts/test-rls.sh
+```
+
+Spins up a throwaway `postgres:16-alpine` container, applies the migrations
+plus the local shim/seed data, and runs 14 assertions covering all 3 roles
+(row visibility, column-level write restrictions, task/notification
+automation). Prints `ALL RLS CHECKS PASSED` on success, or the first failing
+assertion otherwise.
+
+## Confirmed role permissions (stage 1-2)
+
+- **manager** — sees and (within the CRM-only fields) edits every case,
+  creates tasks for any handler.
+- **handler** — sees only cases where `handler_id` is them; can edit the
+  CRM-only fields (flags/note/follow-up) on those cases; can only change the
+  `status`/`completed_at` of tasks assigned to them.
+- **secretary** — read-only across all cases; cannot edit flags/notes/
+  follow-up and cannot create tasks.
+
+No role can edit the עדכנית-sourced fields (`case_number`, `case_name`,
+`status`, client details, ...) from the CRM — those are only ever written by
+the Make sync job via the `service_role` key, which bypasses RLS.
