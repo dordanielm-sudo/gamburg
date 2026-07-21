@@ -10,7 +10,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 //      mistake in the Make scenario's own filter can't sync everyone.
 //
 // Only ever writes the "source" columns on cases (see 0001_schema.sql) -
-// CRM-only fields (flags, manager_note, manager_follow_up, team) are never
+// team turns out to also come from עדכנית (TeamName), so it's synced here
+// too; CRM-only fields (flags, manager_note, manager_follow_up) are never
 // part of the write payload. Deliberately UPDATE-then-INSERT rather than
 // .upsert(): PostgREST's upsert fills every column absent from the payload
 // with its table default on conflict (false/null for the CRM-only fields),
@@ -26,6 +27,7 @@ interface CaseSyncPayload {
   handler_name?: string | null;
   external_ref?: string | null;
   status?: string | null;
+  team?: string | null;
   client_id_number?: string | null;
   client_phone?: string | null;
   spouse_details?: Record<string, unknown> | null;
@@ -109,6 +111,7 @@ export async function POST(request: Request) {
     handler_id: handlerId,
     external_ref: body.external_ref ?? null,
     status: body.status ?? null,
+    team: body.team ?? null,
     client_id_number: body.client_id_number ?? null,
     client_phone: body.client_phone ?? null,
     spouse_details: body.spouse_details ?? null,
