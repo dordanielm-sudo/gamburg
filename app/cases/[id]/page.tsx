@@ -3,13 +3,11 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
-import { HearingsPanel } from "./hearings-panel";
 import { DocumentsPanel } from "./documents-panel";
 import { DeadlinesPanel } from "./deadlines-panel";
 import { CaseTasksPanel } from "./case-tasks-panel";
 import type {
   CaseWithHandler,
-  Hearing,
   CaseDocument,
   CaseDeadline,
   TaskWithNames,
@@ -37,14 +35,8 @@ export default async function CaseDetailPage({
 
   if (!caseRow) notFound();
 
-  const [{ data: hearings }, { data: documents }, { data: deadlines }, { data: caseTasks }] =
+  const [{ data: documents }, { data: deadlines }, { data: caseTasks }] =
     await Promise.all([
-      supabase
-        .from("hearings")
-        .select("*")
-        .eq("case_id", id)
-        .order("hearing_at", { ascending: false })
-        .returns<Hearing[]>(),
       supabase
         .from("documents")
         .select("*")
@@ -88,21 +80,8 @@ export default async function CaseDetailPage({
         <CaseSummary caseRow={caseRow} />
 
         <div className="grid gap-6 lg:grid-cols-2">
-          <DeadlinesPanel
-            caseId={caseRow.id}
-            deadlines={deadlines ?? []}
-            canEdit={canEdit}
-          />
-          <HearingsPanel
-            caseId={caseRow.id}
-            hearings={hearings ?? []}
-            canEdit={canEdit}
-          />
-          <DocumentsPanel
-            caseId={caseRow.id}
-            documents={documents ?? []}
-            canEdit={canEdit}
-          />
+          <DeadlinesPanel deadlines={deadlines ?? []} canEdit={canEdit} />
+          <DocumentsPanel documents={documents ?? []} canEdit={canEdit} />
           <CaseTasksPanel tasks={caseTasks ?? []} />
         </div>
       </main>
