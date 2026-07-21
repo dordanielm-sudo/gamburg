@@ -321,6 +321,16 @@ export function CasesTable({
                     >
                       {c.case_name}
                     </Link>
+                    {(c.spouse_details?.name ||
+                      c.spouse_details?.id_number ||
+                      c.spouse_details?.phone) && (
+                      <span
+                        title="בן/בת זוג שותף/ה בתיק"
+                        className="mr-2 rounded-full bg-purple-50 px-1.5 py-0.5 text-[11px] font-medium text-purple-700"
+                      >
+                        + בן/בת זוג
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-600">
                     {c.case_type ?? "—"}

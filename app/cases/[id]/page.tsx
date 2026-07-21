@@ -104,10 +104,34 @@ function CaseSummary({ caseRow }: { caseRow: CaseWithHandler }) {
     },
   ];
 
+  const clientFields: { label: string; value: string }[] = [
+    { label: "ת.ז לקוח", value: caseRow.client_id_number ?? "—" },
+    { label: "טלפון לקוח", value: caseRow.client_phone ?? "—" },
+  ];
+
+  const spouse = caseRow.spouse_details;
+  if (spouse?.name || spouse?.id_number || spouse?.phone) {
+    clientFields.push(
+      { label: "שם בן/בת זוג", value: spouse.name ?? "—" },
+      { label: "ת.ז בן/בת זוג", value: spouse.id_number ?? "—" },
+      { label: "טלפון בן/בת זוג", value: spouse.phone ?? "—" },
+    );
+  }
+
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         {fields.map((f) => (
+          <div key={f.label}>
+            <div className="text-xs text-gray-400">{f.label}</div>
+            <div className="mt-0.5 text-sm font-medium text-gray-900">
+              {f.value}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 sm:grid-cols-3 lg:grid-cols-6">
+        {clientFields.map((f) => (
           <div key={f.label}>
             <div className="text-xs text-gray-400">{f.label}</div>
             <div className="mt-0.5 text-sm font-medium text-gray-900">

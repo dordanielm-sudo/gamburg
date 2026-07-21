@@ -21,6 +21,12 @@ export interface Profile {
   created_at: string;
 }
 
+export interface SpouseDetails {
+  name?: string | null;
+  id_number?: string | null;
+  phone?: string | null;
+}
+
 export interface Case {
   id: string;
   case_number: string;
@@ -33,7 +39,7 @@ export interface Case {
   status: string | null;
   client_id_number: string | null;
   client_phone: string | null;
-  spouse_details: Record<string, unknown> | null;
+  spouse_details: SpouseDetails | null;
   source_updated_at: string | null;
   flag_problematic_client: boolean;
   flag_non_paying: boolean;
