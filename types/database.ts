@@ -40,6 +40,7 @@ export interface Case {
   client_id_number: string | null;
   client_phone: string | null;
   spouse_details: SpouseDetails | null;
+  drive_url: string | null;
   source_updated_at: string | null;
   flag_problematic_client: boolean;
   flag_non_paying: boolean;

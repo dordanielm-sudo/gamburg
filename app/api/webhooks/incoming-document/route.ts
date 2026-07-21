@@ -3,7 +3,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 // Section 4.3(ב): Make calls this directly (not via the hourly pull) whenever
 // a new relevant document arrives, so the handler (or, if the case has none,
-// every active manager) gets an immediate in-app notification.
+// every active manager) gets an immediate in-app notification. Also used by
+// the client-upload landing page flow: a file lands in the client's Drive
+// folder -> Make calls this with the folder link and file name -> the case
+// gets a clickable Drive link and a documents row, and the handler is
+// notified.
 //
 // Auth: a shared secret header, not a user session - Make is not a logged-in
 // CRM user. Configure the same value in Make's HTTP module and in
@@ -12,6 +16,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 interface IncomingDocumentPayload {
   case_number?: string;
   document_name?: string;
+  drive_url?: string;
   message?: string;
 }
 
@@ -55,7 +60,30 @@ export async function POST(request: Request) {
     );
   }
 
+  const driveUrl = body.drive_url?.trim();
+  if (driveUrl) {
+    const { error: driveError } = await admin
+      .from("cases")
+      .update({ drive_url: driveUrl })
+      .eq("id", caseRow.id);
+    if (driveError) {
+      return NextResponse.json({ error: driveError.message }, { status: 500 });
+    }
+  }
+
   const documentName = body.document_name?.trim();
+  if (documentName) {
+    const { error: docError } = await admin.from("documents").insert({
+      case_id: caseRow.id,
+      title: documentName,
+      status: "received",
+      doc_date: new Date().toISOString().slice(0, 10),
+    });
+    if (docError) {
+      return NextResponse.json({ error: docError.message }, { status: 500 });
+    }
+  }
+
   const message =
     body.message?.trim() ||
     (documentName ? `מסמך חדש: ${documentName}` : "מסמך חדש התקבל בתיק");
