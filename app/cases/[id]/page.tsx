@@ -6,12 +6,17 @@ import { AppHeader } from "@/components/app-header";
 import { HearingsPanel } from "./hearings-panel";
 import { DocumentsPanel } from "./documents-panel";
 import { DeadlinesPanel } from "./deadlines-panel";
+import { CaseTasksPanel } from "./case-tasks-panel";
 import type {
   CaseWithHandler,
   Hearing,
   CaseDocument,
   CaseDeadline,
+  TaskWithNames,
 } from "@/types/database";
+
+const TASK_SELECT =
+  "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)";
 
 export default async function CaseDetailPage({
   params,
@@ -32,7 +37,7 @@ export default async function CaseDetailPage({
 
   if (!caseRow) notFound();
 
-  const [{ data: hearings }, { data: documents }, { data: deadlines }] =
+  const [{ data: hearings }, { data: documents }, { data: deadlines }, { data: caseTasks }] =
     await Promise.all([
       supabase
         .from("hearings")
@@ -52,6 +57,12 @@ export default async function CaseDetailPage({
         .eq("case_id", id)
         .order("due_date", { ascending: true })
         .returns<CaseDeadline[]>(),
+      supabase
+        .from("tasks")
+        .select(TASK_SELECT)
+        .eq("case_id", id)
+        .order("created_at", { ascending: false })
+        .returns<TaskWithNames[]>(),
     ]);
 
   const canEdit =
@@ -91,6 +102,11 @@ export default async function CaseDetailPage({
             caseId={caseRow.id}
             documents={documents ?? []}
             canEdit={canEdit}
+          />
+          <CaseTasksPanel
+            tasks={caseTasks ?? []}
+            currentUserId={profile.id}
+            isManager={profile.role === "manager"}
           />
         </div>
       </main>
