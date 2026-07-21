@@ -1,8 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Notification, NotificationType } from "@/types/database";
+
+// where clicking a notification should take you - a case if one is
+// attached (covers new_document and stuck_case, and new_task when the
+// task has a case), otherwise the tasks list for a caseless task.
+function notificationHref(n: Notification): string | null {
+  if (n.case_id) return `/cases/${n.case_id}`;
+  if (n.task_id) return `/tasks`;
+  return null;
+}
 
 const TYPE_LABELS: Record<NotificationType, string> = {
   new_task: "משימה חדשה",
@@ -22,6 +32,7 @@ function timeAgo(iso: string) {
 
 export function NotificationBell({ userId }: { userId: string }) {
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
   const [items, setItems] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -71,6 +82,13 @@ export function NotificationBell({ userId }: { userId: string }) {
       prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)),
     );
     await supabase.from("notifications").update({ is_read: true }).eq("id", id);
+  }
+
+  function handleClick(n: Notification) {
+    markRead(n.id);
+    setOpen(false);
+    const href = notificationHref(n);
+    if (href) router.push(href);
   }
 
   async function markAllRead() {
@@ -130,7 +148,7 @@ export function NotificationBell({ userId }: { userId: string }) {
               {items.map((n) => (
                 <li key={n.id}>
                   <button
-                    onClick={() => markRead(n.id)}
+                    onClick={() => handleClick(n)}
                     className={`block w-full px-4 py-3 text-right text-sm hover:bg-gray-50 ${
                       n.is_read ? "" : "bg-blue-50/60"
                     }`}
