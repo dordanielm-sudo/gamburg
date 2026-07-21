@@ -22,49 +22,14 @@ function formatDate(value: string | null) {
 }
 
 export function DocumentsPanel({
-  caseId,
   documents,
   canEdit,
 }: {
-  caseId: string;
   documents: CaseDocument[];
   canEdit: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(documents);
-  const [creating, setCreating] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  async function handleCreate(formData: FormData) {
-    setFormError(null);
-    const title = String(formData.get("title") ?? "").trim();
-    if (!title) {
-      setFormError("יש למלא שם מסמך");
-      return;
-    }
-
-    const docDate = String(formData.get("doc_date") ?? "");
-
-    setCreating(true);
-    const { data, error } = await supabase
-      .from("documents")
-      .insert({
-        case_id: caseId,
-        title,
-        doc_type: String(formData.get("doc_type") ?? "").trim() || null,
-        status: String(formData.get("status") ?? "pending") as DocumentStatus,
-        doc_date: docDate || null,
-      })
-      .select("*")
-      .single<CaseDocument>();
-    setCreating(false);
-
-    if (error) {
-      setFormError(error.message);
-      return;
-    }
-    setRows((prev) => [data, ...prev]);
-  }
 
   async function updateStatus(doc: CaseDocument, status: DocumentStatus) {
     setRows((prev) =>
@@ -82,52 +47,9 @@ export function DocumentsPanel({
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
       <h2 className="mb-3 font-semibold">מסמכים ({rows.length})</h2>
-
-      {canEdit && (
-        <form
-          action={handleCreate}
-          key={rows.length}
-          className="mb-4 grid grid-cols-2 gap-2 rounded-lg bg-gray-50 p-3"
-        >
-          <input
-            name="title"
-            placeholder="שם מסמך"
-            required
-            className="col-span-2 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
-          />
-          <input
-            name="doc_type"
-            placeholder="סוג מסמך"
-            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
-          />
-          <input
-            name="doc_date"
-            type="date"
-            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
-          />
-          <select
-            name="status"
-            defaultValue="pending"
-            className="col-span-2 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
-          >
-            {Object.entries(STATUS_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            disabled={creating}
-            className="col-span-2 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {creating ? "מוסיף..." : "הוספת מסמך"}
-          </button>
-          {formError && (
-            <p className="col-span-2 text-sm text-red-700">{formError}</p>
-          )}
-        </form>
-      )}
+      <p className="mb-3 text-xs text-gray-400">
+        נמשך אוטומטית מעדכנית - ניתן לעדכן סטטוס, לא להוסיף ידנית.
+      </p>
 
       {rows.length === 0 ? (
         <p className="text-sm text-gray-400">אין מסמכים רשומים</p>

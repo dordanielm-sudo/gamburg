@@ -27,51 +27,14 @@ function formatDate(value: string) {
 }
 
 export function DeadlinesPanel({
-  caseId,
   deadlines,
   canEdit,
 }: {
-  caseId: string;
   deadlines: CaseDeadline[];
   canEdit: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(deadlines);
-  const [creating, setCreating] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  async function handleCreate(formData: FormData) {
-    setFormError(null);
-    const label = String(formData.get("label") ?? "").trim();
-    const dueDate = String(formData.get("due_date") ?? "");
-    if (!label || !dueDate) {
-      setFormError("יש למלא נושא ותאריך");
-      return;
-    }
-
-    setCreating(true);
-    const { data, error } = await supabase
-      .from("case_deadlines")
-      .insert({
-        case_id: caseId,
-        label,
-        due_date: dueDate,
-        notes: String(formData.get("notes") ?? "").trim() || null,
-      })
-      .select("*")
-      .single<CaseDeadline>();
-    setCreating(false);
-
-    if (error) {
-      setFormError(error.message);
-      return;
-    }
-    setRows((prev) =>
-      [data, ...prev].sort(
-        (a, b) => +new Date(a.due_date) - +new Date(b.due_date),
-      ),
-    );
-  }
 
   async function toggleDone(deadline: CaseDeadline) {
     const status: TaskStatus = deadline.status === "open" ? "done" : "open";
@@ -92,44 +55,9 @@ export function DeadlinesPanel({
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm lg:col-span-2">
       <h2 className="mb-3 font-semibold">מועדים ({rows.length})</h2>
-
-      {canEdit && (
-        <form
-          action={handleCreate}
-          key={rows.length}
-          className="mb-4 grid grid-cols-2 gap-2 rounded-lg bg-gray-50 p-3 sm:grid-cols-4"
-        >
-          <input
-            name="label"
-            placeholder="נושא (למשל: טופס 5)"
-            required
-            className="col-span-2 rounded-md border border-gray-300 px-2 py-1.5 text-sm sm:col-span-2"
-          />
-          <input
-            name="due_date"
-            type="date"
-            required
-            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
-          />
-          <button
-            type="submit"
-            disabled={creating}
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {creating ? "מוסיף..." : "הוספת מועד"}
-          </button>
-          <input
-            name="notes"
-            placeholder="הערות"
-            className="col-span-2 rounded-md border border-gray-300 px-2 py-1.5 text-sm sm:col-span-4"
-          />
-          {formError && (
-            <p className="col-span-2 text-sm text-red-700 sm:col-span-4">
-              {formError}
-            </p>
-          )}
-        </form>
-      )}
+      <p className="mb-3 text-xs text-gray-400">
+        נמשך אוטומטית מעדכנית - ניתן לסמן כבוצע, לא להוסיף ידנית.
+      </p>
 
       {rows.length === 0 ? (
         <p className="text-sm text-gray-400">אין מועדים רשומים</p>
