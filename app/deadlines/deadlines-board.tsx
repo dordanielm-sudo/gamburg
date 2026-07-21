@@ -12,29 +12,37 @@ import {
 
 type RangeKey = "week" | "month" | "all";
 
-const RANGE_DAYS: Record<RangeKey, number | null> = {
-  week: 7,
-  month: 30,
-  all: null,
-};
-
 const RANGE_LABELS: Record<RangeKey, string> = {
   week: "השבוע",
   month: "החודש",
   all: "הכל",
 };
 
+// "week" = rolling 7 days; "month" = through the end of the current
+// calendar month (not a rolling 30 days, which could spill into next month)
+function rangeEndFor(range: RangeKey, today: Date): Date | null {
+  if (range === "all") return null;
+  if (range === "week") return new Date(today.getTime() + 7 * 86400000);
+  return new Date(today.getFullYear(), today.getMonth() + 1, 0);
+}
+
 const URGENCY_BADGE: Record<string, string> = {
   overdue: "bg-rose-50 text-rose-700",
   soon: "bg-amber-50 text-amber-700",
-  normal: "bg-gray-100 text-gray-600",
-  done: "bg-emerald-50 text-emerald-700",
 };
 
 const URGENCY_LABEL: Record<string, string> = {
   overdue: "באיחור",
   soon: "בקרוב",
-  normal: "פתוח",
+};
+
+const STATUS_BADGE: Record<string, string> = {
+  open: "bg-blue-50 text-blue-700",
+  done: "bg-emerald-50 text-emerald-700",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  open: "פתוח",
   done: "בוצע",
 };
 
@@ -98,10 +106,8 @@ export function DeadlinesBoard({
   const hasActiveFilters = !!caseFilter || !!handlerFilter || !!labelFilter;
 
   const filtered = useMemo(() => {
-    const days = RANGE_DAYS[range];
     const today = startOfToday();
-    const rangeEnd =
-      days === null ? null : new Date(today.getTime() + days * 86400000);
+    const rangeEnd = rangeEndFor(range, today);
 
     return rows.filter((d) => {
       if (caseFilter && d.case?.id !== caseFilter) return false;
@@ -309,52 +315,65 @@ export function DeadlinesBoard({
             אין מועדים בטווח שנבחר
           </p>
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <div className="space-y-2">
             {filtered.map((d) => {
               const urgency = deadlineUrgency(d.due_date, d.status);
+              const showUrgency = urgency === "overdue" || urgency === "soon";
               return (
-                <li key={d.id} className="flex items-center gap-3 py-2.5">
-                  <input
-                    type="checkbox"
-                    checked={d.status === "done"}
-                    onChange={() => toggleDone(d)}
-                    className="h-4 w-4 accent-blue-600"
-                  />
-                  <div className="flex-1">
-                    <div
-                      className={
-                        d.status === "done"
-                          ? "text-sm text-gray-400 line-through"
-                          : "text-sm font-medium text-gray-900"
-                      }
-                    >
-                      {d.label}
+                <Link
+                  key={d.id}
+                  href={d.case ? `/cases/${d.case.id}` : "#"}
+                  className={`block rounded-xl border bg-white p-4 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/30 ${
+                    urgency === "overdue"
+                      ? "border-rose-200"
+                      : urgency === "soon"
+                        ? "border-amber-200"
+                        : "border-gray-200"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={d.status === "done"}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => toggleDone(d)}
+                        className="h-4 w-4 accent-blue-600"
+                      />
+                      <span className="font-medium text-gray-900">
+                        {d.label}
+                      </span>
                     </div>
-                    <div className="text-xs text-gray-500">
-                      {d.case && (
-                        <Link
-                          href={`/cases/${d.case.id}`}
-                          className="hover:text-blue-700 hover:underline"
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {showUrgency && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
                         >
-                          {d.case.case_number} - {d.case.case_name}
-                        </Link>
+                          {URGENCY_LABEL[urgency]}
+                        </span>
                       )}
-                      {d.case?.handler?.full_name &&
-                        ` · מטפל: ${d.case.handler.full_name}`}
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[d.status]}`}
+                      >
+                        {STATUS_LABEL[d.status]}
+                      </span>
                     </div>
                   </div>
-                  <span className="text-sm text-gray-600 whitespace-nowrap">
-                    {formatDate(d.due_date)}
-                  </span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
-                  >
-                    {URGENCY_LABEL[urgency]}
-                  </span>
-                </li>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                    {d.case && (
+                      <span>
+                        תיק: {d.case.case_number} - {d.case.case_name}
+                      </span>
+                    )}
+                    {d.case?.handler?.full_name && (
+                      <span>מטפל: {d.case.handler.full_name}</span>
+                    )}
+                    <span>תאריך יעד: {formatDate(d.due_date)}</span>
+                  </div>
+                </Link>
               );
             })}
-          </ul>
+          </div>
         )}
       </section>
     </div>
