@@ -3,7 +3,7 @@
 // against `supabase gen types typescript`.
 
 export type UserRole = "manager" | "handler" | "secretary";
-export type TaskStatus = "open" | "done";
+export type TaskStatus = "open" | "done" | "cancelled";
 export type NotificationType = "new_task" | "new_document" | "stuck_case";
 export type WebhookStatus = "pending" | "success" | "failure" | "warning";
 export type HearingStatus = "scheduled" | "held" | "postponed" | "cancelled";
@@ -113,6 +113,7 @@ export interface Task {
   assigned_to: string;
   case_id: string | null;
   status: TaskStatus;
+  source_task_id: string | null;
   created_at: string;
   completed_at: string | null;
 }
