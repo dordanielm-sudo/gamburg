@@ -30,6 +30,12 @@ function formatDate(value: string | null) {
   return new Date(value).toLocaleDateString("he-IL");
 }
 
+function uniqueSorted(values: (string | null | undefined)[]) {
+  return Array.from(new Set(values.filter((v): v is string => !!v))).sort(
+    (a, b) => a.localeCompare(b, "he"),
+  );
+}
+
 export function CasesTable({
   cases,
   canEdit,
@@ -39,21 +45,55 @@ export function CasesTable({
 }) {
   const [rows, setRows] = useState(cases);
   const [search, setSearch] = useState("");
+  const [handlerFilter, setHandlerFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [natureFilter, setNatureFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("last_touched_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncStatus>>({});
 
   const supabase = useMemo(() => createClient(), []);
 
+  const handlerOptions = useMemo(
+    () => uniqueSorted(rows.map((c) => c.handler?.full_name ?? null)),
+    [rows],
+  );
+  const statusOptions = useMemo(
+    () => uniqueSorted(rows.map((c) => c.status)),
+    [rows],
+  );
+  const natureOptions = useMemo(
+    () => uniqueSorted(rows.map((c) => c.case_nature)),
+    [rows],
+  );
+  const typeOptions = useMemo(
+    () => uniqueSorted(rows.map((c) => c.case_type)),
+    [rows],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = q
+    let list = q
       ? rows.filter((c) =>
           [c.case_number, c.case_name, c.client_id_number, c.client_phone]
             .filter(Boolean)
             .some((v) => v!.toLowerCase().includes(q)),
         )
       : rows;
+
+    if (handlerFilter) {
+      list = list.filter((c) => c.handler?.full_name === handlerFilter);
+    }
+    if (statusFilter) {
+      list = list.filter((c) => c.status === statusFilter);
+    }
+    if (natureFilter) {
+      list = list.filter((c) => c.case_nature === natureFilter);
+    }
+    if (typeFilter) {
+      list = list.filter((c) => c.case_type === typeFilter);
+    }
 
     const sorted = [...list].sort((a, b) => {
       const av = a[sortKey] ?? "";
@@ -63,7 +103,16 @@ export function CasesTable({
     });
 
     return sorted;
-  }, [rows, search, sortKey, sortDir]);
+  }, [
+    rows,
+    search,
+    handlerFilter,
+    statusFilter,
+    natureFilter,
+    typeFilter,
+    sortKey,
+    sortDir,
+  ]);
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) {
@@ -132,10 +181,21 @@ export function CasesTable({
     }
   }
 
+  const hasActiveFilters =
+    !!search || !!handlerFilter || !!statusFilter || !!natureFilter || !!typeFilter;
+
+  function clearFilters() {
+    setSearch("");
+    setHandlerFilter("");
+    setStatusFilter("");
+    setNatureFilter("");
+    setTypeFilter("");
+  }
+
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div className="relative w-80">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="relative w-72">
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -154,7 +214,42 @@ export function CasesTable({
             className="w-full rounded-lg border border-gray-300 bg-white py-2 pr-9 pl-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
           />
         </div>
-        <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+
+        <FilterSelect
+          label="מטפל"
+          value={handlerFilter}
+          onChange={setHandlerFilter}
+          options={handlerOptions}
+        />
+        <FilterSelect
+          label="סטטוס"
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={statusOptions}
+        />
+        <FilterSelect
+          label="שלב/תהליך"
+          value={natureFilter}
+          onChange={setNatureFilter}
+          options={natureOptions}
+        />
+        <FilterSelect
+          label="סוג תיק"
+          value={typeFilter}
+          onChange={setTypeFilter}
+          options={typeOptions}
+        />
+
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="text-sm text-gray-500 underline hover:text-gray-900"
+          >
+            נקה סינון
+          </button>
+        )}
+
+        <span className="mr-auto rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
           {filtered.length} תיקים
         </span>
       </div>
@@ -331,6 +426,33 @@ function SyncBadge({ sync }: { sync?: SyncStatus }) {
     <span className="text-xs text-red-600" title={sync.message}>
       כשל בסנכרון
     </span>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+    >
+      <option value="">{label}: הכל</option>
+      {options.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </select>
   );
 }
 

@@ -24,6 +24,37 @@ export function TaskBoard({
   const [rows, setRows] = useState(tasks);
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [caseFilter, setCaseFilter] = useState("");
+  const [handlerFilter, setHandlerFilter] = useState("");
+
+  const caseOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of rows) {
+      if (t.case) map.set(t.case.id, `${t.case.case_number} - ${t.case.case_name}`);
+    }
+    return Array.from(map, ([id, label]) => ({ id, label })).sort((a, b) =>
+      a.label.localeCompare(b.label, "he"),
+    );
+  }, [rows]);
+
+  const handlerOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of rows) {
+      if (t.assigned_to_profile)
+        map.set(t.assigned_to_profile.id, t.assigned_to_profile.full_name);
+    }
+    return Array.from(map, ([id, label]) => ({ id, label })).sort((a, b) =>
+      a.label.localeCompare(b.label, "he"),
+    );
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((t) => {
+      if (caseFilter && t.case?.id !== caseFilter) return false;
+      if (handlerFilter && t.assigned_to !== handlerFilter) return false;
+      return true;
+    });
+  }, [rows, caseFilter, handlerFilter]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -78,9 +109,11 @@ export function TaskBoard({
     }
   }
 
-  const open = rows.filter((t) => t.status === "open");
-  const done = rows.filter((t) => t.status === "done");
-  const cancelled = rows.filter((t) => t.status === "cancelled");
+  const open = filteredRows.filter((t) => t.status === "open");
+  const done = filteredRows.filter((t) => t.status === "done");
+  const cancelled = filteredRows.filter((t) => t.status === "cancelled");
+
+  const hasActiveFilters = !!caseFilter || !!handlerFilter;
 
   return (
     <div className="space-y-6">
@@ -150,6 +183,44 @@ export function TaskBoard({
           )}
         </section>
       )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={caseFilter}
+          onChange={(e) => setCaseFilter(e.target.value)}
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+        >
+          <option value="">תיק: הכל</option>
+          {caseOptions.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={handlerFilter}
+          onChange={(e) => setHandlerFilter(e.target.value)}
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+        >
+          <option value="">מטפל: הכל</option>
+          {handlerOptions.map((h) => (
+            <option key={h.id} value={h.id}>
+              {h.label}
+            </option>
+          ))}
+        </select>
+        {hasActiveFilters && (
+          <button
+            onClick={() => {
+              setCaseFilter("");
+              setHandlerFilter("");
+            }}
+            className="text-sm text-gray-500 underline hover:text-gray-900"
+          >
+            נקה סינון
+          </button>
+        )}
+      </div>
 
       <TaskList title="פתוחות" tasks={open} onToggle={toggleDone} />
       <TaskList title="בוצעו" tasks={done} onToggle={toggleDone} />
