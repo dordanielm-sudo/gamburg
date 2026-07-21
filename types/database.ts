@@ -73,6 +73,39 @@ export interface CaseDocument {
   updated_at: string;
 }
 
+export interface CaseDeadline {
+  id: string;
+  case_id: string;
+  label: string;
+  due_date: string;
+  status: TaskStatus;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CaseDeadlineWithCase extends CaseDeadline {
+  case: Pick<CaseWithHandler, "id" | "case_number" | "case_name" | "handler"> | null;
+}
+
+// a deadline is "urgent" once it's due within this many days (or already overdue)
+export const DEADLINE_SOON_DAYS = 3;
+
+export function deadlineUrgency(
+  dueDate: string,
+  status: TaskStatus,
+): "overdue" | "soon" | "normal" | "done" {
+  if (status === "done") return "done";
+  const days = Math.floor(
+    (new Date(dueDate + "T00:00:00").getTime() - new Date().setHours(0, 0, 0, 0)) /
+      (24 * 60 * 60 * 1000),
+  );
+  if (days < 0) return "overdue";
+  if (days <= DEADLINE_SOON_DAYS) return "soon";
+  return "normal";
+}
+
 export interface Task {
   id: string;
   text: string;
