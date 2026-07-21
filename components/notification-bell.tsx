@@ -18,6 +18,7 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   new_task: "משימה חדשה",
   new_document: "מסמך חדש",
   stuck_case: "תיק תקוע",
+  task_due_soon: "תזכורת משימה",
 };
 
 function timeAgo(iso: string) {

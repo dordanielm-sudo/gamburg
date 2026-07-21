@@ -3,7 +3,11 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import type { TaskWithNames, TaskStatus } from "@/types/database";
+import {
+  deadlineUrgency,
+  type TaskWithNames,
+  type TaskStatus,
+} from "@/types/database";
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: "open", label: "פתוחה" },
@@ -15,6 +19,16 @@ const STATUS_BADGE: Record<TaskStatus, string> = {
   open: "bg-blue-50 text-blue-700",
   done: "bg-emerald-50 text-emerald-700",
   cancelled: "bg-gray-100 text-gray-500",
+};
+
+const URGENCY_BADGE: Record<string, string> = {
+  overdue: "bg-rose-50 text-rose-700",
+  soon: "bg-amber-50 text-amber-700",
+};
+
+const URGENCY_LABEL: Record<string, string> = {
+  overdue: "באיחור",
+  soon: "בקרוב",
 };
 
 function formatDateTime(value: string | null) {
@@ -40,6 +54,11 @@ export function TaskDetail({
   const supabase = useMemo(() => createClient(), []);
   const [current, setCurrent] = useState(task);
   const [saving, setSaving] = useState(false);
+
+  const urgency = current.due_date
+    ? deadlineUrgency(current.due_date, current.status)
+    : null;
+  const showUrgency = urgency === "overdue" || urgency === "soon";
 
   async function setStatus(status: TaskStatus) {
     if (status === current.status) return;
@@ -69,11 +88,20 @@ export function TaskDetail({
         <h1 className="text-lg font-semibold text-gray-900">
           {current.text}
         </h1>
-        <span
-          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[current.status]}`}
-        >
-          {STATUS_OPTIONS.find((s) => s.value === current.status)?.label}
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {showUrgency && (
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
+            >
+              {URGENCY_LABEL[urgency]}
+            </span>
+          )}
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[current.status]}`}
+          >
+            {STATUS_OPTIONS.find((s) => s.value === current.status)?.label}
+          </span>
+        </div>
       </div>
 
       {canEdit && (

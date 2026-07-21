@@ -103,11 +103,7 @@ export default async function CaseDetailPage({
             documents={documents ?? []}
             canEdit={canEdit}
           />
-          <CaseTasksPanel
-            tasks={caseTasks ?? []}
-            currentUserId={profile.id}
-            isManager={profile.role === "manager"}
-          />
+          <CaseTasksPanel tasks={caseTasks ?? []} />
         </div>
       </main>
     </div>

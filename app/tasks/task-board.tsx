@@ -3,10 +3,50 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import type { TaskWithNames, Profile, Case } from "@/types/database";
+import {
+  deadlineUrgency,
+  type TaskWithNames,
+  type TaskStatus,
+  type Profile,
+  type Case,
+} from "@/types/database";
 
 const TASK_SELECT =
   "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)";
+
+const STATUS_LABELS: Record<TaskStatus, string> = {
+  open: "פתוחה",
+  done: "בוצעה",
+  cancelled: "בוטלה",
+};
+
+const STATUS_BADGE: Record<TaskStatus, string> = {
+  open: "bg-blue-50 text-blue-700",
+  done: "bg-emerald-50 text-emerald-700",
+  cancelled: "bg-gray-100 text-gray-500",
+};
+
+const URGENCY_BADGE: Record<string, string> = {
+  overdue: "bg-rose-50 text-rose-700",
+  soon: "bg-amber-50 text-amber-700",
+};
+
+const URGENCY_LABEL: Record<string, string> = {
+  overdue: "באיחור",
+  soon: "בקרוב",
+};
+
+function formatDate(value: string) {
+  return new Date(value + "T00:00:00").toLocaleDateString("he-IL");
+}
+
+// earliest due date first; tasks without a due date sink to the bottom
+function byDueDate(a: TaskWithNames, b: TaskWithNames) {
+  if (!a.due_date && !b.due_date) return 0;
+  if (!a.due_date) return 1;
+  if (!b.due_date) return -1;
+  return a.due_date.localeCompare(b.due_date);
+}
 
 export function TaskBoard({
   tasks,
@@ -92,30 +132,11 @@ export function TaskBoard({
     setRows((prev) => [data, ...prev]);
   }
 
-  async function toggleDone(task: TaskWithNames) {
-    const nextStatus = task.status === "open" ? "done" : "open";
-    const patch = {
-      status: nextStatus,
-      completed_at: nextStatus === "done" ? new Date().toISOString() : null,
-    } as const;
-
-    setRows((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, ...patch } : t)),
-    );
-
-    const { error } = await supabase
-      .from("tasks")
-      .update(patch)
-      .eq("id", task.id);
-
-    if (error) {
-      setRows((prev) => prev.map((t) => (t.id === task.id ? task : t)));
-    }
-  }
-
-  const open = filteredRows.filter((t) => t.status === "open");
-  const done = filteredRows.filter((t) => t.status === "done");
-  const cancelled = filteredRows.filter((t) => t.status === "cancelled");
+  const open = filteredRows.filter((t) => t.status === "open").sort(byDueDate);
+  const done = filteredRows.filter((t) => t.status === "done").sort(byDueDate);
+  const cancelled = filteredRows
+    .filter((t) => t.status === "cancelled")
+    .sort(byDueDate);
 
   const hasActiveFilters = !!caseFilter || !!handlerFilter;
 
@@ -245,73 +266,83 @@ export function TaskBoard({
         </label>
       </div>
 
-      <TaskList title="פתוחות" tasks={open} onToggle={toggleDone} />
-      {showDone && (
-        <TaskList title="בוצעו" tasks={done} onToggle={toggleDone} />
-      )}
-      {cancelled.length > 0 && (
-        <TaskList
-          title="בוטלו"
-          tasks={cancelled}
-          onToggle={toggleDone}
-          readOnly
-        />
-      )}
+      <TaskGroup title="פתוחות" tasks={open} />
+      {showDone && <TaskGroup title="בוצעו" tasks={done} />}
+      {cancelled.length > 0 && <TaskGroup title="בוטלו" tasks={cancelled} />}
     </div>
   );
 }
 
-function TaskList({
+function TaskGroup({
   title,
   tasks,
-  onToggle,
-  readOnly,
 }: {
   title: string;
   tasks: TaskWithNames[];
-  onToggle: (t: TaskWithNames) => void;
-  readOnly?: boolean;
 }) {
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-3 font-semibold">
+    <section>
+      <h2 className="mb-3 font-semibold text-gray-900">
         {title} ({tasks.length})
       </h2>
       {tasks.length === 0 ? (
-        <p className="text-sm text-gray-400">אין משימות</p>
+        <p className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-400 shadow-sm">
+          אין משימות
+        </p>
       ) : (
-        <ul className="divide-y divide-gray-100">
+        <div className="space-y-2">
           {tasks.map((t) => (
-            <li key={t.id} className="flex items-center gap-3 py-2">
-              {!readOnly && (
-                <input
-                  type="checkbox"
-                  checked={t.status === "done"}
-                  onChange={() => onToggle(t)}
-                />
-              )}
-              <div className="flex-1">
-                <Link
-                  href={`/tasks/${t.id}`}
-                  className={`hover:underline ${
-                    t.status === "done" ? "text-gray-400 line-through" : ""
-                  }`}
-                >
-                  {t.text}
-                </Link>
-                <div className="text-xs text-gray-500">
-                  {t.assigned_to_profile?.full_name &&
-                    `למטפל: ${t.assigned_to_profile.full_name}`}
-                  {t.case &&
-                    ` · תיק ${t.case.case_number} - ${t.case.case_name}`}
-                  {t.due_date &&
-                    ` · יעד: ${new Date(t.due_date + "T00:00:00").toLocaleDateString("he-IL")}`}
-                </div>
-              </div>
-            </li>
+            <TaskCard key={t.id} task={t} />
           ))}
-        </ul>
+        </div>
       )}
     </section>
+  );
+}
+
+function TaskCard({ task: t }: { task: TaskWithNames }) {
+  const urgency = t.due_date ? deadlineUrgency(t.due_date, t.status) : null;
+  const showUrgency = urgency === "overdue" || urgency === "soon";
+
+  return (
+    <Link
+      href={`/tasks/${t.id}`}
+      className={`block rounded-xl border bg-white p-4 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/30 ${
+        urgency === "overdue"
+          ? "border-rose-200"
+          : urgency === "soon"
+            ? "border-amber-200"
+            : "border-gray-200"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="font-medium text-gray-900">{t.text}</span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {showUrgency && (
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
+            >
+              {URGENCY_LABEL[urgency]}
+            </span>
+          )}
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[t.status]}`}
+          >
+            {STATUS_LABELS[t.status]}
+          </span>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+        {t.assigned_to_profile?.full_name && (
+          <span>מטפל: {t.assigned_to_profile.full_name}</span>
+        )}
+        {t.case && (
+          <span>
+            תיק: {t.case.case_number} - {t.case.case_name}
+          </span>
+        )}
+        {t.due_date && <span>תאריך יעד: {formatDate(t.due_date)}</span>}
+      </div>
+    </Link>
   );
 }
