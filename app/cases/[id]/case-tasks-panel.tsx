@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { TaskWithNames, TaskStatus } from "@/types/database";
 
@@ -97,15 +98,16 @@ export function CaseTasksPanel({
                   </span>
                 )}
                 <div className="flex-1">
-                  <div
-                    className={
+                  <Link
+                    href={`/tasks/${t.id}`}
+                    className={`text-sm hover:underline ${
                       t.status === "done" || t.status === "cancelled"
-                        ? "text-sm text-gray-400 line-through"
-                        : "text-sm font-medium text-gray-900"
-                    }
+                        ? "text-gray-400 line-through"
+                        : "font-medium text-gray-900"
+                    }`}
                   >
                     {t.text}
-                  </div>
+                  </Link>
                   {t.assigned_to_profile?.full_name && (
                     <div className="text-xs text-gray-500">
                       למטפל: {t.assigned_to_profile.full_name}
