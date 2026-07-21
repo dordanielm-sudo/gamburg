@@ -80,6 +80,7 @@ export function TaskBoard({
 
   const open = rows.filter((t) => t.status === "open");
   const done = rows.filter((t) => t.status === "done");
+  const cancelled = rows.filter((t) => t.status === "cancelled");
 
   return (
     <div className="space-y-6">
@@ -152,6 +153,14 @@ export function TaskBoard({
 
       <TaskList title="פתוחות" tasks={open} onToggle={toggleDone} />
       <TaskList title="בוצעו" tasks={done} onToggle={toggleDone} />
+      {cancelled.length > 0 && (
+        <TaskList
+          title="בוטלו"
+          tasks={cancelled}
+          onToggle={toggleDone}
+          readOnly
+        />
+      )}
     </div>
   );
 }
@@ -160,10 +169,12 @@ function TaskList({
   title,
   tasks,
   onToggle,
+  readOnly,
 }: {
   title: string;
   tasks: TaskWithNames[];
   onToggle: (t: TaskWithNames) => void;
+  readOnly?: boolean;
 }) {
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -176,11 +187,13 @@ function TaskList({
         <ul className="divide-y divide-gray-100">
           {tasks.map((t) => (
             <li key={t.id} className="flex items-center gap-3 py-2">
-              <input
-                type="checkbox"
-                checked={t.status === "done"}
-                onChange={() => onToggle(t)}
-              />
+              {!readOnly && (
+                <input
+                  type="checkbox"
+                  checked={t.status === "done"}
+                  onChange={() => onToggle(t)}
+                />
+              )}
               <div className="flex-1">
                 <div
                   className={
