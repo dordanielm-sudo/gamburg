@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { SpouseDetails } from "@/types/database";
 
 // Pilot import of cases from עדכנית via the handler's existing Make scenario.
 // Two independent gates before anything is written, per explicit request
@@ -30,7 +31,8 @@ interface CaseSyncPayload {
   team?: string | null;
   client_id_number?: string | null;
   client_phone?: string | null;
-  spouse_details?: Record<string, unknown> | null;
+  // { name, id_number, phone } - some cases have a spouse as a co-party
+  spouse_details?: SpouseDetails | null;
   source_updated_at?: string | null;
 }
 
