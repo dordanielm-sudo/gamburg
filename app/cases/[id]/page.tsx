@@ -121,6 +121,18 @@ function CaseSummary({ caseRow }: { caseRow: CaseWithHandler }) {
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      {caseRow.drive_url && (
+        <div className="mb-4 flex justify-end">
+          <a
+            href={caseRow.drive_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
+          >
+            פתיחת תיקיית הדרייב
+          </a>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         {fields.map((f) => (
           <div key={f.label}>
