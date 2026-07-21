@@ -26,6 +26,7 @@ export function TaskBoard({
   const [formError, setFormError] = useState<string | null>(null);
   const [caseFilter, setCaseFilter] = useState("");
   const [handlerFilter, setHandlerFilter] = useState("");
+  const [showDone, setShowDone] = useState(false);
 
   const caseOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -220,10 +221,21 @@ export function TaskBoard({
             נקה סינון
           </button>
         )}
+        <label className="mr-auto flex items-center gap-1.5 text-sm text-gray-600">
+          <input
+            type="checkbox"
+            checked={showDone}
+            onChange={(e) => setShowDone(e.target.checked)}
+            className="h-4 w-4 accent-blue-600"
+          />
+          הצג גם שבוצעו
+        </label>
       </div>
 
       <TaskList title="פתוחות" tasks={open} onToggle={toggleDone} />
-      <TaskList title="בוצעו" tasks={done} onToggle={toggleDone} />
+      {showDone && (
+        <TaskList title="בוצעו" tasks={done} onToggle={toggleDone} />
+      )}
       {cancelled.length > 0 && (
         <TaskList
           title="בוטלו"

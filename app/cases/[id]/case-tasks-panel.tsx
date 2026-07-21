@@ -27,6 +27,12 @@ export function CaseTasksPanel({
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(tasks);
+  const [showDone, setShowDone] = useState(false);
+
+  const doneCount = rows.filter((t) => t.status === "done").length;
+  const visibleRows = showDone
+    ? rows
+    : rows.filter((t) => t.status !== "done");
 
   async function toggleDone(task: TaskWithNames) {
     if (task.status === "cancelled") return;
@@ -52,12 +58,25 @@ export function CaseTasksPanel({
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm lg:col-span-2">
-      <h2 className="mb-3 font-semibold">משימות ({rows.length})</h2>
-      {rows.length === 0 ? (
-        <p className="text-sm text-gray-400">אין משימות לתיק זה</p>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="font-semibold">משימות ({visibleRows.length})</h2>
+        {doneCount > 0 && (
+          <label className="flex items-center gap-1.5 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={showDone}
+              onChange={(e) => setShowDone(e.target.checked)}
+              className="h-4 w-4 accent-blue-600"
+            />
+            הצג גם שבוצעו ({doneCount})
+          </label>
+        )}
+      </div>
+      {visibleRows.length === 0 ? (
+        <p className="text-sm text-gray-400">אין משימות פתוחות לתיק זה</p>
       ) : (
         <ul className="divide-y divide-gray-100">
-          {rows.map((t) => {
+          {visibleRows.map((t) => {
             const canToggle =
               t.status !== "cancelled" &&
               (isManager || t.assigned_to === currentUserId);
