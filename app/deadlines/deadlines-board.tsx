@@ -63,8 +63,17 @@ export function DeadlinesBoard({
   const [showDone, setShowDone] = useState(false);
   const [caseFilter, setCaseFilter] = useState("");
   const [handlerFilter, setHandlerFilter] = useState("");
+  const [labelFilter, setLabelFilter] = useState("");
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const labelOptions = useMemo(
+    () =>
+      Array.from(new Set(rows.map((d) => d.label))).sort((a, b) =>
+        a.localeCompare(b, "he"),
+      ),
+    [rows],
+  );
 
   const caseOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -86,7 +95,7 @@ export function DeadlinesBoard({
     );
   }, [rows]);
 
-  const hasActiveFilters = !!caseFilter || !!handlerFilter;
+  const hasActiveFilters = !!caseFilter || !!handlerFilter || !!labelFilter;
 
   const filtered = useMemo(() => {
     const days = RANGE_DAYS[range];
@@ -97,6 +106,7 @@ export function DeadlinesBoard({
     return rows.filter((d) => {
       if (caseFilter && d.case?.id !== caseFilter) return false;
       if (handlerFilter && d.case?.handler?.id !== handlerFilter) return false;
+      if (labelFilter && d.label !== labelFilter) return false;
       if (!showDone && d.status === "done") return false;
       if (rangeEnd === null) return true;
       const due = new Date(d.due_date + "T00:00:00");
@@ -105,7 +115,7 @@ export function DeadlinesBoard({
       if (due < today && d.status !== "done") return true;
       return due <= rangeEnd;
     });
-  }, [rows, range, showDone, caseFilter, handlerFilter]);
+  }, [rows, range, showDone, caseFilter, handlerFilter, labelFilter]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -258,11 +268,24 @@ export function DeadlinesBoard({
                 </option>
               ))}
             </select>
+            <select
+              value={labelFilter}
+              onChange={(e) => setLabelFilter(e.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            >
+              <option value="">סוג: הכל</option>
+              {labelOptions.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
             {hasActiveFilters && (
               <button
                 onClick={() => {
                   setCaseFilter("");
                   setHandlerFilter("");
+                  setLabelFilter("");
                 }}
                 className="text-sm text-gray-500 underline hover:text-gray-900"
               >
