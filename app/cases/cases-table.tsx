@@ -49,6 +49,7 @@ export function CasesTable({
   const [statusFilter, setStatusFilter] = useState("");
   const [natureFilter, setNatureFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [flagFilter, setFlagFilter] = useState<"" | (typeof FLAG_DEFS)[number]["key"]>("");
   const [sortKey, setSortKey] = useState<SortKey>("last_touched_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncStatus>>({});
@@ -94,6 +95,9 @@ export function CasesTable({
     if (typeFilter) {
       list = list.filter((c) => c.case_type === typeFilter);
     }
+    if (flagFilter) {
+      list = list.filter((c) => c[flagFilter]);
+    }
 
     const sorted = [...list].sort((a, b) => {
       const av = a[sortKey] ?? "";
@@ -110,6 +114,7 @@ export function CasesTable({
     statusFilter,
     natureFilter,
     typeFilter,
+    flagFilter,
     sortKey,
     sortDir,
   ]);
@@ -182,7 +187,12 @@ export function CasesTable({
   }
 
   const hasActiveFilters =
-    !!search || !!handlerFilter || !!statusFilter || !!natureFilter || !!typeFilter;
+    !!search ||
+    !!handlerFilter ||
+    !!statusFilter ||
+    !!natureFilter ||
+    !!typeFilter ||
+    !!flagFilter;
 
   function clearFilters() {
     setSearch("");
@@ -190,6 +200,7 @@ export function CasesTable({
     setStatusFilter("");
     setNatureFilter("");
     setTypeFilter("");
+    setFlagFilter("");
   }
 
   return (
@@ -239,6 +250,20 @@ export function CasesTable({
           onChange={setTypeFilter}
           options={typeOptions}
         />
+        <select
+          value={flagFilter}
+          onChange={(e) =>
+            setFlagFilter(e.target.value as typeof flagFilter)
+          }
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+        >
+          <option value="">דגל: הכל</option>
+          {FLAG_DEFS.map((f) => (
+            <option key={f.key} value={f.key}>
+              {f.label}
+            </option>
+          ))}
+        </select>
 
         {hasActiveFilters && (
           <button
