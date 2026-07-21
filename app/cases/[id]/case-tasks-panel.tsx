@@ -108,9 +108,12 @@ export function CaseTasksPanel({
                   >
                     {t.text}
                   </Link>
-                  {t.assigned_to_profile?.full_name && (
+                  {(t.assigned_to_profile?.full_name || t.due_date) && (
                     <div className="text-xs text-gray-500">
-                      למטפל: {t.assigned_to_profile.full_name}
+                      {t.assigned_to_profile?.full_name &&
+                        `למטפל: ${t.assigned_to_profile.full_name}`}
+                      {t.due_date &&
+                        ` · יעד: ${new Date(t.due_date + "T00:00:00").toLocaleDateString("he-IL")}`}
                     </div>
                   )}
                 </div>

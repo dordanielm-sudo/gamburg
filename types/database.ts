@@ -114,6 +114,8 @@ export interface Task {
   case_id: string | null;
   status: TaskStatus;
   source_task_id: string | null;
+  start_date: string | null;
+  due_date: string | null;
   created_at: string;
   completed_at: string | null;
 }
