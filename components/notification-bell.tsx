@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Notification, NotificationType } from "@/types/database";
 
-// where clicking a notification should take you - a case if one is
-// attached (covers new_document and stuck_case, and new_task when the
-// task has a case), otherwise the tasks list for a caseless task.
+// where clicking a notification should take you - the task itself if
+// one is attached (new_task), otherwise the case (new_document,
+// stuck_case).
 function notificationHref(n: Notification): string | null {
+  if (n.task_id) return `/tasks/${n.task_id}`;
   if (n.case_id) return `/cases/${n.case_id}`;
-  if (n.task_id) return `/tasks`;
   return null;
 }
 

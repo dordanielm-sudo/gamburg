@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { TaskWithNames, Profile, Case } from "@/types/database";
 
@@ -278,13 +279,14 @@ function TaskList({
                 />
               )}
               <div className="flex-1">
-                <div
-                  className={
+                <Link
+                  href={`/tasks/${t.id}`}
+                  className={`hover:underline ${
                     t.status === "done" ? "text-gray-400 line-through" : ""
-                  }
+                  }`}
                 >
                   {t.text}
-                </div>
+                </Link>
                 <div className="text-xs text-gray-500">
                   {t.assigned_to_profile?.full_name &&
                     `למטפל: ${t.assigned_to_profile.full_name}`}
