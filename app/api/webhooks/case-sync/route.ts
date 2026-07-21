@@ -11,7 +11,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 //
 // Only ever writes the "source" columns on cases (see 0001_schema.sql) -
 // CRM-only fields (flags, manager_note, manager_follow_up, team) are never
-// part of the upsert payload, so a resync never clobbers manual work.
+// part of the write payload. Deliberately UPDATE-then-INSERT rather than
+// .upsert(): PostgREST's upsert fills every column absent from the payload
+// with its table default on conflict (false/null for the CRM-only fields),
+// which silently wipes manual work on resync - confirmed by hand during the
+// pilot. A plain UPDATE only ever touches the columns actually given.
 
 interface CaseSyncPayload {
   case_number?: string;
@@ -97,31 +101,47 @@ export async function POST(request: Request) {
     }
   }
 
-  const { data: caseRow, error: upsertError } = await admin
+  const sourceFields = {
+    case_name: body.case_name.trim(),
+    opened_date: body.opened_date ?? null,
+    case_type: body.case_type ?? null,
+    case_nature: body.case_nature ?? null,
+    handler_id: handlerId,
+    external_ref: body.external_ref ?? null,
+    status: body.status ?? null,
+    client_id_number: body.client_id_number ?? null,
+    client_phone: body.client_phone ?? null,
+    spouse_details: body.spouse_details ?? null,
+    source_updated_at: body.source_updated_at ?? new Date().toISOString(),
+  };
+
+  const { data: updated, error: updateError } = await admin
     .from("cases")
-    .upsert(
-      {
-        case_number: caseNumber,
-        case_name: body.case_name.trim(),
-        opened_date: body.opened_date ?? null,
-        case_type: body.case_type ?? null,
-        case_nature: body.case_nature ?? null,
-        handler_id: handlerId,
-        external_ref: body.external_ref ?? null,
-        status: body.status ?? null,
-        client_id_number: body.client_id_number ?? null,
-        client_phone: body.client_phone ?? null,
-        spouse_details: body.spouse_details ?? null,
-        source_updated_at: body.source_updated_at ?? new Date().toISOString(),
-      },
-      { onConflict: "case_number" },
-    )
+    .update(sourceFields)
+    .eq("case_number", caseNumber)
+    .select("id");
+
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
+  if (updated && updated.length > 0) {
+    return NextResponse.json({
+      status: "ok",
+      case_id: updated[0].id,
+      warnings,
+    });
+  }
+
+  const { data: inserted, error: insertError } = await admin
+    .from("cases")
+    .insert({ case_number: caseNumber, ...sourceFields })
     .select("id")
     .single();
 
-  if (upsertError) {
-    return NextResponse.json({ error: upsertError.message }, { status: 500 });
+  if (insertError) {
+    return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ status: "ok", case_id: caseRow.id, warnings });
+  return NextResponse.json({ status: "ok", case_id: inserted.id, warnings });
 }
