@@ -6,6 +6,8 @@ export type UserRole = "manager" | "handler" | "secretary";
 export type TaskStatus = "open" | "done";
 export type NotificationType = "new_task" | "new_document" | "stuck_case";
 export type WebhookStatus = "pending" | "success" | "failure" | "warning";
+export type HearingStatus = "scheduled" | "held" | "postponed" | "cancelled";
+export type DocumentStatus = "pending" | "received" | "missing";
 
 export interface Profile {
   id: string;
@@ -34,6 +36,7 @@ export interface Case {
   flag_transferring_documents: boolean;
   manager_note: string | null;
   manager_follow_up: boolean;
+  team: string | null;
   last_touched_at: string;
   created_at: string;
   updated_at: string;
@@ -41,6 +44,66 @@ export interface Case {
 
 export interface CaseWithHandler extends Case {
   handler: Pick<Profile, "id" | "full_name"> | null;
+}
+
+export interface Hearing {
+  id: string;
+  case_id: string;
+  court: string | null;
+  judge: string | null;
+  hearing_type: string | null;
+  hearing_at: string;
+  status: HearingStatus;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CaseDocument {
+  id: string;
+  case_id: string;
+  title: string;
+  doc_type: string | null;
+  status: DocumentStatus;
+  doc_date: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CaseDeadline {
+  id: string;
+  case_id: string;
+  label: string;
+  due_date: string;
+  status: TaskStatus;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CaseDeadlineWithCase extends CaseDeadline {
+  case: Pick<CaseWithHandler, "id" | "case_number" | "case_name" | "handler"> | null;
+}
+
+// a deadline is "urgent" once it's due within this many days (or already overdue)
+export const DEADLINE_SOON_DAYS = 3;
+
+export function deadlineUrgency(
+  dueDate: string,
+  status: TaskStatus,
+): "overdue" | "soon" | "normal" | "done" {
+  if (status === "done") return "done";
+  const days = Math.floor(
+    (new Date(dueDate + "T00:00:00").getTime() - new Date().setHours(0, 0, 0, 0)) /
+      (24 * 60 * 60 * 1000),
+  );
+  if (days < 0) return "overdue";
+  if (days <= DEADLINE_SOON_DAYS) return "soon";
+  return "normal";
 }
 
 export interface Task {

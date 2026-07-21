@@ -65,6 +65,7 @@ export function AppHeader({
 
         <nav className="flex items-center gap-1 rounded-full bg-gray-100 p-1">
           <NavLink href="/cases">ניהול תיקים</NavLink>
+          <NavLink href="/deadlines">מועדים</NavLink>
           <NavLink href="/tasks">משימות</NavLink>
           {role === "manager" && (
             <>

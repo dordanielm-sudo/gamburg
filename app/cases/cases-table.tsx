@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { isCaseStuck, type CaseWithHandler } from "@/types/database";
 
@@ -166,6 +167,7 @@ export function CasesTable({
               <Th onClick={() => toggleSort("case_name")}>שם תיק</Th>
               <th className="px-4 py-3 font-medium text-gray-600">סוג</th>
               <th className="px-4 py-3 font-medium text-gray-600">מטפל</th>
+              <th className="px-4 py-3 font-medium text-gray-600">צוות</th>
               <th className="px-4 py-3 font-medium text-gray-600">סטטוס</th>
               <Th onClick={() => toggleSort("opened_date")}>תאריך פתיחה</Th>
               <th className="px-4 py-3 font-medium text-gray-600">דגלים</th>
@@ -185,16 +187,29 @@ export function CasesTable({
               return (
                 <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50/60">
                   <td className="px-4 py-3 font-medium text-gray-500 whitespace-nowrap">
-                    {c.case_number}
+                    <Link
+                      href={`/cases/${c.id}`}
+                      className="hover:text-blue-700 hover:underline"
+                    >
+                      {c.case_number}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 font-medium text-gray-900">
-                    {c.case_name}
+                    <Link
+                      href={`/cases/${c.id}`}
+                      className="hover:text-blue-700 hover:underline"
+                    >
+                      {c.case_name}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 text-gray-600">
                     {c.case_type ?? "—"}
                   </td>
                   <td className="px-4 py-3 text-gray-600">
                     {c.handler?.full_name ?? "—"}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {c.team ?? "—"}
                   </td>
                   <td className="px-4 py-3">
                     {c.status ? (
@@ -278,7 +293,7 @@ export function CasesTable({
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={11} className="px-4 py-8 text-center text-gray-400">
                   לא נמצאו תיקים
                 </td>
               </tr>
