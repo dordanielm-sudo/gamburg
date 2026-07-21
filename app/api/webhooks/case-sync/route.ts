@@ -89,11 +89,14 @@ export async function POST(request: Request) {
   let handlerId: string | null = null;
   const handlerName = body.handler_name?.trim();
   if (handlerName) {
-    const { data: handler } = await admin
-      .from("profiles")
-      .select("id")
-      .eq("full_name", handlerName)
-      .maybeSingle();
+    // "מנהל" in עדכנית is a generic placeholder for cases חנה handles
+    // directly rather than a specific handler name - route it to the
+    // manager for now (per handler request), not a name match.
+    const query =
+      handlerName === "מנהל"
+        ? admin.from("profiles").select("id").eq("role", "manager")
+        : admin.from("profiles").select("id").eq("full_name", handlerName);
+    const { data: handler } = await query.maybeSingle();
     if (handler) {
       handlerId = handler.id;
     } else {
