@@ -102,6 +102,7 @@ function CaseSummary({ caseRow }: { caseRow: CaseWithHandler }) {
         ? new Date(caseRow.opened_date).toLocaleDateString("he-IL")
         : "—",
     },
+    { label: "זיהוי נוסף", value: caseRow.external_ref ?? "—" },
   ];
 
   const clientFields: { label: string; value: string }[] = [
