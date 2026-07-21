@@ -84,6 +84,7 @@ export interface CaseDeadline {
   due_date: string;
   status: TaskStatus;
   notes: string | null;
+  source_field_name: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
