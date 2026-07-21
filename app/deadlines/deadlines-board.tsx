@@ -61,8 +61,32 @@ export function DeadlinesBoard({
   const [rows, setRows] = useState(deadlines);
   const [range, setRange] = useState<RangeKey>("week");
   const [showDone, setShowDone] = useState(false);
+  const [caseFilter, setCaseFilter] = useState("");
+  const [handlerFilter, setHandlerFilter] = useState("");
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const caseOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of rows) {
+      if (d.case) map.set(d.case.id, `${d.case.case_number} - ${d.case.case_name}`);
+    }
+    return Array.from(map, ([id, label]) => ({ id, label })).sort((a, b) =>
+      a.label.localeCompare(b.label, "he"),
+    );
+  }, [rows]);
+
+  const handlerOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of rows) {
+      if (d.case?.handler) map.set(d.case.handler.id, d.case.handler.full_name);
+    }
+    return Array.from(map, ([id, label]) => ({ id, label })).sort((a, b) =>
+      a.label.localeCompare(b.label, "he"),
+    );
+  }, [rows]);
+
+  const hasActiveFilters = !!caseFilter || !!handlerFilter;
 
   const filtered = useMemo(() => {
     const days = RANGE_DAYS[range];
@@ -71,6 +95,8 @@ export function DeadlinesBoard({
       days === null ? null : new Date(today.getTime() + days * 86400000);
 
     return rows.filter((d) => {
+      if (caseFilter && d.case?.id !== caseFilter) return false;
+      if (handlerFilter && d.case?.handler?.id !== handlerFilter) return false;
       if (!showDone && d.status === "done") return false;
       if (rangeEnd === null) return true;
       const due = new Date(d.due_date + "T00:00:00");
@@ -79,7 +105,7 @@ export function DeadlinesBoard({
       if (due < today && d.status !== "done") return true;
       return due <= rangeEnd;
     });
-  }, [rows, range, showDone]);
+  }, [rows, range, showDone, caseFilter, handlerFilter]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -207,15 +233,52 @@ export function DeadlinesBoard({
               </button>
             ))}
           </div>
-          <label className="flex items-center gap-1.5 text-sm text-gray-600">
-            <input
-              type="checkbox"
-              checked={showDone}
-              onChange={(e) => setShowDone(e.target.checked)}
-              className="h-4 w-4 accent-blue-600"
-            />
-            הצג גם שבוצעו
-          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={caseFilter}
+              onChange={(e) => setCaseFilter(e.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            >
+              <option value="">תיק: הכל</option>
+              {caseOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={handlerFilter}
+              onChange={(e) => setHandlerFilter(e.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            >
+              <option value="">מטפל: הכל</option>
+              {handlerOptions.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.label}
+                </option>
+              ))}
+            </select>
+            {hasActiveFilters && (
+              <button
+                onClick={() => {
+                  setCaseFilter("");
+                  setHandlerFilter("");
+                }}
+                className="text-sm text-gray-500 underline hover:text-gray-900"
+              >
+                נקה סינון
+              </button>
+            )}
+            <label className="flex items-center gap-1.5 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={showDone}
+                onChange={(e) => setShowDone(e.target.checked)}
+                className="h-4 w-4 accent-blue-600"
+              />
+              הצג גם שבוצעו
+            </label>
+          </div>
         </div>
 
         {filtered.length === 0 ? (
