@@ -64,6 +64,7 @@ export function TaskBoard({
     const text = String(formData.get("text") ?? "").trim();
     const assignedTo = String(formData.get("assigned_to") ?? "");
     const caseId = String(formData.get("case_id") ?? "") || null;
+    const dueDate = String(formData.get("due_date") ?? "") || null;
 
     if (!text || !assignedTo) {
       setFormError("יש למלא תיאור ומטפל");
@@ -78,6 +79,7 @@ export function TaskBoard({
         assigned_to: assignedTo,
         created_by: currentUserId,
         case_id: caseId,
+        due_date: dueDate,
       })
       .select(TASK_SELECT)
       .single<TaskWithNames>();
@@ -171,6 +173,16 @@ export function TaskBoard({
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">
+                תאריך יעד (אופציונלי)
+              </label>
+              <input
+                name="due_date"
+                type="date"
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
+              />
             </div>
             <button
               type="submit"
@@ -292,6 +304,8 @@ function TaskList({
                     `למטפל: ${t.assigned_to_profile.full_name}`}
                   {t.case &&
                     ` · תיק ${t.case.case_number} - ${t.case.case_name}`}
+                  {t.due_date &&
+                    ` · יעד: ${new Date(t.due_date + "T00:00:00").toLocaleDateString("he-IL")}`}
                 </div>
               </div>
             </li>

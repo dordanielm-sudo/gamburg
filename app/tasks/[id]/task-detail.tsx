@@ -25,6 +25,11 @@ function formatDateTime(value: string | null) {
   });
 }
 
+function formatDate(value: string | null) {
+  if (!value) return "—";
+  return new Date(value + "T00:00:00").toLocaleDateString("he-IL");
+}
+
 export function TaskDetail({
   task,
   canEdit,
@@ -108,6 +113,8 @@ export function TaskDetail({
             )
           }
         />
+        <Field label="תאריך התחלה" value={formatDate(current.start_date)} />
+        <Field label="תאריך יעד" value={formatDate(current.due_date)} />
         <Field label="נוצרה בתאריך" value={formatDateTime(current.created_at)} />
         <Field label="הושלמה בתאריך" value={formatDateTime(current.completed_at)} />
       </dl>

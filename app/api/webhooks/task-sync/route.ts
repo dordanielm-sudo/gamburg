@@ -15,6 +15,8 @@ interface TaskSyncPayload {
   text?: string | null;
   status_name?: string | null;
   handler_name?: string | null;
+  start_date?: string | null;
+  due_date?: string | null;
 }
 
 const STATUS_MAP: Record<string, "open" | "done" | "cancelled"> = {
@@ -131,6 +133,8 @@ export async function POST(request: Request) {
     assigned_to: assignedTo,
     created_by: createdBy,
     status,
+    start_date: body.start_date ?? null,
+    due_date: body.due_date ?? null,
   };
 
   const { data: updated, error: updateError } = await admin
