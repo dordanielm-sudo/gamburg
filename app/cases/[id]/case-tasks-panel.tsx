@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
-import type { TaskWithNames, TaskStatus } from "@/types/database";
+import {
+  deadlineUrgency,
+  type TaskWithNames,
+  type TaskStatus,
+} from "@/types/database";
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   open: "פתוחה",
@@ -17,45 +20,34 @@ const STATUS_BADGE: Record<TaskStatus, string> = {
   cancelled: "bg-gray-100 text-gray-500",
 };
 
-export function CaseTasksPanel({
-  tasks,
-  currentUserId,
-  isManager,
-}: {
-  tasks: TaskWithNames[];
-  currentUserId: string;
-  isManager: boolean;
-}) {
-  const supabase = useMemo(() => createClient(), []);
-  const [rows, setRows] = useState(tasks);
+const URGENCY_BADGE: Record<string, string> = {
+  overdue: "bg-rose-50 text-rose-700",
+  soon: "bg-amber-50 text-amber-700",
+};
+
+const URGENCY_LABEL: Record<string, string> = {
+  overdue: "באיחור",
+  soon: "בקרוב",
+};
+
+function formatDate(value: string) {
+  return new Date(value + "T00:00:00").toLocaleDateString("he-IL");
+}
+
+function byDueDate(a: TaskWithNames, b: TaskWithNames) {
+  if (!a.due_date && !b.due_date) return 0;
+  if (!a.due_date) return 1;
+  if (!b.due_date) return -1;
+  return a.due_date.localeCompare(b.due_date);
+}
+
+export function CaseTasksPanel({ tasks }: { tasks: TaskWithNames[] }) {
   const [showDone, setShowDone] = useState(false);
 
-  const doneCount = rows.filter((t) => t.status === "done").length;
-  const visibleRows = showDone
-    ? rows
-    : rows.filter((t) => t.status !== "done");
-
-  async function toggleDone(task: TaskWithNames) {
-    if (task.status === "cancelled") return;
-    const nextStatus: TaskStatus = task.status === "open" ? "done" : "open";
-    const patch = {
-      status: nextStatus,
-      completed_at: nextStatus === "done" ? new Date().toISOString() : null,
-    } as const;
-
-    setRows((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, ...patch } : t)),
-    );
-
-    const { error } = await supabase
-      .from("tasks")
-      .update(patch)
-      .eq("id", task.id);
-
-    if (error) {
-      setRows((prev) => prev.map((t) => (t.id === task.id ? task : t)));
-    }
-  }
+  const doneCount = tasks.filter((t) => t.status === "done").length;
+  const visibleRows = (
+    showDone ? tasks : tasks.filter((t) => t.status !== "done")
+  ).sort(byDueDate);
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm lg:col-span-2">
@@ -76,51 +68,54 @@ export function CaseTasksPanel({
       {visibleRows.length === 0 ? (
         <p className="text-sm text-gray-400">אין משימות פתוחות לתיק זה</p>
       ) : (
-        <ul className="divide-y divide-gray-100">
+        <div className="space-y-2">
           {visibleRows.map((t) => {
-            const canToggle =
-              t.status !== "cancelled" &&
-              (isManager || t.assigned_to === currentUserId);
+            const urgency = t.due_date
+              ? deadlineUrgency(t.due_date, t.status)
+              : null;
+            const showUrgency = urgency === "overdue" || urgency === "soon";
             return (
-              <li key={t.id} className="flex items-center gap-3 py-2.5">
-                {canToggle ? (
-                  <input
-                    type="checkbox"
-                    checked={t.status === "done"}
-                    onChange={() => toggleDone(t)}
-                    className="h-4 w-4 accent-blue-600"
-                  />
-                ) : (
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[t.status]}`}
-                  >
-                    {STATUS_LABELS[t.status]}
-                  </span>
-                )}
-                <div className="flex-1">
-                  <Link
-                    href={`/tasks/${t.id}`}
-                    className={`text-sm hover:underline ${
-                      t.status === "done" || t.status === "cancelled"
-                        ? "text-gray-400 line-through"
-                        : "font-medium text-gray-900"
-                    }`}
-                  >
+              <Link
+                key={t.id}
+                href={`/tasks/${t.id}`}
+                className={`block rounded-lg border p-3 transition-colors hover:border-blue-300 hover:bg-blue-50/30 ${
+                  urgency === "overdue"
+                    ? "border-rose-200"
+                    : urgency === "soon"
+                      ? "border-amber-200"
+                      : "border-gray-200"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-sm font-medium text-gray-900">
                     {t.text}
-                  </Link>
-                  {(t.assigned_to_profile?.full_name || t.due_date) && (
-                    <div className="text-xs text-gray-500">
-                      {t.assigned_to_profile?.full_name &&
-                        `למטפל: ${t.assigned_to_profile.full_name}`}
-                      {t.due_date &&
-                        ` · יעד: ${new Date(t.due_date + "T00:00:00").toLocaleDateString("he-IL")}`}
-                    </div>
-                  )}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {showUrgency && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
+                      >
+                        {URGENCY_LABEL[urgency]}
+                      </span>
+                    )}
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[t.status]}`}
+                    >
+                      {STATUS_LABELS[t.status]}
+                    </span>
+                  </div>
                 </div>
-              </li>
+                {(t.assigned_to_profile?.full_name || t.due_date) && (
+                  <div className="mt-1 text-xs text-gray-500">
+                    {t.assigned_to_profile?.full_name &&
+                      `למטפל: ${t.assigned_to_profile.full_name}`}
+                    {t.due_date && ` · יעד: ${formatDate(t.due_date)}`}
+                  </div>
+                )}
+              </Link>
             );
           })}
-        </ul>
+        </div>
       )}
     </section>
   );

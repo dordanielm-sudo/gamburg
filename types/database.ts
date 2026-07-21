@@ -4,7 +4,11 @@
 
 export type UserRole = "manager" | "handler" | "secretary";
 export type TaskStatus = "open" | "done" | "cancelled";
-export type NotificationType = "new_task" | "new_document" | "stuck_case";
+export type NotificationType =
+  | "new_task"
+  | "new_document"
+  | "stuck_case"
+  | "task_due_soon";
 export type WebhookStatus = "pending" | "success" | "failure" | "warning";
 export type HearingStatus = "scheduled" | "held" | "postponed" | "cancelled";
 export type DocumentStatus = "pending" | "received" | "missing";
