@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { SpouseDetails } from "@/types/database";
 
-// Pilot import of cases from עדכנית via the handler's existing Make scenario.
-// Two independent gates before anything is written, per explicit request
-// ("שלא נמשוך את כולם ואז יהיה משהו ששכחנו"):
-//   1. shared-secret auth, same style as incoming-document (0004b).
-//   2. case_number must already be listed in case_sync_allowlist (0009) -
-//      grown one case at a time as the field mapping is verified, so a
-//      mistake in the Make scenario's own filter can't sync everyone.
+// Import of cases from עדכנית via the handler's Make scenario. Auth: a
+// shared secret header, same style as incoming-document (0004b).
+//
+// The case_sync_allowlist gate (used during the initial pilot to grow the
+// synced case set one at a time) has been lifted by explicit request now
+// that the pilot proved out the field mapping - every case_number is
+// accepted. The table itself is left in place, just unused.
 //
 // Only ever writes the "source" columns on cases (see 0001_schema.sql) -
 // team turns out to also come from עדכנית (TeamName), so it's synced here
@@ -65,27 +65,6 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
-
-  const { data: allowed, error: allowlistError } = await admin
-    .from("case_sync_allowlist")
-    .select("case_number")
-    .eq("case_number", caseNumber)
-    .maybeSingle();
-
-  if (allowlistError) {
-    return NextResponse.json(
-      { error: allowlistError.message },
-      { status: 500 },
-    );
-  }
-  if (!allowed) {
-    return NextResponse.json(
-      {
-        error: `case_number ${caseNumber} is not in case_sync_allowlist - add it there first to include it in the pilot`,
-      },
-      { status: 403 },
-    );
-  }
 
   const warnings: string[] = [];
   let handlerId: string | null = null;

@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-// Pilot import of tasks (משימות) from עדכנית, mirroring case-sync (0009).
-// Gated by the same case_sync_allowlist rather than a separate table - a
-// task can only be synced for a case already vetted into the case pilot.
+// Import of tasks (משימות) from עדכנית, mirroring case-sync. The
+// case_sync_allowlist gate has been lifted (see case-sync) - a task still
+// requires its case to already exist in our cases table (synced first),
+// but any case_number is accepted now.
 // UPDATE-then-INSERT keyed on source_task_id, same reasoning as case-sync:
 // PostgREST's upsert resets unlisted columns to their default on conflict.
 
@@ -61,20 +62,6 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
-
-  const { data: allowed } = await admin
-    .from("case_sync_allowlist")
-    .select("case_number")
-    .eq("case_number", caseNumber)
-    .maybeSingle();
-  if (!allowed) {
-    return NextResponse.json(
-      {
-        error: `case_number ${caseNumber} is not in case_sync_allowlist - sync the case itself first`,
-      },
-      { status: 403 },
-    );
-  }
 
   const { data: caseRow, error: caseError } = await admin
     .from("cases")

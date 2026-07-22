@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-// Pilot import of deadlines (מועדים) from עדכנית's custom fields
-// (vwExportToOuterSystems_UserData), mirroring case-sync/task-sync.
-// Gated by the same case_sync_allowlist. Keyed on (case_id,
-// source_field_name) - each such field holds a single value per case, not
-// a list, so a resync updates the same row.
+// Import of deadlines (מועדים) from עדכנית's custom fields
+// (vwExportToOuterSystems_UserData), mirroring case-sync/task-sync. The
+// case_sync_allowlist gate has been lifted (see case-sync) - a deadline
+// still requires its case to already exist in our cases table. Keyed on
+// (case_id, source_field_name) - each such field holds a single value per
+// case, not a list, so a resync updates the same row.
 //
 // Only ever writes label/due_date - never `status`, so a handler checking
 // a deadline off in the CRM survives a resync (same lesson as case-sync's
@@ -49,20 +50,6 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
-
-  const { data: allowed } = await admin
-    .from("case_sync_allowlist")
-    .select("case_number")
-    .eq("case_number", caseNumber)
-    .maybeSingle();
-  if (!allowed) {
-    return NextResponse.json(
-      {
-        error: `case_number ${caseNumber} is not in case_sync_allowlist - sync the case itself first`,
-      },
-      { status: 403 },
-    );
-  }
 
   const { data: caseRow, error: caseError } = await admin
     .from("cases")
