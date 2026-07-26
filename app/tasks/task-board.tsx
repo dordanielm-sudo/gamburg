@@ -36,6 +36,43 @@ const URGENCY_LABEL: Record<string, string> = {
   soon: "בקרוב",
 };
 
+type RangeKey = "week" | "nextWeek" | "month" | "all";
+
+const RANGE_LABELS: Record<RangeKey, string> = {
+  week: "השבוע",
+  nextWeek: "שבוע הבא",
+  month: "החודש",
+  all: "הכל",
+};
+
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+// calendar week = Sunday through Saturday (not a rolling 7 days)
+function weekBounds(weeksAhead: number, today: Date) {
+  const sunday = new Date(today);
+  sunday.setDate(today.getDate() - today.getDay() + weeksAhead * 7);
+  const saturday = new Date(sunday);
+  saturday.setDate(sunday.getDate() + 6);
+  return { start: sunday, end: saturday };
+}
+
+function rangeBounds(
+  range: RangeKey,
+  today: Date,
+): { start: Date | null; end: Date | null } {
+  if (range === "all") return { start: null, end: null };
+  if (range === "week") return weekBounds(0, today);
+  if (range === "nextWeek") return weekBounds(1, today);
+  return {
+    start: today,
+    end: new Date(today.getFullYear(), today.getMonth() + 1, 0),
+  };
+}
+
 function formatDate(value: string) {
   return new Date(value + "T00:00:00").toLocaleDateString("he-IL");
 }
@@ -65,9 +102,11 @@ export function TaskBoard({
   const [rows, setRows] = useState(tasks);
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [caseSearch, setCaseSearch] = useState("");
   const [caseFilter, setCaseFilter] = useState("");
   const [handlerFilter, setHandlerFilter] = useState("");
-  const [showDone, setShowDone] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("open");
+  const [range, setRange] = useState<RangeKey>("all");
 
   const caseOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -90,13 +129,33 @@ export function TaskBoard({
     );
   }, [rows]);
 
+  const formCaseOptions = useMemo(() => {
+    const q = caseSearch.trim().toLowerCase();
+    if (!q) return cases;
+    return cases.filter(
+      (c) =>
+        c.case_number.toLowerCase().includes(q) ||
+        c.case_name.toLowerCase().includes(q),
+    );
+  }, [cases, caseSearch]);
+
   const filteredRows = useMemo(() => {
+    const today = startOfToday();
+    const { start, end } = rangeBounds(range, today);
+
     return rows.filter((t) => {
       if (caseFilter && t.case?.id !== caseFilter) return false;
       if (handlerFilter && t.assigned_to !== handlerFilter) return false;
+      if (statusFilter && t.status !== statusFilter) return false;
+      if (start === null && end === null) return true;
+      if (!t.due_date) return true;
+      const due = new Date(t.due_date + "T00:00:00");
+      if (due < today && t.status === "open") return true;
+      if (start && due < start) return false;
+      if (end && due > end) return false;
       return true;
     });
-  }, [rows, caseFilter, handlerFilter]);
+  }, [rows, caseFilter, handlerFilter, statusFilter, range]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -105,6 +164,7 @@ export function TaskBoard({
     const assignedTo = String(formData.get("assigned_to") ?? "");
     const caseId = String(formData.get("case_id") ?? "") || null;
     const dueDate = String(formData.get("due_date") ?? "") || null;
+    const notes = String(formData.get("notes") ?? "").trim() || null;
 
     if (!text || !assignedTo) {
       setFormError("יש למלא תיאור ומטפל");
@@ -120,6 +180,7 @@ export function TaskBoard({
         created_by: currentUserId,
         case_id: caseId,
         due_date: dueDate,
+        notes,
       })
       .select(TASK_SELECT)
       .single<TaskWithNames>();
@@ -130,15 +191,21 @@ export function TaskBoard({
       return;
     }
     setRows((prev) => [data, ...prev]);
+    setCaseSearch("");
   }
 
-  const open = filteredRows.filter((t) => t.status === "open").sort(byDueDate);
-  const done = filteredRows.filter((t) => t.status === "done").sort(byDueDate);
-  const cancelled = filteredRows
-    .filter((t) => t.status === "cancelled")
-    .sort(byDueDate);
+  async function handleDelete(task: TaskWithNames) {
+    if (!confirm(`למחוק לצמיתות את המשימה "${task.text}"? לא ניתן לשחזר.`)) {
+      return;
+    }
+    const { error } = await supabase.from("tasks").delete().eq("id", task.id);
+    if (!error) {
+      setRows((prev) => prev.filter((t) => t.id !== task.id));
+    }
+  }
 
-  const hasActiveFilters = !!caseFilter || !!handlerFilter;
+  const sortedRows = [...filteredRows].sort(byDueDate);
+  const hasActiveFilters = !!caseFilter || !!handlerFilter || statusFilter !== "open";
 
   return (
     <div className="space-y-6">
@@ -180,6 +247,18 @@ export function TaskBoard({
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-500">
+                חיפוש תיק
+              </label>
+              <input
+                type="text"
+                value={caseSearch}
+                onChange={(e) => setCaseSearch(e.target.value)}
+                placeholder="הקלד לחיפוש..."
+                className="w-32 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">
                 תיק (אופציונלי)
               </label>
               <select
@@ -188,7 +267,7 @@ export function TaskBoard({
                 className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
               >
                 <option value="">ללא תיק</option>
-                {cases.map((c) => (
+                {formCaseOptions.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.case_number} - {c.case_name}
                   </option>
@@ -203,6 +282,15 @@ export function TaskBoard({
                 name="due_date"
                 type="date"
                 className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
+              />
+            </div>
+            <div className="min-w-[200px] flex-1">
+              <label className="mb-1 block text-xs text-gray-500">
+                הערות (אופציונלי)
+              </label>
+              <input
+                name="notes"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
               />
             </div>
             <button
@@ -220,6 +308,21 @@ export function TaskBoard({
       )}
 
       <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 rounded-full bg-gray-100 p-1">
+          {(Object.keys(RANGE_LABELS) as RangeKey[]).map((key) => (
+            <button
+              key={key}
+              onClick={() => setRange(key)}
+              className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                range === key
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {RANGE_LABELS[key]}
+            </button>
+          ))}
+        </div>
         <select
           value={caseFilter}
           onChange={(e) => setCaseFilter(e.target.value)}
@@ -244,70 +347,71 @@ export function TaskBoard({
             </option>
           ))}
         </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as TaskStatus | "")}
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+        >
+          <option value="">סטטוס: הכל</option>
+          <option value="open">פתוחות</option>
+          <option value="done">בוצעו</option>
+          <option value="cancelled">בוטלו</option>
+        </select>
         {hasActiveFilters && (
           <button
             onClick={() => {
               setCaseFilter("");
               setHandlerFilter("");
+              setStatusFilter("open");
             }}
             className="text-sm text-gray-500 underline hover:text-gray-900"
           >
             נקה סינון
           </button>
         )}
-        <label className="mr-auto flex items-center gap-1.5 text-sm text-gray-600">
-          <input
-            type="checkbox"
-            checked={showDone}
-            onChange={(e) => setShowDone(e.target.checked)}
-            className="h-4 w-4 accent-blue-600"
-          />
-          הצג גם שבוצעו
-        </label>
+        <span className="mr-auto rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+          {sortedRows.length} משימות
+        </span>
       </div>
 
-      <TaskGroup title="פתוחות" tasks={open} />
-      {showDone && <TaskGroup title="בוצעו" tasks={done} />}
-      {cancelled.length > 0 && <TaskGroup title="בוטלו" tasks={cancelled} />}
-    </div>
-  );
-}
-
-function TaskGroup({
-  title,
-  tasks,
-}: {
-  title: string;
-  tasks: TaskWithNames[];
-}) {
-  return (
-    <section>
-      <h2 className="mb-3 font-semibold text-gray-900">
-        {title} ({tasks.length})
-      </h2>
-      {tasks.length === 0 ? (
+      {sortedRows.length === 0 ? (
         <p className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-400 shadow-sm">
           אין משימות
         </p>
       ) : (
         <div className="space-y-2">
-          {tasks.map((t) => (
-            <TaskCard key={t.id} task={t} />
+          {sortedRows.map((t) => (
+            <TaskCard
+              key={t.id}
+              task={t}
+              canDelete={canCreate && t.status !== "open"}
+              onDelete={() => handleDelete(t)}
+            />
           ))}
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
-function TaskCard({ task: t }: { task: TaskWithNames }) {
-  const urgency = t.due_date ? deadlineUrgency(t.due_date, t.status) : null;
+function TaskCard({
+  task: t,
+  canDelete,
+  onDelete,
+}: {
+  task: TaskWithNames;
+  canDelete: boolean;
+  onDelete: () => void;
+}) {
+  const urgency =
+    t.due_date && t.status === "open"
+      ? deadlineUrgency(t.due_date, t.status)
+      : null;
   const showUrgency = urgency === "overdue" || urgency === "soon";
 
   return (
-    <Link
-      href={`/tasks/${t.id}`}
-      className={`block rounded-xl border bg-white p-4 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/30 ${
+    <div
+      className={`rounded-xl border bg-white p-4 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/30 ${
         urgency === "overdue"
           ? "border-rose-200"
           : urgency === "soon"
@@ -315,34 +419,47 @@ function TaskCard({ task: t }: { task: TaskWithNames }) {
             : "border-gray-200"
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <span className="font-medium text-gray-900">{t.text}</span>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {showUrgency && (
+      <Link href={`/tasks/${t.id}`} className="block">
+        <div className="flex items-start justify-between gap-3">
+          <span className="font-medium text-gray-900">{t.text}</span>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {showUrgency && (
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
+              >
+                {URGENCY_LABEL[urgency]}
+              </span>
+            )}
             <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
+              className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[t.status]}`}
             >
-              {URGENCY_LABEL[urgency]}
+              {STATUS_LABELS[t.status]}
+            </span>
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+          {t.assigned_to_profile?.full_name && (
+            <span>מטפל: {t.assigned_to_profile.full_name}</span>
+          )}
+          {t.case && (
+            <span>
+              תיק: {t.case.case_number} - {t.case.case_name}
             </span>
           )}
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[t.status]}`}
-          >
-            {STATUS_LABELS[t.status]}
-          </span>
+          {t.due_date && <span>תאריך יעד: {formatDate(t.due_date)}</span>}
         </div>
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-        {t.assigned_to_profile?.full_name && (
-          <span>מטפל: {t.assigned_to_profile.full_name}</span>
-        )}
-        {t.case && (
-          <span>
-            תיק: {t.case.case_number} - {t.case.case_name}
-          </span>
-        )}
-        {t.due_date && <span>תאריך יעד: {formatDate(t.due_date)}</span>}
-      </div>
-    </Link>
+        {t.notes && <div className="mt-1 text-xs text-gray-500">{t.notes}</div>}
+      </Link>
+      {canDelete && (
+        <div className="mt-2 flex justify-end">
+          <button
+            onClick={onDelete}
+            className="text-xs text-rose-600 hover:text-rose-800 hover:underline"
+          >
+            מחיקה לצמיתות
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
