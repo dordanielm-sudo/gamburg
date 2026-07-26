@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Notification, NotificationType } from "@/types/database";
@@ -36,6 +36,23 @@ export function NotificationBell({ userId }: { userId: string }) {
   const router = useRouter();
   const [items, setItems] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
+  const [toasts, setToasts] = useState<Notification[]>([]);
+  const toastTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  function dismissToast(id: string) {
+    const timer = toastTimers.current.get(id);
+    if (timer) clearTimeout(timer);
+    toastTimers.current.delete(id);
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  useEffect(() => {
+    const timers = toastTimers.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -65,7 +82,13 @@ export function NotificationBell({ userId }: { userId: string }) {
           filter: `user_id=eq.${userId}`,
         },
         (payload) => {
-          setItems((prev) => [payload.new as Notification, ...prev]);
+          const n = payload.new as Notification;
+          setItems((prev) => [n, ...prev]);
+          // floating popup in addition to the badge - auto-dismisses after
+          // a few seconds so it doesn't need to be closed manually
+          setToasts((prev) => [n, ...prev]);
+          const timer = setTimeout(() => dismissToast(n.id), 8000);
+          toastTimers.current.set(n.id, timer);
         },
       )
       .subscribe();
@@ -88,6 +111,13 @@ export function NotificationBell({ userId }: { userId: string }) {
   function handleClick(n: Notification) {
     markRead(n.id);
     setOpen(false);
+    const href = notificationHref(n);
+    if (href) router.push(href);
+  }
+
+  function handleToastClick(n: Notification) {
+    dismissToast(n.id);
+    markRead(n.id);
     const href = notificationHref(n);
     if (href) router.push(href);
   }
@@ -175,6 +205,38 @@ export function NotificationBell({ userId }: { userId: string }) {
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {toasts.length > 0 && (
+        <div className="fixed top-4 left-4 z-50 flex w-80 flex-col gap-2">
+          {toasts.map((n) => (
+            <div
+              key={n.id}
+              className="flex items-start gap-2 rounded-xl border border-gray-200 bg-white p-4 shadow-lg"
+            >
+              <button
+                onClick={() => handleToastClick(n)}
+                className="flex-1 text-right"
+              >
+                <span className="block text-sm font-medium text-gray-900">
+                  {n.title || TYPE_LABELS[n.type]}
+                </span>
+                {n.body && (
+                  <span className="mt-0.5 block text-xs text-gray-500">
+                    {n.body}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => dismissToast(n.id)}
+                aria-label="סגירה"
+                className="shrink-0 text-gray-400 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>
