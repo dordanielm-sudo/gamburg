@@ -10,6 +10,7 @@ import {
   type Profile,
   type Case,
 } from "@/types/database";
+import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 
 const TASK_SELECT =
   "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)";
@@ -111,6 +112,7 @@ export function TaskBoard({
   const [handlerFilter, setHandlerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("open");
   const [range, setRange] = useState<RangeKey>("all");
+  const [calendarDate, setCalendarDate] = useState<string | null>(null);
 
   const caseOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -143,9 +145,21 @@ export function TaskBoard({
     );
   }, [cases, caseSearch]);
 
+  const markedDates = useMemo(
+    () => new Set(rows.filter((t) => t.due_date).map((t) => t.due_date as string)),
+    [rows],
+  );
+
   const filteredRows = useMemo(() => {
     const today = startOfToday();
-    const { start, end } = rangeBounds(range, today);
+    // a specific day picked on the calendar takes over from the range
+    // buttons entirely - show exactly that day, no overdue carryover
+    const { start, end } = calendarDate
+      ? {
+          start: new Date(calendarDate + "T00:00:00"),
+          end: new Date(calendarDate + "T00:00:00"),
+        }
+      : rangeBounds(range, today);
 
     return rows.filter((t) => {
       if (caseFilter && t.case?.id !== caseFilter) return false;
@@ -154,12 +168,12 @@ export function TaskBoard({
       if (start === null && end === null) return true;
       if (!t.due_date) return true;
       const due = new Date(t.due_date + "T00:00:00");
-      if (due < today && t.status === "open") return true;
+      if (!calendarDate && due < today && t.status === "open") return true;
       if (start && due < start) return false;
       if (end && due > end) return false;
       return true;
     });
-  }, [rows, caseFilter, handlerFilter, statusFilter, range]);
+  }, [rows, caseFilter, handlerFilter, statusFilter, range, calendarDate]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -209,7 +223,8 @@ export function TaskBoard({
   }
 
   const sortedRows = [...filteredRows].sort(byDueDate);
-  const hasActiveFilters = !!caseFilter || !!handlerFilter || statusFilter !== "open";
+  const hasActiveFilters =
+    !!caseFilter || !!handlerFilter || statusFilter !== "open" || !!calendarDate;
 
   return (
     <div className="space-y-6">
@@ -316,9 +331,12 @@ export function TaskBoard({
           {(Object.keys(RANGE_LABELS) as RangeKey[]).map((key) => (
             <button
               key={key}
-              onClick={() => setRange(key)}
+              onClick={() => {
+                setRange(key);
+                setCalendarDate(null);
+              }}
               className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                range === key
+                !calendarDate && range === key
                   ? "bg-blue-600 text-white"
                   : "text-gray-600 hover:bg-gray-200"
               }`}
@@ -327,6 +345,16 @@ export function TaskBoard({
             </button>
           ))}
         </div>
+        <CalendarPopup
+          markedDates={markedDates}
+          selectedDate={calendarDate}
+          onSelect={setCalendarDate}
+        />
+        {calendarDate && (
+          <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium whitespace-nowrap text-blue-700">
+            {formatCalendarDate(calendarDate)}
+          </span>
+        )}
         <select
           value={caseFilter}
           onChange={(e) => setCaseFilter(e.target.value)}
@@ -367,6 +395,7 @@ export function TaskBoard({
               setCaseFilter("");
               setHandlerFilter("");
               setStatusFilter("open");
+              setCalendarDate(null);
             }}
             className="text-sm text-gray-500 underline hover:text-gray-900"
           >
