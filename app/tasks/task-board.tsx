@@ -11,6 +11,7 @@ import {
   type Case,
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
+import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
 
 const TASK_SELECT =
@@ -71,7 +72,8 @@ export function TaskBoard({
   const [rows, setRows] = useState(tasks);
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [caseSearch, setCaseSearch] = useState("");
+  const [createCaseId, setCreateCaseId] = useState("");
+  const [createCaseText, setCreateCaseText] = useState("");
   const [caseFilter, setCaseFilter] = useState("");
   const [handlerFilter, setHandlerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("open");
@@ -79,12 +81,12 @@ export function TaskBoard({
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
 
   const caseOptions = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, CaseOption>();
     for (const t of rows) {
-      if (t.case) map.set(t.case.id, `${t.case.case_number} - ${t.case.case_name}`);
+      if (t.case) map.set(t.case.id, t.case);
     }
-    return Array.from(map, ([id, label]) => ({ id, label })).sort((a, b) =>
-      a.label.localeCompare(b.label, "he"),
+    return Array.from(map.values()).sort((a, b) =>
+      a.case_number.localeCompare(b.case_number, "he"),
     );
   }, [rows]);
 
@@ -99,15 +101,10 @@ export function TaskBoard({
     );
   }, [rows]);
 
-  const formCaseOptions = useMemo(() => {
-    const q = caseSearch.trim().toLowerCase();
-    if (!q) return cases;
-    return cases.filter(
-      (c) =>
-        c.case_number.toLowerCase().includes(q) ||
-        c.case_name.toLowerCase().includes(q),
-    );
-  }, [cases, caseSearch]);
+  const caseFilterOption = caseOptions.find((c) => c.id === caseFilter);
+  const caseFilterText = caseFilterOption
+    ? `${caseFilterOption.case_number} - ${caseFilterOption.case_name}`
+    : "";
 
   const markedDates = useMemo(
     () => new Set(rows.filter((t) => t.due_date).map((t) => t.due_date as string)),
@@ -152,9 +149,9 @@ export function TaskBoard({
       return;
     }
 
-    const manualCaseNumber = String(formData.get("case_number_manual") ?? "").trim();
-    let caseId = String(formData.get("case_id") ?? "") || null;
-    if (manualCaseNumber) {
+    const manualCaseNumber = createCaseText.trim();
+    let caseId: string | null = createCaseId || null;
+    if (!caseId && manualCaseNumber) {
       const { data: foundCase } = await supabase
         .from("cases")
         .select("id")
@@ -187,7 +184,8 @@ export function TaskBoard({
       return;
     }
     setRows((prev) => [data, ...prev]);
-    setCaseSearch("");
+    setCreateCaseId("");
+    setCreateCaseText("");
   }
 
   async function handleDelete(task: TaskWithNames) {
@@ -242,43 +240,19 @@ export function TaskBoard({
                 ))}
               </select>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">
-                חיפוש תיק
-              </label>
-              <input
-                type="text"
-                value={caseSearch}
-                onChange={(e) => setCaseSearch(e.target.value)}
-                placeholder="הקלד לחיפוש..."
-                className="w-32 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">
-                תיק (אופציונלי)
-              </label>
-              <select
-                name="case_id"
-                defaultValue=""
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-              >
-                <option value="">ללא תיק</option>
-                {formCaseOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.case_number} - {c.case_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">
-                או הקלדת מספר תיק
-              </label>
-              <input
-                name="case_number_manual"
-                placeholder="מספר תיק..."
-                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
+            <div className="w-56">
+              <CaseCombobox
+                cases={cases}
+                label="תיק (אופציונלי)"
+                placeholder="ללא תיק - הקלד לחיפוש..."
+                onSelect={(c) => {
+                  setCreateCaseId(c.id);
+                  setCreateCaseText("");
+                }}
+                onTextChange={(text) => {
+                  setCreateCaseId("");
+                  setCreateCaseText(text);
+                }}
               />
             </div>
             <div>
@@ -343,18 +317,17 @@ export function TaskBoard({
             {formatCalendarDate(calendarDate)}
           </span>
         )}
-        <select
-          value={caseFilter}
-          onChange={(e) => setCaseFilter(e.target.value)}
-          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-        >
-          <option value="">תיק: הכל</option>
-          {caseOptions.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+        <CaseCombobox
+          key={caseFilter}
+          cases={caseOptions}
+          placeholder="תיק: הכל"
+          initialText={caseFilterText}
+          className="w-56"
+          onSelect={(c) => setCaseFilter(c.id)}
+          onTextChange={(text) => {
+            if (!text) setCaseFilter("");
+          }}
+        />
         <select
           value={handlerFilter}
           onChange={(e) => setHandlerFilter(e.target.value)}
