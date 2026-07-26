@@ -129,6 +129,11 @@ export interface Task {
   start_date: string | null;
   due_date: string | null;
   notes: string | null;
+  priority_code: number | null;
+  priority_name: string | null;
+  category_code: number | null;
+  category_name: string | null;
+  informed_users_names: string | null;
   created_at: string;
   completed_at: string | null;
 }

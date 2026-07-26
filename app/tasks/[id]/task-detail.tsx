@@ -31,6 +31,10 @@ const URGENCY_LABEL: Record<string, string> = {
   soon: "בקרוב",
 };
 
+// synced from עדכנית (PriorityCode/PriorityName) - only code 3 (גבוהה) is
+// worth calling out with a badge, "רגילה" (2) is the default and not shown
+const HIGH_PRIORITY_CODE = 3;
+
 function formatDateTime(value: string | null) {
   if (!value) return "—";
   return new Date(value).toLocaleString("he-IL", {
@@ -89,6 +93,11 @@ export function TaskDetail({
           {current.text}
         </h1>
         <div className="flex shrink-0 items-center gap-1.5">
+          {current.priority_code === HIGH_PRIORITY_CODE && (
+            <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium whitespace-nowrap text-orange-700">
+              {current.priority_name || "עדיפות גבוהה"}
+            </span>
+          )}
           {showUrgency && (
             <span
               className={`rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
@@ -143,9 +152,16 @@ export function TaskDetail({
         />
         <Field label="תאריך התחלה" value={formatDate(current.start_date)} />
         <Field label="תאריך יעד" value={formatDate(current.due_date)} />
+        <Field label="קטגוריה" value={current.category_name ?? "—"} />
         <Field label="נוצרה בתאריך" value={formatDateTime(current.created_at)} />
         <Field label="הושלמה בתאריך" value={formatDateTime(current.completed_at)} />
       </dl>
+      {current.notes && (
+        <div className="mt-4">
+          <dt className="text-xs text-gray-400">הערות</dt>
+          <dd className="mt-0.5 text-sm text-gray-700">{current.notes}</dd>
+        </div>
+      )}
     </section>
   );
 }

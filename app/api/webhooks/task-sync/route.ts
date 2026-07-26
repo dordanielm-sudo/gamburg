@@ -18,6 +18,11 @@ interface TaskSyncPayload {
   handler_name?: string | null;
   start_date?: string | null;
   due_date?: string | null;
+  priority_code?: number | null;
+  priority_name?: string | null;
+  category_code?: number | null;
+  category_name?: string | null;
+  informed_users_names?: string | null;
 }
 
 const STATUS_MAP: Record<string, "open" | "done" | "cancelled"> = {
@@ -122,6 +127,11 @@ export async function POST(request: Request) {
     status,
     start_date: body.start_date ?? null,
     due_date: body.due_date ?? null,
+    priority_code: body.priority_code ?? null,
+    priority_name: body.priority_name?.trim() || null,
+    category_code: body.category_code ?? null,
+    category_name: body.category_name?.trim() || null,
+    informed_users_names: body.informed_users_names?.trim() || null,
   };
 
   const { data: updated, error: updateError } = await admin
