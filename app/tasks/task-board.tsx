@@ -144,13 +144,27 @@ export function TaskBoard({
 
     const text = String(formData.get("text") ?? "").trim();
     const assignedTo = String(formData.get("assigned_to") ?? "");
-    const caseId = String(formData.get("case_id") ?? "") || null;
     const dueDate = String(formData.get("due_date") ?? "") || null;
     const notes = String(formData.get("notes") ?? "").trim() || null;
 
     if (!text || !assignedTo) {
       setFormError("יש למלא תיאור ומטפל");
       return;
+    }
+
+    const manualCaseNumber = String(formData.get("case_number_manual") ?? "").trim();
+    let caseId = String(formData.get("case_id") ?? "") || null;
+    if (manualCaseNumber) {
+      const { data: foundCase } = await supabase
+        .from("cases")
+        .select("id")
+        .eq("case_number", manualCaseNumber)
+        .maybeSingle();
+      if (!foundCase) {
+        setFormError(`לא נמצא תיק עם מספר "${manualCaseNumber}"`);
+        return;
+      }
+      caseId = foundCase.id;
     }
 
     setCreating(true);
@@ -256,6 +270,16 @@ export function TaskBoard({
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">
+                או הקלדת מספר תיק
+              </label>
+              <input
+                name="case_number_manual"
+                placeholder="מספר תיק..."
+                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-500">
