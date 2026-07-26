@@ -71,6 +71,7 @@ export function AppHeader({
             <>
               <NavLink href="/dashboard">דשבורד</NavLink>
               <NavLink href="/dashboard/users">משתמשים</NavLink>
+              <NavLink href="/dashboard/webhooks">וובהוקים</NavLink>
             </>
           )}
         </nav>

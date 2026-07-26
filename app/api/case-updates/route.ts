@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { callMakeOutgoingWebhook } from "@/lib/make-webhook";
+import { getWebhookValue, logWebhookCall } from "@/lib/webhook-config";
 
 // Section 4.2: generic CRM -> Make write-back. The client has already saved
 // the change to Supabase (optimistic); this endpoint logs it and forwards it
@@ -69,7 +70,11 @@ export async function POST(request: Request) {
   // no RLS UPDATE policy grants writing webhook_status/message to
   // 'authenticated' by design - only the server, via service_role, sets them.
   const admin = createAdminClient();
-  const webhookUrl = process.env.MAKE_OUTGOING_WEBHOOK_URL;
+  const webhookUrl = await getWebhookValue(
+    admin,
+    "outgoing_case_update",
+    process.env.MAKE_OUTGOING_WEBHOOK_URL,
+  );
 
   if (!webhookUrl) {
     const message = "Make webhook לא מוגדר - השינוי נשמר רק ב-CRM";
@@ -81,6 +86,14 @@ export async function POST(request: Request) {
         responded_at: new Date().toISOString(),
       })
       .eq("id", logRow.id);
+    await logWebhookCall(
+      admin,
+      "outgoing_case_update",
+      "skipped",
+      200,
+      payload,
+      { status: "warning", message },
+    );
     return NextResponse.json({ status: "warning", message });
   }
 
@@ -102,6 +115,21 @@ export async function POST(request: Request) {
       responded_at: new Date().toISOString(),
     })
     .eq("id", logRow.id);
+
+  const logStatus =
+    result.status === "failure"
+      ? "error"
+      : result.status === "warning"
+        ? "skipped"
+        : "ok";
+  await logWebhookCall(
+    admin,
+    "outgoing_case_update",
+    logStatus,
+    200,
+    payload,
+    result,
+  );
 
   return NextResponse.json(result);
 }
