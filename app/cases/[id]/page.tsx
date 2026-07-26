@@ -13,6 +13,7 @@ import type {
   CaseDeadline,
   TaskWithNames,
   SpouseDetails,
+  CaseField,
 } from "@/types/database";
 
 const TASK_SELECT =
@@ -37,7 +38,7 @@ export default async function CaseDetailPage({
 
   if (!caseRow) notFound();
 
-  const [{ data: documents }, { data: deadlines }, { data: caseTasks }] =
+  const [{ data: documents }, { data: deadlines }, { data: caseTasks }, { data: caseFields }] =
     await Promise.all([
       supabase
         .from("documents")
@@ -57,6 +58,12 @@ export default async function CaseDetailPage({
         .eq("case_id", id)
         .order("created_at", { ascending: false })
         .returns<TaskWithNames[]>(),
+      supabase
+        .from("case_fields")
+        .select("*")
+        .eq("case_id", id)
+        .order("field_name")
+        .returns<CaseField[]>(),
     ]);
 
   const canEdit =
@@ -87,6 +94,22 @@ export default async function CaseDetailPage({
       id: "spouse",
       label: "בן/בת זוג",
       content: <SpouseSummary spouse={spouse!} />,
+    });
+  }
+
+  // חוצצים: one tab per PageName that has synced fields for this case - a
+  // case with no חדל"פ data, say, simply gets no חדל"פ tab
+  const fieldsByPage = new Map<string, CaseField[]>();
+  for (const f of caseFields ?? []) {
+    const group = fieldsByPage.get(f.page_name) ?? [];
+    group.push(f);
+    fieldsByPage.set(f.page_name, group);
+  }
+  for (const [pageName, fields] of fieldsByPage) {
+    tabs.push({
+      id: `fields-${pageName}`,
+      label: pageName,
+      content: <CaseFieldsTab pageName={pageName} fields={fields} />,
     });
   }
 
@@ -163,6 +186,40 @@ function CaseSummary({ caseRow }: { caseRow: CaseWithHandler }) {
             <div className="text-xs text-gray-400">{f.label}</div>
             <div className="mt-0.5 text-sm font-medium text-gray-900">
               {f.value}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function formatFieldValue(f: CaseField): string {
+  if (f.value_date) return new Date(f.value_date).toLocaleDateString("he-IL");
+  if (f.value_number !== null) return String(f.value_number);
+  if (f.value_text) return f.value_text;
+  return "—";
+}
+
+function CaseFieldsTab({
+  pageName,
+  fields,
+}: {
+  pageName: string;
+  fields: CaseField[];
+}) {
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h2 className="mb-1 font-semibold text-gray-900">{pageName}</h2>
+      <p className="mb-4 text-xs text-gray-400">
+        נמשך אוטומטית מעדכנית - לתצוגה בלבד
+      </p>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {fields.map((f) => (
+          <div key={f.id}>
+            <div className="text-xs text-gray-400">{f.field_name}</div>
+            <div className="mt-0.5 text-sm font-medium text-gray-900">
+              {formatFieldValue(f)}
             </div>
           </div>
         ))}
