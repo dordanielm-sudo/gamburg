@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { runIncomingWebhook } from "@/lib/webhook-handler";
 
 // Generic import of חוצצים (tabs) fields from עדכנית's custom-fields view
 // (vwExportToOuterSystems_UserData) - one call per field, same pattern as
@@ -19,91 +18,85 @@ interface CaseFieldSyncPayload {
 }
 
 export async function POST(request: Request) {
-  const secret = request.headers.get("x-webhook-secret");
-  const expected = process.env.MAKE_CASE_FIELD_SYNC_WEBHOOK_SECRET;
-  if (!expected || secret !== expected) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  return runIncomingWebhook(
+    "case_field_sync",
+    request,
+    process.env.MAKE_CASE_FIELD_SYNC_WEBHOOK_SECRET,
+    async (rawBody, admin) => {
+      const body = rawBody as CaseFieldSyncPayload;
 
-  let body: CaseFieldSyncPayload;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
-  }
+      const caseNumber = body.case_number?.trim();
+      const pageName = body.page_name?.trim();
+      const fieldName = body.field_name?.trim();
+      if (!caseNumber || !pageName || !fieldName) {
+        return {
+          status: 400,
+          json: { error: "case_number, page_name and field_name are required" },
+        };
+      }
 
-  const caseNumber = body.case_number?.trim();
-  const pageName = body.page_name?.trim();
-  const fieldName = body.field_name?.trim();
-  if (!caseNumber || !pageName || !fieldName) {
-    return NextResponse.json(
-      { error: "case_number, page_name and field_name are required" },
-      { status: 400 },
-    );
-  }
+      const valueText = body.value_text?.trim() || null;
+      const valueDate = body.value_date?.trim() || null;
+      const valueNumber =
+        typeof body.value_number === "number" ? body.value_number : null;
+      if (!valueText && !valueDate && valueNumber === null) {
+        // the field is empty in עדכנית for this case - nothing to sync yet,
+        // not an error (most cases won't have every field filled in)
+        return { status: 200, json: { status: "skipped", reason: "no value" } };
+      }
 
-  const valueText = body.value_text?.trim() || null;
-  const valueDate = body.value_date?.trim() || null;
-  const valueNumber =
-    typeof body.value_number === "number" ? body.value_number : null;
-  if (!valueText && !valueDate && valueNumber === null) {
-    // the field is empty in עדכנית for this case - nothing to sync yet,
-    // not an error (most cases won't have every field filled in)
-    return NextResponse.json({ status: "skipped", reason: "no value" });
-  }
+      const { data: caseRow, error: caseError } = await admin
+        .from("cases")
+        .select("id")
+        .eq("case_number", caseNumber)
+        .maybeSingle();
+      if (caseError) {
+        return { status: 500, json: { error: caseError.message } };
+      }
+      if (!caseRow) {
+        return {
+          status: 404,
+          json: { error: `no case found for case_number ${caseNumber}` },
+        };
+      }
 
-  const admin = createAdminClient();
+      const fieldValues = {
+        value_text: valueText,
+        value_date: valueDate,
+        value_number: valueNumber,
+        source_updated_at: new Date().toISOString(),
+      };
 
-  const { data: caseRow, error: caseError } = await admin
-    .from("cases")
-    .select("id")
-    .eq("case_number", caseNumber)
-    .maybeSingle();
-  if (caseError) {
-    return NextResponse.json({ error: caseError.message }, { status: 500 });
-  }
-  if (!caseRow) {
-    return NextResponse.json(
-      { error: `no case found for case_number ${caseNumber}` },
-      { status: 404 },
-    );
-  }
+      const { data: updated, error: updateError } = await admin
+        .from("case_fields")
+        .update(fieldValues)
+        .eq("case_id", caseRow.id)
+        .eq("page_name", pageName)
+        .eq("field_name", fieldName)
+        .select("id");
+      if (updateError) {
+        return { status: 500, json: { error: updateError.message } };
+      }
 
-  const fieldValues = {
-    value_text: valueText,
-    value_date: valueDate,
-    value_number: valueNumber,
-    source_updated_at: new Date().toISOString(),
-  };
+      if (updated && updated.length > 0) {
+        return { status: 200, json: { status: "ok", field_id: updated[0].id } };
+      }
 
-  const { data: updated, error: updateError } = await admin
-    .from("case_fields")
-    .update(fieldValues)
-    .eq("case_id", caseRow.id)
-    .eq("page_name", pageName)
-    .eq("field_name", fieldName)
-    .select("id");
-  if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
-  }
+      const { data: inserted, error: insertError } = await admin
+        .from("case_fields")
+        .insert({
+          case_id: caseRow.id,
+          page_name: pageName,
+          field_name: fieldName,
+          ...fieldValues,
+        })
+        .select("id")
+        .single();
+      if (insertError) {
+        return { status: 500, json: { error: insertError.message } };
+      }
 
-  if (updated && updated.length > 0) {
-    return NextResponse.json({ status: "ok", field_id: updated[0].id });
-  }
-
-  const { data: inserted, error: insertError } = await admin
-    .from("case_fields")
-    .insert({
-      case_id: caseRow.id,
-      page_name: pageName,
-      field_name: fieldName,
-      ...fieldValues,
-    })
-    .select("id")
-    .single();
-  if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ status: "ok", field_id: inserted.id });
+      return { status: 200, json: { status: "ok", field_id: inserted.id } };
+    },
+  );
 }

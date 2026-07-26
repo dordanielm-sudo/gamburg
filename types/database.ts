@@ -173,6 +173,33 @@ export interface Notification {
   created_at: string;
 }
 
+// developer/admin panel (/dashboard/webhooks) - lets a manager edit a
+// webhook's secret/URL from the UI and see its recent call history,
+// instead of SSHing in to edit .env.production. See migration 0018.
+export type WebhookDirection = "incoming" | "outgoing";
+export type WebhookValueType = "secret" | "url";
+export type WebhookLogStatus = "ok" | "error" | "skipped" | "unauthorized";
+
+export interface WebhookConfig {
+  key: string;
+  label: string;
+  endpoint_path: string;
+  direction: WebhookDirection;
+  value_type: WebhookValueType;
+  value: string | null;
+  updated_at: string;
+}
+
+export interface WebhookLog {
+  id: string;
+  webhook_key: string;
+  status: WebhookLogStatus;
+  status_code: number;
+  request_body: unknown;
+  response_body: unknown;
+  created_at: string;
+}
+
 export interface CaseSyncLogEntry {
   id: string;
   case_id: string;
