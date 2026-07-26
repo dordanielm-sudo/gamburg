@@ -36,6 +36,10 @@ const URGENCY_LABEL: Record<string, string> = {
   soon: "בקרוב",
 };
 
+// synced from עדכנית (PriorityCode/PriorityName) - only code 3 (גבוהה) is
+// worth calling out with a badge, "רגילה" (2) is the default and not shown
+const HIGH_PRIORITY_CODE = 3;
+
 type RangeKey = "week" | "nextWeek" | "month" | "all";
 
 const RANGE_LABELS: Record<RangeKey, string> = {
@@ -423,6 +427,11 @@ function TaskCard({
         <div className="flex items-start justify-between gap-3">
           <span className="font-medium text-gray-900">{t.text}</span>
           <div className="flex shrink-0 items-center gap-1.5">
+            {t.priority_code === HIGH_PRIORITY_CODE && (
+              <span className="rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-orange-700">
+                {t.priority_name || "עדיפות גבוהה"}
+              </span>
+            )}
             {showUrgency && (
               <span
                 className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
@@ -447,6 +456,7 @@ function TaskCard({
             </span>
           )}
           {t.due_date && <span>תאריך יעד: {formatDate(t.due_date)}</span>}
+          {t.category_name && <span>קטגוריה: {t.category_name}</span>}
         </div>
         {t.notes && <div className="mt-1 text-xs text-gray-500">{t.notes}</div>}
       </Link>
