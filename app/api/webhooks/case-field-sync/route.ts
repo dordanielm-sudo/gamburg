@@ -7,6 +7,11 @@ import { runIncomingWebhook } from "@/lib/webhook-handler";
 // endpoint or migration. Keyed on (case_id, page_name, field_name) - a
 // resync updates the same row via UPDATE-then-INSERT (never a plain
 // upsert, which resets unlisted columns to their default on conflict).
+//
+// Unlike deadline-sync, an empty value is NOT skipped: a tab should show
+// every field it has (per explicit request - "כל שלושים השדות תמיד"),
+// with a dash for whatever's blank, so the row is written with nulls
+// instead of not being written at all.
 
 interface CaseFieldSyncPayload {
   case_number?: string;
@@ -39,11 +44,6 @@ export async function POST(request: Request) {
       const valueDate = body.value_date?.trim() || null;
       const valueNumber =
         typeof body.value_number === "number" ? body.value_number : null;
-      if (!valueText && !valueDate && valueNumber === null) {
-        // the field is empty in עדכנית for this case - nothing to sync yet,
-        // not an error (most cases won't have every field filled in)
-        return { status: 200, json: { status: "skipped", reason: "no value" } };
-      }
 
       const { data: caseRow, error: caseError } = await admin
         .from("cases")
