@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { updateWebhookValue } from "./actions";
-import type { WebhookConfig, WebhookLog } from "@/types/database";
+import type { WebhookConfig, WebhookDirection, WebhookLog } from "@/types/database";
 
 const STATUS_BADGE: Record<string, string> = {
   ok: "bg-emerald-50 text-emerald-700",
@@ -16,6 +16,11 @@ const STATUS_LABEL: Record<string, string> = {
   error: "שגיאה",
   skipped: "דולג",
   unauthorized: "לא מורשה",
+};
+
+const SECTION_LABELS: Record<WebhookDirection, string> = {
+  incoming: "נכנסים - Make ← עדכנית שולח ל-CRM",
+  outgoing: "יוצאים - CRM כותב חזרה ל-Make",
 };
 
 function timeAgo(iso: string) {
@@ -42,16 +47,69 @@ export function WebhooksPanel({
     logsByKey.set(log.webhook_key, list);
   }
 
+  const grouped: Record<WebhookDirection, WebhookConfig[]> = {
+    incoming: [],
+    outgoing: [],
+  };
+  for (const config of configs) grouped[config.direction].push(config);
+
   return (
     <div className="space-y-4">
-      {configs.map((config) => (
-        <WebhookCard
-          key={config.key}
-          config={config}
-          logs={(logsByKey.get(config.key) ?? []).slice(0, 20)}
+      {(["incoming", "outgoing"] as WebhookDirection[]).map((direction) => (
+        <WebhookSection
+          key={direction}
+          direction={direction}
+          configs={grouped[direction]}
+          logsByKey={logsByKey}
         />
       ))}
     </div>
+  );
+}
+
+function WebhookSection({
+  direction,
+  configs,
+  logsByKey,
+}: {
+  direction: WebhookDirection;
+  configs: WebhookConfig[];
+  logsByKey: Map<string, WebhookLog[]>;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 px-5 py-4 text-right"
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-gray-900">
+            {SECTION_LABELS[direction]}
+          </span>
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+            {configs.length}
+          </span>
+        </div>
+        <span
+          className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+        >
+          ⌄
+        </span>
+      </button>
+      {open && (
+        <div className="divide-y divide-gray-100 border-t border-gray-100">
+          {configs.map((config) => (
+            <WebhookCard
+              key={config.key}
+              config={config}
+              logs={(logsByKey.get(config.key) ?? []).slice(0, 20)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -82,23 +140,12 @@ function WebhookCard({
   }
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="font-semibold text-gray-900">{config.label}</h2>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-400">
-            <span className="font-mono">{config.endpoint_path}</span>
-            <span
-              className={`rounded-full px-1.5 py-0.5 ${
-                config.direction === "incoming"
-                  ? "bg-blue-50 text-blue-700"
-                  : "bg-purple-50 text-purple-700"
-              }`}
-            >
-              {config.direction === "incoming" ? "נכנס" : "יוצא"}
-            </span>
-          </div>
-        </div>
+    <div className="p-5">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h3 className="font-medium text-gray-900">{config.label}</h3>
+        <span className="font-mono text-xs text-gray-400">
+          {config.endpoint_path}
+        </span>
       </div>
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -167,6 +214,6 @@ function WebhookCard({
             ))}
           </ul>
         ))}
-    </section>
+    </div>
   );
 }
