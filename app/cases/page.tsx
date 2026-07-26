@@ -13,7 +13,7 @@ export default async function CasesPage() {
   const { data: cases, error } = await supabase
     .from("cases")
     .select(
-      "*, handler:profiles!cases_handler_id_fkey(id, full_name), case_deadlines(id, due_date, status), tasks(id, due_date, status)",
+      "*, handler:profiles!cases_handler_id_fkey(id, full_name), case_deadlines(id, due_date, status), tasks(id, due_date, status), case_fields(page_name, field_name, value_text, value_date, value_number)",
     )
     .order("last_touched_at", { ascending: false })
     .returns<CaseWithRelations[]>();
