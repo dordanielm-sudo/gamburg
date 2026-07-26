@@ -125,6 +125,22 @@ export function deadlineUrgency(
   return "normal";
 }
 
+// חוצצים (tabs) - one row per synced field, grouped by page_name into a
+// tab on the case detail page. See migration 0017 for why this is a
+// generic EAV shape instead of one column per field.
+export interface CaseField {
+  id: string;
+  case_id: string;
+  page_name: string;
+  field_name: string;
+  value_text: string | null;
+  value_date: string | null;
+  value_number: number | null;
+  source_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Task {
   id: string;
   text: string;
