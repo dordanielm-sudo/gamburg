@@ -10,20 +10,37 @@ import {
   type TaskStatus,
 } from "@/types/database";
 
-type RangeKey = "week" | "month" | "all";
+type RangeKey = "week" | "nextWeek" | "month" | "all";
 
 const RANGE_LABELS: Record<RangeKey, string> = {
   week: "השבוע",
+  nextWeek: "שבוע הבא",
   month: "החודש",
   all: "הכל",
 };
 
-// "week" = rolling 7 days; "month" = through the end of the current
-// calendar month (not a rolling 30 days, which could spill into next month)
-function rangeEndFor(range: RangeKey, today: Date): Date | null {
-  if (range === "all") return null;
-  if (range === "week") return new Date(today.getTime() + 7 * 86400000);
-  return new Date(today.getFullYear(), today.getMonth() + 1, 0);
+// calendar week = Sunday through Saturday (not a rolling 7 days)
+function weekBounds(weeksAhead: number, today: Date) {
+  const sunday = new Date(today);
+  sunday.setDate(today.getDate() - today.getDay() + weeksAhead * 7);
+  const saturday = new Date(sunday);
+  saturday.setDate(sunday.getDate() + 6);
+  return { start: sunday, end: saturday };
+}
+
+// "month" = today through the end of the current calendar month (not a
+// rolling 30 days, which could spill into next month)
+function rangeBounds(
+  range: RangeKey,
+  today: Date,
+): { start: Date | null; end: Date | null } {
+  if (range === "all") return { start: null, end: null };
+  if (range === "week") return weekBounds(0, today);
+  if (range === "nextWeek") return weekBounds(1, today);
+  return {
+    start: today,
+    end: new Date(today.getFullYear(), today.getMonth() + 1, 0),
+  };
 }
 
 const URGENCY_BADGE: Record<string, string> = {
@@ -107,19 +124,21 @@ export function DeadlinesBoard({
 
   const filtered = useMemo(() => {
     const today = startOfToday();
-    const rangeEnd = rangeEndFor(range, today);
+    const { start, end } = rangeBounds(range, today);
 
     return rows.filter((d) => {
       if (caseFilter && d.case?.id !== caseFilter) return false;
       if (handlerFilter && d.case?.handler?.id !== handlerFilter) return false;
       if (labelFilter && d.label !== labelFilter) return false;
       if (!showDone && d.status === "done") return false;
-      if (rangeEnd === null) return true;
+      if (start === null && end === null) return true;
       const due = new Date(d.due_date + "T00:00:00");
       // always surface overdue/open items regardless of range, so nothing
       // gets buried once it's already late
       if (due < today && d.status !== "done") return true;
-      return due <= rangeEnd;
+      if (start && due < start) return false;
+      if (end && due > end) return false;
+      return true;
     });
   }, [rows, range, showDone, caseFilter, handlerFilter, labelFilter]);
 
