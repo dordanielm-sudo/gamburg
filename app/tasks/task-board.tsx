@@ -11,6 +11,7 @@ import {
   type Case,
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
+import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
 
 const TASK_SELECT =
   "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)";
@@ -40,43 +41,6 @@ const URGENCY_LABEL: Record<string, string> = {
 // synced from עדכנית (PriorityCode/PriorityName) - only code 3 (גבוהה) is
 // worth calling out with a badge, "רגילה" (2) is the default and not shown
 const HIGH_PRIORITY_CODE = 3;
-
-type RangeKey = "week" | "nextWeek" | "month" | "all";
-
-const RANGE_LABELS: Record<RangeKey, string> = {
-  week: "השבוע",
-  nextWeek: "שבוע הבא",
-  month: "החודש",
-  all: "הכל",
-};
-
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-// calendar week = Sunday through Saturday (not a rolling 7 days)
-function weekBounds(weeksAhead: number, today: Date) {
-  const sunday = new Date(today);
-  sunday.setDate(today.getDate() - today.getDay() + weeksAhead * 7);
-  const saturday = new Date(sunday);
-  saturday.setDate(sunday.getDate() + 6);
-  return { start: sunday, end: saturday };
-}
-
-function rangeBounds(
-  range: RangeKey,
-  today: Date,
-): { start: Date | null; end: Date | null } {
-  if (range === "all") return { start: null, end: null };
-  if (range === "week") return weekBounds(0, today);
-  if (range === "nextWeek") return weekBounds(1, today);
-  return {
-    start: today,
-    end: new Date(today.getFullYear(), today.getMonth() + 1, 0),
-  };
-}
 
 function formatDate(value: string) {
   return new Date(value + "T00:00:00").toLocaleDateString("he-IL");

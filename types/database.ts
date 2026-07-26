@@ -57,6 +57,13 @@ export interface CaseWithHandler extends Case {
   handler: Pick<Profile, "id" | "full_name"> | null;
 }
 
+// for the cases screen's date-range filter, which surfaces cases with a
+// nearby deadline or task rather than filtering by a single date field
+export interface CaseWithRelations extends CaseWithHandler {
+  case_deadlines: Pick<CaseDeadline, "id" | "due_date" | "status">[];
+  tasks: Pick<Task, "id" | "due_date" | "status">[];
+}
+
 export interface Hearing {
   id: string;
   case_id: string;

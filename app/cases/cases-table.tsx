@@ -3,7 +3,9 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { isCaseStuck, type CaseWithHandler } from "@/types/database";
+import { isCaseStuck, type CaseWithRelations } from "@/types/database";
+import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
+import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
 
 type SortKey = "case_number" | "case_name" | "opened_date" | "last_touched_at";
 
@@ -36,11 +38,30 @@ function uniqueSorted(values: (string | null | undefined)[]) {
   );
 }
 
+// a deadline/task counts toward the case's date-range match if it's still
+// open and due in the window - already-late-but-open items always count,
+// same "don't bury it" rule as the deadlines/tasks screens
+function itemMatchesRange(
+  dueDate: string | null,
+  status: string,
+  today: Date,
+  start: Date | null,
+  end: Date | null,
+  calendarDate: string | null,
+) {
+  if (!dueDate || status === "done" || status === "cancelled") return false;
+  const due = new Date(dueDate + "T00:00:00");
+  if (!calendarDate && due < today) return true;
+  if (start && due < start) return false;
+  if (end && due > end) return false;
+  return true;
+}
+
 export function CasesTable({
   cases,
   canEdit,
 }: {
-  cases: CaseWithHandler[];
+  cases: CaseWithRelations[];
   canEdit: boolean;
 }) {
   const [rows, setRows] = useState(cases);
@@ -50,6 +71,8 @@ export function CasesTable({
   const [natureFilter, setNatureFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [flagFilter, setFlagFilter] = useState<"" | (typeof FLAG_DEFS)[number]["key"]>("");
+  const [range, setRange] = useState<RangeKey>("all");
+  const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("last_touched_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncStatus>>({});
@@ -72,6 +95,17 @@ export function CasesTable({
     () => uniqueSorted(rows.map((c) => c.case_type)),
     [rows],
   );
+
+  // days that have an open deadline/task somewhere, for the calendar's dot
+  // markers - across all cases, not just the currently filtered ones
+  const markedDates = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of rows) {
+      for (const d of c.case_deadlines) if (d.due_date) set.add(d.due_date);
+      for (const t of c.tasks) if (t.due_date) set.add(t.due_date);
+    }
+    return set;
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -99,6 +133,30 @@ export function CasesTable({
       list = list.filter((c) => c[flagFilter]);
     }
 
+    // date range/calendar filter mixes deadlines and tasks: a case matches
+    // if it has any open deadline OR task due in the picked window
+    if (range !== "all" || calendarDate) {
+      const today = startOfToday();
+      const { start, end } = calendarDate
+        ? {
+            start: new Date(calendarDate + "T00:00:00"),
+            end: new Date(calendarDate + "T00:00:00"),
+          }
+        : rangeBounds(range, today);
+      list = list.filter((c) =>
+        [...c.case_deadlines, ...c.tasks].some((item) =>
+          itemMatchesRange(
+            item.due_date,
+            item.status,
+            today,
+            start,
+            end,
+            calendarDate,
+          ),
+        ),
+      );
+    }
+
     const sorted = [...list].sort((a, b) => {
       const av = a[sortKey] ?? "";
       const bv = b[sortKey] ?? "";
@@ -115,6 +173,8 @@ export function CasesTable({
     natureFilter,
     typeFilter,
     flagFilter,
+    range,
+    calendarDate,
     sortKey,
     sortDir,
   ]);
@@ -192,7 +252,9 @@ export function CasesTable({
     !!statusFilter ||
     !!natureFilter ||
     !!typeFilter ||
-    !!flagFilter;
+    !!flagFilter ||
+    range !== "all" ||
+    !!calendarDate;
 
   function clearFilters() {
     setSearch("");
@@ -201,10 +263,46 @@ export function CasesTable({
     setNatureFilter("");
     setTypeFilter("");
     setFlagFilter("");
+    setRange("all");
+    setCalendarDate(null);
   }
 
   return (
     <div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-gray-400">
+          תיקים עם מועד/משימה פתוחים ב:
+        </span>
+        <div className="flex items-center gap-1 rounded-full bg-gray-100 p-1">
+          {(Object.keys(RANGE_LABELS) as RangeKey[]).map((key) => (
+            <button
+              key={key}
+              onClick={() => {
+                setRange(key);
+                setCalendarDate(null);
+              }}
+              className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                !calendarDate && range === key
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {RANGE_LABELS[key]}
+            </button>
+          ))}
+        </div>
+        <CalendarPopup
+          markedDates={markedDates}
+          selectedDate={calendarDate}
+          onSelect={setCalendarDate}
+        />
+        {calendarDate && (
+          <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium whitespace-nowrap text-blue-700">
+            {formatCalendarDate(calendarDate)}
+          </span>
+        )}
+      </div>
+
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative w-72">
           <svg

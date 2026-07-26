@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { CasesTable } from "./cases-table";
-import type { CaseWithHandler } from "@/types/database";
+import type { CaseWithRelations } from "@/types/database";
 
 export default async function CasesPage() {
   const profile = await getCurrentProfile();
@@ -12,9 +12,11 @@ export default async function CasesPage() {
   const supabase = await createClient();
   const { data: cases, error } = await supabase
     .from("cases")
-    .select("*, handler:profiles!cases_handler_id_fkey(id, full_name)")
+    .select(
+      "*, handler:profiles!cases_handler_id_fkey(id, full_name), case_deadlines(id, due_date, status), tasks(id, due_date, status)",
+    )
     .order("last_touched_at", { ascending: false })
-    .returns<CaseWithHandler[]>();
+    .returns<CaseWithRelations[]>();
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
