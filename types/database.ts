@@ -57,11 +57,15 @@ export interface CaseWithHandler extends Case {
   handler: Pick<Profile, "id" | "full_name"> | null;
 }
 
-// for the cases screen's date-range filter, which surfaces cases with a
-// nearby deadline or task rather than filtering by a single date field
+// for the cases screen's date-range filter (deadlines/tasks) and its
+// per-חוצץ field picker (case_fields)
 export interface CaseWithRelations extends CaseWithHandler {
   case_deadlines: Pick<CaseDeadline, "id" | "due_date" | "status">[];
   tasks: Pick<Task, "id" | "due_date" | "status">[];
+  case_fields: Pick<
+    CaseField,
+    "page_name" | "field_name" | "value_text" | "value_date" | "value_number"
+  >[];
 }
 
 export interface Hearing {
@@ -139,6 +143,15 @@ export interface CaseField {
   source_updated_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export function formatCaseFieldValue(
+  f: Pick<CaseField, "value_text" | "value_date" | "value_number">,
+): string {
+  if (f.value_date) return new Date(f.value_date).toLocaleDateString("he-IL");
+  if (f.value_number !== null) return String(f.value_number);
+  if (f.value_text) return f.value_text;
+  return "—";
 }
 
 export interface Task {

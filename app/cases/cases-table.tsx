@@ -1,9 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { isCaseStuck, type CaseWithRelations } from "@/types/database";
+import {
+  formatCaseFieldValue,
+  isCaseStuck,
+  type CaseWithRelations,
+} from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
 
@@ -73,6 +77,10 @@ export function CasesTable({
   const [flagFilter, setFlagFilter] = useState<"" | (typeof FLAG_DEFS)[number]["key"]>("");
   const [range, setRange] = useState<RangeKey>("all");
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
+  const [tabFilter, setTabFilter] = useState("");
+  const [selectedFieldNames, setSelectedFieldNames] = useState<Set<string>>(
+    new Set(),
+  );
   const [sortKey, setSortKey] = useState<SortKey>("last_touched_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncStatus>>({});
@@ -95,6 +103,34 @@ export function CasesTable({
     () => uniqueSorted(rows.map((c) => c.case_type)),
     [rows],
   );
+
+  // חוצצים available across all cases (page_name) and, once one is picked,
+  // the field names within it - drives the "extra row per case" display
+  const tabOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of rows) for (const f of c.case_fields) set.add(f.page_name);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "he"));
+  }, [rows]);
+
+  const fieldOptionsForTab = useMemo(() => {
+    if (!tabFilter) return [];
+    const set = new Set<string>();
+    for (const c of rows) {
+      for (const f of c.case_fields) {
+        if (f.page_name === tabFilter) set.add(f.field_name);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "he"));
+  }, [rows, tabFilter]);
+
+  function toggleFieldName(name: string) {
+    setSelectedFieldNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
 
   // days that have an open deadline/task somewhere, for the calendar's dot
   // markers - across all cases, not just the currently filtered ones
@@ -254,7 +290,8 @@ export function CasesTable({
     !!typeFilter ||
     !!flagFilter ||
     range !== "all" ||
-    !!calendarDate;
+    !!calendarDate ||
+    !!tabFilter;
 
   function clearFilters() {
     setSearch("");
@@ -265,6 +302,8 @@ export function CasesTable({
     setFlagFilter("");
     setRange("all");
     setCalendarDate(null);
+    setTabFilter("");
+    setSelectedFieldNames(new Set());
   }
 
   return (
@@ -362,6 +401,22 @@ export function CasesTable({
             </option>
           ))}
         </select>
+        <FilterSelect
+          label="חוצץ"
+          value={tabFilter}
+          onChange={(v) => {
+            setTabFilter(v);
+            setSelectedFieldNames(new Set());
+          }}
+          options={tabOptions}
+        />
+        {tabFilter && (
+          <FieldPicker
+            fields={fieldOptionsForTab}
+            selected={selectedFieldNames}
+            onToggle={toggleFieldName}
+          />
+        )}
 
         {hasActiveFilters && (
           <button
@@ -403,7 +458,8 @@ export function CasesTable({
               const stuck = isCaseStuck(c.last_touched_at);
               const sync = syncStatus[c.id];
               return (
-                <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50/60">
+                <Fragment key={c.id}>
+                <tr className="border-b border-gray-100 hover:bg-gray-50/60">
                   <td className="px-4 py-3 font-medium text-gray-500 whitespace-nowrap">
                     <Link
                       href={`/cases/${c.id}`}
@@ -517,6 +573,30 @@ export function CasesTable({
                     </div>
                   </td>
                 </tr>
+                {tabFilter && selectedFieldNames.size > 0 && (
+                  <tr className="border-b border-gray-100 bg-gray-50/40">
+                    <td colSpan={11} className="px-4 py-2">
+                      <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-600">
+                        {Array.from(selectedFieldNames).map((fieldName) => {
+                          const field = c.case_fields.find(
+                            (f) =>
+                              f.page_name === tabFilter &&
+                              f.field_name === fieldName,
+                          );
+                          return (
+                            <span key={fieldName}>
+                              <span className="text-gray-400">
+                                {fieldName}:{" "}
+                              </span>
+                              {field ? formatCaseFieldValue(field) : "—"}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
             {filtered.length === 0 && (
@@ -559,6 +639,65 @@ function SyncBadge({ sync }: { sync?: SyncStatus }) {
     <span className="text-xs text-red-600" title={sync.message}>
       כשל בסנכרון
     </span>
+  );
+}
+
+function FieldPicker({
+  fields,
+  selected,
+  onToggle,
+}: {
+  fields: string[];
+  selected: Set<string>;
+  onToggle: (name: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm hover:bg-gray-50"
+      >
+        שדות להצגה{selected.size > 0 ? ` (${selected.size})` : ""}
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 max-h-64 w-64 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg">
+          {fields.length === 0 ? (
+            <p className="p-2 text-xs text-gray-400">אין שדות זמינים</p>
+          ) : (
+            fields.map((name) => (
+              <label
+                key={name}
+                className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(name)}
+                  onChange={() => onToggle(name)}
+                  className="h-4 w-4 accent-blue-600"
+                />
+                {name}
+              </label>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

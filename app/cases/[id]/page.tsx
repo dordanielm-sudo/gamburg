@@ -7,13 +7,14 @@ import { Tabs } from "@/components/tabs";
 import { DocumentsPanel } from "./documents-panel";
 import { DeadlinesPanel } from "./deadlines-panel";
 import { CaseTasksPanel } from "./case-tasks-panel";
-import type {
-  CaseWithHandler,
-  CaseDocument,
-  CaseDeadline,
-  TaskWithNames,
-  SpouseDetails,
-  CaseField,
+import {
+  formatCaseFieldValue,
+  type CaseWithHandler,
+  type CaseDocument,
+  type CaseDeadline,
+  type TaskWithNames,
+  type SpouseDetails,
+  type CaseField,
 } from "@/types/database";
 
 const TASK_SELECT =
@@ -194,13 +195,6 @@ function CaseSummary({ caseRow }: { caseRow: CaseWithHandler }) {
   );
 }
 
-function formatFieldValue(f: CaseField): string {
-  if (f.value_date) return new Date(f.value_date).toLocaleDateString("he-IL");
-  if (f.value_number !== null) return String(f.value_number);
-  if (f.value_text) return f.value_text;
-  return "—";
-}
-
 function CaseFieldsTab({
   pageName,
   fields,
@@ -219,7 +213,7 @@ function CaseFieldsTab({
           <div key={f.id}>
             <div className="text-xs text-gray-400">{f.field_name}</div>
             <div className="mt-0.5 text-sm font-medium text-gray-900">
-              {formatFieldValue(f)}
+              {formatCaseFieldValue(f)}
             </div>
           </div>
         ))}
