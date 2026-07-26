@@ -9,6 +9,7 @@ import {
   type Case,
   type TaskStatus,
 } from "@/types/database";
+import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 
 type RangeKey = "week" | "nextWeek" | "month" | "all";
 
@@ -85,6 +86,7 @@ export function DeadlinesBoard({
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(deadlines);
   const [range, setRange] = useState<RangeKey>("week");
+  const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
   const [caseFilter, setCaseFilter] = useState("");
   const [handlerFilter, setHandlerFilter] = useState("");
@@ -120,11 +122,21 @@ export function DeadlinesBoard({
     );
   }, [rows]);
 
-  const hasActiveFilters = !!caseFilter || !!handlerFilter || !!labelFilter;
+  const hasActiveFilters =
+    !!caseFilter || !!handlerFilter || !!labelFilter || !!calendarDate;
+
+  const markedDates = useMemo(() => new Set(rows.map((d) => d.due_date)), [rows]);
 
   const filtered = useMemo(() => {
     const today = startOfToday();
-    const { start, end } = rangeBounds(range, today);
+    // a specific day picked on the calendar takes over from the range
+    // buttons entirely - show exactly that day, no overdue carryover
+    const { start, end } = calendarDate
+      ? {
+          start: new Date(calendarDate + "T00:00:00"),
+          end: new Date(calendarDate + "T00:00:00"),
+        }
+      : rangeBounds(range, today);
 
     return rows.filter((d) => {
       if (caseFilter && d.case?.id !== caseFilter) return false;
@@ -134,13 +146,13 @@ export function DeadlinesBoard({
       if (start === null && end === null) return true;
       const due = new Date(d.due_date + "T00:00:00");
       // always surface overdue/open items regardless of range, so nothing
-      // gets buried once it's already late
-      if (due < today && d.status !== "done") return true;
+      // gets buried once it's already late (unless a specific day is picked)
+      if (!calendarDate && due < today && d.status !== "done") return true;
       if (start && due < start) return false;
       if (end && due > end) return false;
       return true;
     });
-  }, [rows, range, showDone, caseFilter, handlerFilter, labelFilter]);
+  }, [rows, range, calendarDate, showDone, caseFilter, handlerFilter, labelFilter]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -253,20 +265,35 @@ export function DeadlinesBoard({
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-1 rounded-full bg-gray-100 p-1">
-            {(Object.keys(RANGE_LABELS) as RangeKey[]).map((key) => (
-              <button
-                key={key}
-                onClick={() => setRange(key)}
-                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                  range === key
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600 hover:bg-gray-200"
-                }`}
-              >
-                {RANGE_LABELS[key]}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 rounded-full bg-gray-100 p-1">
+              {(Object.keys(RANGE_LABELS) as RangeKey[]).map((key) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setRange(key);
+                    setCalendarDate(null);
+                  }}
+                  className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                    !calendarDate && range === key
+                      ? "bg-blue-600 text-white"
+                      : "text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {RANGE_LABELS[key]}
+                </button>
+              ))}
+            </div>
+            <CalendarPopup
+              markedDates={markedDates}
+              selectedDate={calendarDate}
+              onSelect={setCalendarDate}
+            />
+            {calendarDate && (
+              <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium whitespace-nowrap text-blue-700">
+                {formatCalendarDate(calendarDate)}
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <select
@@ -311,6 +338,7 @@ export function DeadlinesBoard({
                   setCaseFilter("");
                   setHandlerFilter("");
                   setLabelFilter("");
+                  setCalendarDate(null);
                 }}
                 className="text-sm text-gray-500 underline hover:text-gray-900"
               >
