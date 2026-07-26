@@ -10,6 +10,7 @@ import {
   type TaskStatus,
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
+import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
 
 const URGENCY_BADGE: Record<string, string> = {
@@ -55,6 +56,8 @@ export function DeadlinesBoard({
   const [labelFilter, setLabelFilter] = useState("");
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [createCaseId, setCreateCaseId] = useState("");
+  const [createCaseText, setCreateCaseText] = useState("");
 
   const labelOptions = useMemo(
     () =>
@@ -65,12 +68,12 @@ export function DeadlinesBoard({
   );
 
   const caseOptions = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, CaseOption>();
     for (const d of rows) {
-      if (d.case) map.set(d.case.id, `${d.case.case_number} - ${d.case.case_name}`);
+      if (d.case) map.set(d.case.id, d.case);
     }
-    return Array.from(map, ([id, label]) => ({ id, label })).sort((a, b) =>
-      a.label.localeCompare(b.label, "he"),
+    return Array.from(map.values()).sort((a, b) =>
+      a.case_number.localeCompare(b.case_number, "he"),
     );
   }, [rows]);
 
@@ -86,6 +89,11 @@ export function DeadlinesBoard({
 
   const hasActiveFilters =
     !!caseFilter || !!handlerFilter || !!labelFilter || !!calendarDate;
+
+  const caseFilterOption = caseOptions.find((c) => c.id === caseFilter);
+  const caseFilterText = caseFilterOption
+    ? `${caseFilterOption.case_number} - ${caseFilterOption.case_name}`
+    : "";
 
   const markedDates = useMemo(() => new Set(rows.map((d) => d.due_date)), [rows]);
 
@@ -120,9 +128,10 @@ export function DeadlinesBoard({
     setFormError(null);
     const label = String(formData.get("label") ?? "").trim();
     const dueDate = String(formData.get("due_date") ?? "");
-    let caseId = String(formData.get("case_id") ?? "");
-    const manualCaseNumber = String(formData.get("case_number_manual") ?? "").trim();
-    if (manualCaseNumber) {
+
+    let caseId = createCaseId;
+    const manualCaseNumber = createCaseText.trim();
+    if (!caseId && manualCaseNumber) {
       const { data: foundCase } = await supabase
         .from("cases")
         .select("id")
@@ -158,6 +167,8 @@ export function DeadlinesBoard({
         (a, b) => +new Date(a.due_date) - +new Date(b.due_date),
       ),
     );
+    setCreateCaseId("");
+    setCreateCaseText("");
   }
 
   async function toggleDone(deadline: CaseDeadlineWithCase) {
@@ -195,31 +206,18 @@ export function DeadlinesBoard({
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">תיק</label>
-              <select
-                name="case_id"
-                defaultValue=""
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-              >
-                <option value="" disabled>
-                  בחירה...
-                </option>
-                {cases.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.case_number} - {c.case_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">
-                או הקלדת מספר תיק
-              </label>
-              <input
-                name="case_number_manual"
-                placeholder="מספר תיק..."
-                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            <div className="w-56">
+              <CaseCombobox
+                cases={cases}
+                label="תיק"
+                onSelect={(c) => {
+                  setCreateCaseId(c.id);
+                  setCreateCaseText("");
+                }}
+                onTextChange={(text) => {
+                  setCreateCaseId("");
+                  setCreateCaseText(text);
+                }}
               />
             </div>
             <div>
@@ -280,18 +278,17 @@ export function DeadlinesBoard({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <select
-              value={caseFilter}
-              onChange={(e) => setCaseFilter(e.target.value)}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-            >
-              <option value="">תיק: הכל</option>
-              {caseOptions.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+            <CaseCombobox
+              key={caseFilter}
+              cases={caseOptions}
+              placeholder="תיק: הכל"
+              initialText={caseFilterText}
+              className="w-56"
+              onSelect={(c) => setCaseFilter(c.id)}
+              onTextChange={(text) => {
+                if (!text) setCaseFilter("");
+              }}
+            />
             <select
               value={handlerFilter}
               onChange={(e) => setHandlerFilter(e.target.value)}
