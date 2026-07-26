@@ -120,7 +120,20 @@ export function DeadlinesBoard({
     setFormError(null);
     const label = String(formData.get("label") ?? "").trim();
     const dueDate = String(formData.get("due_date") ?? "");
-    const caseId = String(formData.get("case_id") ?? "");
+    let caseId = String(formData.get("case_id") ?? "");
+    const manualCaseNumber = String(formData.get("case_number_manual") ?? "").trim();
+    if (manualCaseNumber) {
+      const { data: foundCase } = await supabase
+        .from("cases")
+        .select("id")
+        .eq("case_number", manualCaseNumber)
+        .maybeSingle();
+      if (!foundCase) {
+        setFormError(`לא נמצא תיק עם מספר "${manualCaseNumber}"`);
+        return;
+      }
+      caseId = foundCase.id;
+    }
     if (!label || !dueDate || !caseId) {
       setFormError("יש למלא נושא, תיק ותאריך");
       return;
@@ -186,7 +199,6 @@ export function DeadlinesBoard({
               <label className="mb-1 block text-xs text-gray-500">תיק</label>
               <select
                 name="case_id"
-                required
                 defaultValue=""
                 className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               >
@@ -199,6 +211,16 @@ export function DeadlinesBoard({
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">
+                או הקלדת מספר תיק
+              </label>
+              <input
+                name="case_number_manual"
+                placeholder="מספר תיק..."
+                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-500">
