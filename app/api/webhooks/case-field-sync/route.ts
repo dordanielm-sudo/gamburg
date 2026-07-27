@@ -1,25 +1,31 @@
 import { runIncomingWebhook } from "@/lib/webhook-handler";
 
 // Generic import of חוצצים (tabs) fields from עדכנית's custom-fields view
-// (vwExportToOuterSystems_UserData) - one call per field, same pattern as
-// deadline-sync, but writing to the generic case_fields table instead of a
-// fixed column, so any PageName/FieldName combination works without a new
-// endpoint or migration. Keyed on (case_id, page_name, field_name) - a
-// resync updates the same row via UPDATE-then-INSERT (never a plain
-// upsert, which resets unlisted columns to their default on conflict).
+// (vwExportToOuterSystems_UserData), writing to the generic case_fields
+// table instead of a fixed column, so any PageName/FieldName combination
+// works without a new endpoint or migration.
 //
-// Unlike deadline-sync, an empty value is NOT skipped: a tab should show
-// every field it has (per explicit request - "כל שלושים השדות תמיד"),
-// with a dash for whatever's blank, so the row is written with nulls
-// instead of not being written at all.
+// One call per CASE (not per field, unlike deadline-sync) - the whole
+// page's fields come in as an array and are written in a single upsert.
+// This is safe as a true upsert (unlike cases/tasks) because case_fields
+// has no CRM-only columns a resync could ever wipe - it's read-only in the
+// UI, only ever written here.
+//
+// An empty value is NOT skipped: a tab should show every field it has (per
+// explicit request - "כל שלושים השדות תמיד"), with a dash for whatever's
+// blank, so a row is written with nulls instead of not being written.
 
-interface CaseFieldSyncPayload {
-  case_number?: string;
-  page_name?: string;
+interface CaseFieldEntry {
   field_name?: string;
   value_text?: string | null;
   value_date?: string | null;
   value_number?: number | null;
+}
+
+interface CaseFieldSyncPayload {
+  case_number?: string;
+  page_name?: string;
+  fields?: CaseFieldEntry[];
 }
 
 export async function POST(request: Request) {
@@ -32,18 +38,24 @@ export async function POST(request: Request) {
 
       const caseNumber = body.case_number?.trim();
       const pageName = body.page_name?.trim();
-      const fieldName = body.field_name?.trim();
-      if (!caseNumber || !pageName || !fieldName) {
+      const fields = Array.isArray(body.fields) ? body.fields : [];
+      if (!caseNumber || !pageName || fields.length === 0) {
         return {
           status: 400,
-          json: { error: "case_number, page_name and field_name are required" },
+          json: { error: "case_number, page_name and a non-empty fields array are required" },
         };
       }
 
-      const valueText = body.value_text?.trim() || null;
-      const valueDate = body.value_date?.trim() || null;
-      const valueNumber =
-        typeof body.value_number === "number" ? body.value_number : null;
+      const warnings: string[] = [];
+      const rows: {
+        case_id: string;
+        page_name: string;
+        field_name: string;
+        value_text: string | null;
+        value_date: string | null;
+        value_number: number | null;
+        source_updated_at: string;
+      }[] = [];
 
       const { data: caseRow, error: caseError } = await admin
         .from("cases")
@@ -60,43 +72,40 @@ export async function POST(request: Request) {
         };
       }
 
-      const fieldValues = {
-        value_text: valueText,
-        value_date: valueDate,
-        value_number: valueNumber,
-        source_updated_at: new Date().toISOString(),
-      };
-
-      const { data: updated, error: updateError } = await admin
-        .from("case_fields")
-        .update(fieldValues)
-        .eq("case_id", caseRow.id)
-        .eq("page_name", pageName)
-        .eq("field_name", fieldName)
-        .select("id");
-      if (updateError) {
-        return { status: 500, json: { error: updateError.message } };
-      }
-
-      if (updated && updated.length > 0) {
-        return { status: 200, json: { status: "ok", field_id: updated[0].id } };
-      }
-
-      const { data: inserted, error: insertError } = await admin
-        .from("case_fields")
-        .insert({
+      const sourceUpdatedAt = new Date().toISOString();
+      for (const entry of fields) {
+        const fieldName = entry.field_name?.trim();
+        if (!fieldName) {
+          warnings.push("skipped a field entry with no field_name");
+          continue;
+        }
+        rows.push({
           case_id: caseRow.id,
           page_name: pageName,
           field_name: fieldName,
-          ...fieldValues,
-        })
-        .select("id")
-        .single();
-      if (insertError) {
-        return { status: 500, json: { error: insertError.message } };
+          value_text: entry.value_text?.trim() || null,
+          value_date: entry.value_date?.trim() || null,
+          value_number:
+            typeof entry.value_number === "number" ? entry.value_number : null,
+          source_updated_at: sourceUpdatedAt,
+        });
       }
 
-      return { status: 200, json: { status: "ok", field_id: inserted.id } };
+      if (rows.length === 0) {
+        return { status: 400, json: { error: "no valid field entries in fields array" } };
+      }
+
+      const { error: upsertError } = await admin
+        .from("case_fields")
+        .upsert(rows, { onConflict: "case_id,page_name,field_name" });
+      if (upsertError) {
+        return { status: 500, json: { error: upsertError.message } };
+      }
+
+      return {
+        status: 200,
+        json: { status: "ok", case_id: caseRow.id, synced: rows.length, warnings },
+      };
     },
   );
 }
