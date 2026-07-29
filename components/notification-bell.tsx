@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Notification, NotificationType } from "@/types/database";
@@ -39,22 +39,10 @@ export function NotificationBell({ userId }: { userId: string }) {
   const [items, setItems] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
   const [toasts, setToasts] = useState<Notification[]>([]);
-  const toastTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   function dismissToast(id: string) {
-    const timer = toastTimers.current.get(id);
-    if (timer) clearTimeout(timer);
-    toastTimers.current.delete(id);
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }
-
-  useEffect(() => {
-    const timers = toastTimers.current;
-    return () => {
-      for (const timer of timers.values()) clearTimeout(timer);
-      timers.clear();
-    };
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -86,11 +74,9 @@ export function NotificationBell({ userId }: { userId: string }) {
         (payload) => {
           const n = payload.new as Notification;
           setItems((prev) => [n, ...prev]);
-          // floating popup in addition to the badge - auto-dismisses after
-          // a few seconds so it doesn't need to be closed manually
+          // floating popup in addition to the badge - stays open until the
+          // user dismisses it (clicks it or the X), no auto-dismiss timer
           setToasts((prev) => [n, ...prev]);
-          const timer = setTimeout(() => dismissToast(n.id), 8000);
-          toastTimers.current.set(n.id, timer);
         },
       )
       .subscribe();
@@ -211,29 +197,34 @@ export function NotificationBell({ userId }: { userId: string }) {
       )}
 
       {toasts.length > 0 && (
-        <div className="fixed inset-x-0 top-0 z-50 flex flex-col">
+        <div className="fixed left-4 top-4 z-50 flex w-96 flex-col gap-3">
           {toasts.map((n) => (
             <div
               key={n.id}
-              className="flex items-center justify-between gap-3 bg-blue-600 px-6 py-3 shadow-lg"
+              className="overflow-hidden rounded-xl border border-blue-200 bg-white shadow-xl"
             >
+              <div className="flex items-center justify-between gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2">
+                <span className="text-xs font-semibold text-blue-700">
+                  {TYPE_LABELS[n.type]}
+                </span>
+                <button
+                  onClick={() => dismissToast(n.id)}
+                  aria-label="סגירה"
+                  className="shrink-0 text-lg leading-none text-blue-400 hover:text-blue-700"
+                >
+                  ✕
+                </button>
+              </div>
               <button
                 onClick={() => handleToastClick(n)}
-                className="flex-1 text-right text-white"
+                className="block w-full px-4 py-3 text-right"
               >
-                <span className="font-semibold">
+                <div className="font-semibold text-gray-900">
                   {n.title || TYPE_LABELS[n.type]}
-                </span>
+                </div>
                 {n.body && (
-                  <span className="mr-2 text-sm text-blue-100">{n.body}</span>
+                  <div className="mt-1 text-sm text-gray-500">{n.body}</div>
                 )}
-              </button>
-              <button
-                onClick={() => dismissToast(n.id)}
-                aria-label="סגירה"
-                className="shrink-0 text-lg text-blue-100 hover:text-white"
-              >
-                ✕
               </button>
             </div>
           ))}
