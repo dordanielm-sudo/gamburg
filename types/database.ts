@@ -181,6 +181,16 @@ export interface CaseTypeColumnPreset {
   created_at: string;
 }
 
+// per-user drag-reordered column order for a given table (migration 0026) -
+// self-served, unlike CaseTypeColumnPreset which a manager configures
+export interface ProfileColumnOrder {
+  id: string;
+  profile_id: string;
+  table_key: string;
+  column_order: string[];
+  updated_at: string;
+}
+
 export function formatCaseFieldValue(
   f: Pick<CaseField, "value_text" | "value_date" | "value_number">,
 ): string {

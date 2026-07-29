@@ -11,7 +11,7 @@ import {
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
-import { Badge, hashTone, TONE_HEX } from "@/components/ui/badge";
+import { Badge, hashTone, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
 
@@ -34,6 +34,80 @@ const FLAG_DEFS = [
   { key: "flag_non_paying", label: "לא משלם" },
   { key: "flag_transferring_documents", label: "מעביר מסמכים" },
 ] as const;
+
+// the fixed columns are drag-reorderable (per-user, persisted); the leading
+// accent strip and the per-case-type dynamic columns are not part of this -
+// they stay pinned at the start/end respectively
+type ColumnKey =
+  | "case_number"
+  | "case_name"
+  | "case_type"
+  | "handler"
+  | "team"
+  | "status"
+  | "opened_date"
+  | "flags"
+  | "follow_up"
+  | "manager_note"
+  | "last_touched";
+
+const ALL_COLUMNS: ColumnKey[] = [
+  "case_number",
+  "case_name",
+  "case_type",
+  "handler",
+  "team",
+  "status",
+  "opened_date",
+  "flags",
+  "follow_up",
+  "manager_note",
+  "last_touched",
+];
+
+const COLUMN_LABELS: Record<ColumnKey, string> = {
+  case_number: "מספר תיק",
+  case_name: "שם תיק",
+  case_type: "סוג",
+  handler: "מטפל",
+  team: "צוות",
+  status: "סטטוס",
+  opened_date: "תאריך פתיחה",
+  flags: "דגלים",
+  follow_up: "מעקב",
+  manager_note: "הערת מנהל",
+  last_touched: "נגיעה אחרונה",
+};
+
+const COLUMN_SORT_KEY: Partial<Record<ColumnKey, SortKey>> = {
+  case_number: "case_number",
+  case_name: "case_name",
+  opened_date: "opened_date",
+  last_touched: "last_touched_at",
+};
+
+const CELL_CLASS: Record<ColumnKey, string> = {
+  case_number: "px-4 py-3.5 font-medium text-gray-500 whitespace-nowrap",
+  case_name: "px-4 py-3.5 font-semibold text-gray-900",
+  case_type: "px-4 py-3.5 text-gray-600",
+  handler: "px-4 py-3.5 text-gray-600",
+  team: "px-4 py-3.5 text-gray-600",
+  status: "px-4 py-3.5",
+  opened_date: "px-4 py-3.5 whitespace-nowrap text-gray-600",
+  flags: "px-4 py-3.5",
+  follow_up: "px-4 py-3.5 text-center",
+  manager_note: "px-4 py-3.5",
+  last_touched: "px-4 py-3.5 whitespace-nowrap",
+};
+
+// tolerates a stale saved order (unknown keys from an older column set, or
+// missing keys from a newly added column) instead of breaking
+function sanitizeColumnOrder(order: string[] | null | undefined): ColumnKey[] {
+  const known = new Set<string>(ALL_COLUMNS);
+  const valid = (order ?? []).filter((k): k is ColumnKey => known.has(k));
+  const missing = ALL_COLUMNS.filter((k) => !valid.includes(k));
+  return [...valid, ...missing];
+}
 
 function formatDate(value: string | null) {
   if (!value) return "—";
@@ -70,13 +144,22 @@ export function CasesTable({
   canEdit,
   columnPresets,
   isManager,
+  currentUserId,
+  initialColumnOrder,
 }: {
   cases: CaseWithRelations[];
   canEdit: boolean;
   columnPresets: CaseTypeColumnPreset[];
   isManager: boolean;
+  currentUserId: string;
+  initialColumnOrder: string[] | null;
 }) {
   const [rows, setRows] = useState(cases);
+  const [columnOrder, setColumnOrder] = useState<ColumnKey[]>(() =>
+    sanitizeColumnOrder(initialColumnOrder),
+  );
+  const dragKeyRef = useRef<ColumnKey | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<ColumnKey | null>(null);
   const [search, setSearch] = useState("");
   const [handlerFilter, setHandlerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -245,6 +328,35 @@ export function CasesTable({
     }
   }
 
+  async function saveColumnOrder(order: ColumnKey[]) {
+    await supabase.from("profile_column_orders").upsert(
+      { profile_id: currentUserId, table_key: "cases", column_order: order },
+      { onConflict: "profile_id,table_key" },
+    );
+  }
+
+  function handleColumnDrop(targetKey: ColumnKey) {
+    const from = dragKeyRef.current;
+    dragKeyRef.current = null;
+    setDragOverKey(null);
+    if (!from || from === targetKey) return;
+    setColumnOrder((prev) => {
+      const fromIdx = prev.indexOf(from);
+      const toIdx = prev.indexOf(targetKey);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const next = [...prev];
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, from);
+      saveColumnOrder(next);
+      return next;
+    });
+  }
+
+  function resetColumnOrder() {
+    setColumnOrder(ALL_COLUMNS);
+    saveColumnOrder(ALL_COLUMNS);
+  }
+
   // section 4.2: (1) save immediately to Supabase (optimistic), (2) tell
   // Make about the change via /api/case-updates, (3) show its
   // success/failure/warning response, (4) on failure, undo the optimistic
@@ -325,6 +437,107 @@ export function CasesTable({
     setCalendarDate(null);
     setTabFilter("");
     setSelectedFieldNames(new Set());
+  }
+
+  function renderCell(key: ColumnKey, c: CaseWithRelations, rowTone: Tone) {
+    switch (key) {
+      case "case_number":
+        return (
+          <Link href={`/cases/${c.id}`} className="hover:text-blue-700 hover:underline">
+            {c.case_number}
+          </Link>
+        );
+      case "case_name":
+        return (
+          <>
+            <Link href={`/cases/${c.id}`} className="hover:text-blue-700 hover:underline">
+              {c.case_name}
+            </Link>
+            {(c.spouse_details?.name ||
+              c.spouse_details?.id_number ||
+              c.spouse_details?.phone) && (
+              <span
+                title="בן/בת זוג שותף/ה בתיק"
+                className="mr-2 rounded-full bg-purple-50 px-1.5 py-0.5 text-[11px] font-medium text-purple-700"
+              >
+                + בן/בת זוג
+              </span>
+            )}
+          </>
+        );
+      case "case_type":
+        return c.case_type ?? "—";
+      case "handler":
+        return c.handler?.full_name ? <NamedAvatar name={c.handler.full_name} /> : "—";
+      case "team":
+        return c.team ?? "—";
+      case "status":
+        return c.status ? (
+          <Badge tone={rowTone} dot>
+            {c.status}
+          </Badge>
+        ) : (
+          <span className="text-gray-400">—</span>
+        );
+      case "opened_date":
+        return formatDate(c.opened_date);
+      case "flags":
+        return (
+          <div className="flex flex-wrap gap-1.5">
+            {FLAG_DEFS.map((f) => (
+              <label
+                key={f.key}
+                className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                  c[f.key]
+                    ? "border-rose-200 bg-rose-50 text-rose-700"
+                    : "border-gray-200 text-gray-400"
+                } ${canEdit ? "cursor-pointer" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  className="hidden"
+                  checked={c[f.key]}
+                  disabled={!canEdit}
+                  onChange={(e) => updateCase(c.id, f.key, e.target.checked)}
+                />
+                {f.label}
+              </label>
+            ))}
+          </div>
+        );
+      case "follow_up":
+        return (
+          <input
+            type="checkbox"
+            checked={c.manager_follow_up}
+            disabled={!canEdit}
+            onChange={(e) => updateCase(c.id, "manager_follow_up", e.target.checked)}
+            className="h-4 w-4 accent-blue-600"
+          />
+        );
+      case "manager_note":
+        return (
+          <input
+            type="text"
+            defaultValue={c.manager_note ?? ""}
+            disabled={!canEdit}
+            placeholder={canEdit ? "הערה..." : ""}
+            onBlur={(e) =>
+              e.target.value !== (c.manager_note ?? "") &&
+              updateCase(c.id, "manager_note", e.target.value)
+            }
+            className="w-full rounded-md border border-transparent px-2 py-1 text-sm focus:border-blue-300 focus:ring-1 focus:ring-blue-300 focus:outline-none disabled:bg-transparent"
+          />
+        );
+      case "last_touched":
+        return (
+          <div className="flex items-center gap-2">
+            <span className="text-gray-600">{formatDate(c.last_touched_at)}</span>
+            {isCaseStuck(c.last_touched_at) && <Badge tone="amber">תיק תקוע</Badge>}
+            <SyncBadge sync={syncStatus[c.id]} />
+          </div>
+        );
+    }
   }
 
   return (
@@ -455,32 +668,49 @@ export function CasesTable({
             נקה סינון
           </button>
         )}
+        {JSON.stringify(columnOrder) !== JSON.stringify(ALL_COLUMNS) && (
+          <button
+            onClick={resetColumnOrder}
+            className="text-sm text-gray-500 underline hover:text-gray-900"
+          >
+            איפוס סדר עמודות
+          </button>
+        )}
 
         <span className="mr-auto">
           <Badge tone="indigo">{filtered.length} תיקים</Badge>
         </span>
       </div>
 
+      <p className="mb-1.5 text-xs text-gray-400">
+        ניתן לגרור את כותרות העמודות כדי לשנות את סדר התצוגה
+      </p>
+
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
         <table className="w-full min-w-[900px] text-sm">
           <thead className="border-b border-indigo-100 bg-indigo-50/60 text-right">
             <tr>
               <th className="w-1 p-0" aria-hidden />
-              <Th onClick={() => toggleSort("case_number")}>מספר תיק</Th>
-              <Th onClick={() => toggleSort("case_name")}>שם תיק</Th>
-              <th className="px-4 py-3 font-semibold text-indigo-900">סוג</th>
-              <th className="px-4 py-3 font-semibold text-indigo-900">מטפל</th>
-              <th className="px-4 py-3 font-semibold text-indigo-900">צוות</th>
-              <th className="px-4 py-3 font-semibold text-indigo-900">סטטוס</th>
-              <Th onClick={() => toggleSort("opened_date")}>תאריך פתיחה</Th>
-              <th className="px-4 py-3 font-semibold text-indigo-900">דגלים</th>
-              <th className="px-4 py-3 font-semibold text-indigo-900">מעקב</th>
-              <th className="px-4 py-3 font-semibold text-indigo-900">
-                הערת מנהל
-              </th>
-              <Th onClick={() => toggleSort("last_touched_at")}>
-                נגיעה אחרונה
-              </Th>
+              {columnOrder.map((key) => {
+                const sortKeyForCol = COLUMN_SORT_KEY[key];
+                return (
+                  <th
+                    key={key}
+                    draggable
+                    onDragStart={() => (dragKeyRef.current = key)}
+                    onDragEnter={() => setDragOverKey(key)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleColumnDrop(key)}
+                    onClick={sortKeyForCol ? () => toggleSort(sortKeyForCol) : undefined}
+                    title="גרור לשינוי סדר העמודות"
+                    className={`cursor-grab px-4 py-3 font-semibold whitespace-nowrap text-indigo-900 select-none active:cursor-grabbing ${
+                      sortKeyForCol ? "hover:text-indigo-700" : ""
+                    } ${dragOverKey === key ? "bg-indigo-100" : ""}`}
+                  >
+                    {COLUMN_LABELS[key]}
+                  </th>
+                );
+              })}
               {activeColumnPresets.map((p) => (
                 <th
                   key={p.id}
@@ -493,8 +723,6 @@ export function CasesTable({
           </thead>
           <tbody>
             {filtered.map((c) => {
-              const stuck = isCaseStuck(c.last_touched_at);
-              const sync = syncStatus[c.id];
               const rowTone = c.status ? hashTone(c.status) : "gray";
               return (
                 <Fragment key={c.id}>
@@ -503,115 +731,11 @@ export function CasesTable({
                   style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[rowTone]}` }}
                 >
                   <td className="w-1 p-0" aria-hidden />
-                  <td className="px-4 py-3.5 font-medium text-gray-500 whitespace-nowrap">
-                    <Link
-                      href={`/cases/${c.id}`}
-                      className="hover:text-blue-700 hover:underline"
-                    >
-                      {c.case_number}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3.5 font-semibold text-gray-900">
-                    <Link
-                      href={`/cases/${c.id}`}
-                      className="hover:text-blue-700 hover:underline"
-                    >
-                      {c.case_name}
-                    </Link>
-                    {(c.spouse_details?.name ||
-                      c.spouse_details?.id_number ||
-                      c.spouse_details?.phone) && (
-                      <span
-                        title="בן/בת זוג שותף/ה בתיק"
-                        className="mr-2 rounded-full bg-purple-50 px-1.5 py-0.5 text-[11px] font-medium text-purple-700"
-                      >
-                        + בן/בת זוג
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3.5 text-gray-600">
-                    {c.case_type ?? "—"}
-                  </td>
-                  <td className="px-4 py-3.5 text-gray-600">
-                    {c.handler?.full_name ? (
-                      <NamedAvatar name={c.handler.full_name} />
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-4 py-3.5 text-gray-600">
-                    {c.team ?? "—"}
-                  </td>
-                  <td className="px-4 py-3.5">
-                    {c.status ? (
-                      <Badge tone={rowTone} dot>
-                        {c.status}
-                      </Badge>
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
-                    {formatDate(c.opened_date)}
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <div className="flex flex-wrap gap-1.5">
-                      {FLAG_DEFS.map((f) => (
-                        <label
-                          key={f.key}
-                          className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                            c[f.key]
-                              ? "border-rose-200 bg-rose-50 text-rose-700"
-                              : "border-gray-200 text-gray-400"
-                          } ${canEdit ? "cursor-pointer" : ""}`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="hidden"
-                            checked={c[f.key]}
-                            disabled={!canEdit}
-                            onChange={(e) =>
-                              updateCase(c.id, f.key, e.target.checked)
-                            }
-                          />
-                          {f.label}
-                        </label>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 text-center">
-                    <input
-                      type="checkbox"
-                      checked={c.manager_follow_up}
-                      disabled={!canEdit}
-                      onChange={(e) =>
-                        updateCase(c.id, "manager_follow_up", e.target.checked)
-                      }
-                      className="h-4 w-4 accent-blue-600"
-                    />
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <input
-                      type="text"
-                      defaultValue={c.manager_note ?? ""}
-                      disabled={!canEdit}
-                      placeholder={canEdit ? "הערה..." : ""}
-                      onBlur={(e) =>
-                        e.target.value !== (c.manager_note ?? "") &&
-                        updateCase(c.id, "manager_note", e.target.value)
-                      }
-                      className="w-full rounded-md border border-transparent px-2 py-1 text-sm focus:border-blue-300 focus:ring-1 focus:ring-blue-300 focus:outline-none disabled:bg-transparent"
-                    />
-                  </td>
-                  <td className="px-4 py-3.5 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-600">
-                        {formatDate(c.last_touched_at)}
-                      </span>
-                      {stuck && <Badge tone="amber">תיק תקוע</Badge>}
-                      <SyncBadge sync={sync} />
-                    </div>
-                  </td>
+                  {columnOrder.map((key) => (
+                    <td key={key} className={CELL_CLASS[key]}>
+                      {renderCell(key, c, rowTone)}
+                    </td>
+                  ))}
                   {activeColumnPresets.map((p) => {
                     const field = c.case_fields.find(
                       (f) =>
@@ -793,19 +917,3 @@ function FilterSelect({
   );
 }
 
-function Th({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <th
-      onClick={onClick}
-      className="cursor-pointer px-4 py-3 font-medium text-gray-600 hover:text-gray-900"
-    >
-      {children}
-    </th>
-  );
-}
