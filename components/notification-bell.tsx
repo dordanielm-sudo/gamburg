@@ -211,29 +211,27 @@ export function NotificationBell({ userId }: { userId: string }) {
       )}
 
       {toasts.length > 0 && (
-        <div className="fixed top-4 left-4 z-50 flex w-80 flex-col gap-2">
+        <div className="fixed inset-x-0 top-0 z-50 flex flex-col">
           {toasts.map((n) => (
             <div
               key={n.id}
-              className="flex items-start gap-2 rounded-xl border border-gray-200 bg-white p-4 shadow-lg"
+              className="flex items-center justify-between gap-3 bg-blue-600 px-6 py-3 shadow-lg"
             >
               <button
                 onClick={() => handleToastClick(n)}
-                className="flex-1 text-right"
+                className="flex-1 text-right text-white"
               >
-                <span className="block text-sm font-medium text-gray-900">
+                <span className="font-semibold">
                   {n.title || TYPE_LABELS[n.type]}
                 </span>
                 {n.body && (
-                  <span className="mt-0.5 block text-xs text-gray-500">
-                    {n.body}
-                  </span>
+                  <span className="mr-2 text-sm text-blue-100">{n.body}</span>
                 )}
               </button>
               <button
                 onClick={() => dismissToast(n.id)}
                 aria-label="סגירה"
-                className="shrink-0 text-gray-400 hover:text-gray-700"
+                className="shrink-0 text-lg text-blue-100 hover:text-white"
               >
                 ✕
               </button>
