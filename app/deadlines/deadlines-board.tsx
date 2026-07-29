@@ -12,10 +12,12 @@ import {
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
+import { Badge, type Tone } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 
-const URGENCY_BADGE: Record<string, string> = {
-  overdue: "bg-rose-50 text-rose-700",
-  soon: "bg-amber-50 text-amber-700",
+const URGENCY_TONE: Record<string, Tone> = {
+  overdue: "rose",
+  soon: "amber",
 };
 
 const URGENCY_LABEL: Record<string, string> = {
@@ -23,9 +25,9 @@ const URGENCY_LABEL: Record<string, string> = {
   soon: "בקרוב",
 };
 
-const STATUS_BADGE: Record<string, string> = {
-  open: "bg-blue-50 text-blue-700",
-  done: "bg-emerald-50 text-emerald-700",
+const STATUS_TONE: Record<string, Tone> = {
+  open: "blue",
+  done: "green",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -58,6 +60,7 @@ export function DeadlinesBoard({
   const [formError, setFormError] = useState<string | null>(null);
   const [createCaseId, setCreateCaseId] = useState("");
   const [createCaseText, setCreateCaseText] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const labelOptions = useMemo(
     () =>
@@ -188,10 +191,12 @@ export function DeadlinesBoard({
     setRows((prev) =>
       prev.map((d) => (d.id === deadline.id ? { ...d, status } : d)),
     );
+    setSavingId(deadline.id);
     const { error } = await supabase
       .from("case_deadlines")
       .update({ status })
       .eq("id", deadline.id);
+    setSavingId(null);
     if (error) {
       setRows((prev) =>
         prev.map((d) => (d.id === deadline.id ? deadline : d)),
@@ -207,10 +212,12 @@ export function DeadlinesBoard({
     setRows((prev) =>
       prev.map((d) => (d.id === deadline.id ? { ...d, [field]: value } : d)),
     );
+    setSavingId(deadline.id);
     const { error } = await supabase
       .from("case_deadlines")
       .update({ [field]: value })
       .eq("id", deadline.id);
+    setSavingId(null);
     if (error) {
       setRows((prev) =>
         prev.map((d) => (d.id === deadline.id ? deadline : d)),
@@ -302,8 +309,9 @@ export function DeadlinesBoard({
             <button
               type="submit"
               disabled={creating}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
+              {creating && <Spinner className="h-4 w-4" />}
               {creating ? "מוסיף..." : "הוספה"}
             </button>
           </form>
@@ -429,30 +437,26 @@ export function DeadlinesBoard({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={d.status === "done"}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={() => toggleDone(d)}
-                        className="h-4 w-4 accent-blue-600"
-                      />
+                      {savingId === d.id ? (
+                        <Spinner className="h-4 w-4 text-gray-400" />
+                      ) : (
+                        <input
+                          type="checkbox"
+                          checked={d.status === "done"}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleDone(d)}
+                          className="h-4 w-4 accent-blue-600"
+                        />
+                      )}
                       <span className="font-medium text-gray-900">
                         {d.label}
                       </span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {showUrgency && (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
-                        >
-                          {URGENCY_LABEL[urgency]}
-                        </span>
+                        <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>
                       )}
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[d.status]}`}
-                      >
-                        {STATUS_LABEL[d.status]}
-                      </span>
+                      <Badge tone={STATUS_TONE[d.status]}>{STATUS_LABEL[d.status]}</Badge>
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
@@ -490,24 +494,32 @@ export function DeadlinesBoard({
                       className="flex items-center gap-1.5 text-gray-500"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <input
-                        type="checkbox"
-                        checked={d.client_updated}
-                        onChange={() => toggleFlag(d, "client_updated")}
-                        className="h-3.5 w-3.5 accent-blue-600"
-                      />
+                      {savingId === d.id ? (
+                        <Spinner className="h-3.5 w-3.5 text-gray-400" />
+                      ) : (
+                        <input
+                          type="checkbox"
+                          checked={d.client_updated}
+                          onChange={() => toggleFlag(d, "client_updated")}
+                          className="h-3.5 w-3.5 accent-blue-600"
+                        />
+                      )}
                       לקוח מעודכן
                     </label>
                     <label
                       className="flex items-center gap-1.5 text-gray-500"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <input
-                        type="checkbox"
-                        checked={d.preparation_done}
-                        onChange={() => toggleFlag(d, "preparation_done")}
-                        className="h-3.5 w-3.5 accent-blue-600"
-                      />
+                      {savingId === d.id ? (
+                        <Spinner className="h-3.5 w-3.5 text-gray-400" />
+                      ) : (
+                        <input
+                          type="checkbox"
+                          checked={d.preparation_done}
+                          onChange={() => toggleFlag(d, "preparation_done")}
+                          className="h-3.5 w-3.5 accent-blue-600"
+                        />
+                      )}
                       הכנה בוצעה
                     </label>
                   </div>
