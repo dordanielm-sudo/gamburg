@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ApprovalRequestWithNames, ApprovalStatus } from "@/types/database";
 import { Badge, type Tone } from "@/components/ui/badge";
+import { NamedAvatar } from "@/components/ui/avatar";
 
 const STATUS_LABELS: Record<ApprovalStatus, string> = {
   pending_review: "ממתין לבדיקת עו״ד",
@@ -36,6 +37,15 @@ export function CaseApprovalsPanel({
                 </span>
                 <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABELS[r.status]}</Badge>
               </div>
+              {r.submitted_by_profile?.full_name && (
+                <div className="mt-1">
+                  <NamedAvatar
+                    name={r.submitted_by_profile.full_name}
+                    size="h-5 w-5 text-[9px]"
+                    className="text-xs text-gray-500"
+                  />
+                </div>
+              )}
             </li>
           ))}
         </ul>

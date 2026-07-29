@@ -8,6 +8,7 @@ import {
   type TaskStatus,
 } from "@/types/database";
 import { Badge, type Tone } from "@/components/ui/badge";
+import { NamedAvatar } from "@/components/ui/avatar";
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   open: "פתוחה",
@@ -99,10 +100,11 @@ export function CaseTasksPanel({ tasks }: { tasks: TaskWithNames[] }) {
                   </div>
                 </div>
                 {(t.assigned_to_profile?.full_name || t.due_date) && (
-                  <div className="mt-1 text-xs text-gray-500">
-                    {t.assigned_to_profile?.full_name &&
-                      `למטפל: ${t.assigned_to_profile.full_name}`}
-                    {t.due_date && ` · יעד: ${formatDate(t.due_date)}`}
+                  <div className="mt-1.5 flex items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                    {t.assigned_to_profile?.full_name && (
+                      <NamedAvatar name={t.assigned_to_profile.full_name} size="h-5 w-5 text-[9px]" />
+                    )}
+                    {t.due_date && <span>יעד: {formatDate(t.due_date)}</span>}
                   </div>
                 )}
               </Link>
