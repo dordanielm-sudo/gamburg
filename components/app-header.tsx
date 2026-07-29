@@ -67,6 +67,7 @@ export function AppHeader({
           <NavLink href="/cases">ניהול תיקים</NavLink>
           <NavLink href="/deadlines">מועדים</NavLink>
           <NavLink href="/tasks">משימות</NavLink>
+          <NavLink href="/approvals">בקרה ואישורים</NavLink>
           {role === "manager" && (
             <>
               <NavLink href="/dashboard">דשבורד</NavLink>
