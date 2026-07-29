@@ -89,6 +89,16 @@ export function DeadlinesPanel({
                     <div className="text-xs text-gray-500">{d.notes}</div>
                   )}
                 </div>
+                {d.zoom_link && (
+                  <a
+                    href={d.zoom_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 whitespace-nowrap hover:underline"
+                  >
+                    זום
+                  </a>
+                )}
                 <span className="text-sm text-gray-600 whitespace-nowrap">
                   {formatDate(d.due_date)}
                 </span>

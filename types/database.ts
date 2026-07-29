@@ -102,6 +102,11 @@ export interface CaseDeadline {
   due_date: string;
   status: TaskStatus;
   notes: string | null;
+  external_date: string | null;
+  zoom_link: string | null;
+  address: string | null;
+  client_updated: boolean;
+  preparation_done: boolean;
   source_field_name: string | null;
   created_by: string | null;
   created_at: string;

@@ -128,6 +128,10 @@ export function DeadlinesBoard({
     setFormError(null);
     const label = String(formData.get("label") ?? "").trim();
     const dueDate = String(formData.get("due_date") ?? "");
+    const notes = String(formData.get("notes") ?? "").trim() || null;
+    const externalDate = String(formData.get("external_date") ?? "") || null;
+    const zoomLink = String(formData.get("zoom_link") ?? "").trim() || null;
+    const address = String(formData.get("address") ?? "").trim() || null;
 
     let caseId = createCaseId;
     const manualCaseNumber = createCaseText.trim();
@@ -151,7 +155,15 @@ export function DeadlinesBoard({
     setCreating(true);
     const { data, error } = await supabase
       .from("case_deadlines")
-      .insert({ case_id: caseId, label, due_date: dueDate })
+      .insert({
+        case_id: caseId,
+        label,
+        due_date: dueDate,
+        notes,
+        external_date: externalDate,
+        zoom_link: zoomLink,
+        address,
+      })
       .select(
         "*, case:cases!case_deadlines_case_id_fkey(id, case_number, case_name, handler:profiles!cases_handler_id_fkey(id, full_name))",
       )
@@ -179,6 +191,25 @@ export function DeadlinesBoard({
     const { error } = await supabase
       .from("case_deadlines")
       .update({ status })
+      .eq("id", deadline.id);
+    if (error) {
+      setRows((prev) =>
+        prev.map((d) => (d.id === deadline.id ? deadline : d)),
+      );
+    }
+  }
+
+  async function toggleFlag(
+    deadline: CaseDeadlineWithCase,
+    field: "client_updated" | "preparation_done",
+  ) {
+    const value = !deadline[field];
+    setRows((prev) =>
+      prev.map((d) => (d.id === deadline.id ? { ...d, [field]: value } : d)),
+    );
+    const { error } = await supabase
+      .from("case_deadlines")
+      .update({ [field]: value })
       .eq("id", deadline.id);
     if (error) {
       setRows((prev) =>
@@ -229,6 +260,43 @@ export function DeadlinesBoard({
                 type="date"
                 required
                 className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">
+                תאריך חיצוני (אופציונלי)
+              </label>
+              <input
+                name="external_date"
+                type="date"
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <div className="min-w-[160px] flex-1">
+              <label className="mb-1 block text-xs text-gray-500">
+                קישור לזום (אופציונלי)
+              </label>
+              <input
+                name="zoom_link"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <div className="min-w-[160px] flex-1">
+              <label className="mb-1 block text-xs text-gray-500">
+                כתובת (אופציונלי)
+              </label>
+              <input
+                name="address"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <div className="min-w-[160px] flex-1">
+              <label className="mb-1 block text-xs text-gray-500">
+                תיאור (אופציונלי)
+              </label>
+              <input
+                name="notes"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               />
             </div>
             <button
@@ -397,6 +465,51 @@ export function DeadlinesBoard({
                       <span>מטפל: {d.case.handler.full_name}</span>
                     )}
                     <span>תאריך יעד: {formatDate(d.due_date)}</span>
+                    {d.external_date && (
+                      <span>תאריך חיצוני: {formatDate(d.external_date)}</span>
+                    )}
+                    {d.address && <span>כתובת: {d.address}</span>}
+                  </div>
+                  {d.notes && (
+                    <div className="mt-1 text-xs text-gray-500">{d.notes}</div>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-4 text-xs">
+                    {d.zoom_link && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          window.open(d.zoom_link!, "_blank", "noopener,noreferrer");
+                        }}
+                        className="text-blue-600 hover:underline"
+                      >
+                        פתיחת זום
+                      </button>
+                    )}
+                    <label
+                      className="flex items-center gap-1.5 text-gray-500"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={d.client_updated}
+                        onChange={() => toggleFlag(d, "client_updated")}
+                        className="h-3.5 w-3.5 accent-blue-600"
+                      />
+                      לקוח מעודכן
+                    </label>
+                    <label
+                      className="flex items-center gap-1.5 text-gray-500"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={d.preparation_done}
+                        onChange={() => toggleFlag(d, "preparation_done")}
+                        className="h-3.5 w-3.5 accent-blue-600"
+                      />
+                      הכנה בוצעה
+                    </label>
                   </div>
                 </Link>
               );
