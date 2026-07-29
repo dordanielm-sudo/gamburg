@@ -8,7 +8,9 @@ export type NotificationType =
   | "new_task"
   | "new_document"
   | "stuck_case"
-  | "task_due_soon";
+  | "task_due_soon"
+  | "approval_request_submitted"
+  | "approval_request_decided";
 export type WebhookStatus = "pending" | "success" | "failure" | "warning";
 export type HearingStatus = "scheduled" | "held" | "postponed" | "cancelled";
 export type DocumentStatus = "valid" | "in_correction" | "correction_needed";
