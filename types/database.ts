@@ -188,6 +188,34 @@ export function formatCaseFieldValue(
   return "—";
 }
 
+// בקרה ואישורים - a generic 3-step workflow (submit -> review -> manager
+// approval), request_type is free text so any approval type works
+export type ApprovalStatus =
+  | "pending_review"
+  | "pending_approval"
+  | "approved"
+  | "rejected";
+
+export interface ApprovalRequest {
+  id: string;
+  case_id: string;
+  request_type: string;
+  status: ApprovalStatus;
+  submitted_by: string;
+  reviewed_by: string | null;
+  approved_by: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApprovalRequestWithNames extends ApprovalRequest {
+  submitted_by_profile: Pick<Profile, "id" | "full_name"> | null;
+  reviewed_by_profile: Pick<Profile, "id" | "full_name"> | null;
+  approved_by_profile: Pick<Profile, "id" | "full_name"> | null;
+  case: Pick<Case, "id" | "case_number" | "case_name"> | null;
+}
+
 export interface Task {
   id: string;
   text: string;
