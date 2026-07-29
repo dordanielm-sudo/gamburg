@@ -62,18 +62,25 @@ export function Dot({ tone = "gray", className = "" }: { tone?: Tone; className?
   );
 }
 
+const BADGE_SIZE = {
+  sm: "px-2.5 py-1 text-xs gap-1.5",
+  md: "px-3 py-1.5 text-sm gap-2 font-semibold",
+};
+
 export function Badge({
   tone = "gray",
   dot = false,
+  size = "sm",
   children,
 }: {
   tone?: Tone;
   dot?: boolean;
+  size?: keyof typeof BADGE_SIZE;
   children: React.ReactNode;
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap ${TONE_BADGE[tone]}`}
+      className={`inline-flex items-center rounded-full font-medium whitespace-nowrap ${BADGE_SIZE[size]} ${TONE_BADGE[tone]}`}
     >
       {dot && <Dot tone={tone} />}
       {children}

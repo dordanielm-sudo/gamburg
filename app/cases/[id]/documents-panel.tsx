@@ -3,9 +3,11 @@
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { CaseDocumentWithResponsible, DocumentStatus } from "@/types/database";
-import { Badge, TONE_BADGE, type Tone } from "@/components/ui/badge";
+import { Badge, TONE_BADGE, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
+
+const PANEL_TONE: Tone = "blue";
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
   valid: "תקין",
@@ -51,11 +53,18 @@ export function DocumentsPanel({
   }
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-3 font-semibold">מסמכים ({rows.length})</h2>
-      <p className="mb-3 text-xs text-gray-400">
-        נמשך אוטומטית מעדכנית - ניתן לעדכן סטטוס, לא להוסיף ידנית.
-      </p>
+    <section
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+      style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[PANEL_TONE]}` }}
+    >
+      <div className="mb-3">
+        <Badge tone={PANEL_TONE} dot>
+          מסמכים ({rows.length})
+        </Badge>
+        <p className="mt-1.5 text-xs text-gray-400">
+          נמשך אוטומטית מעדכנית - ניתן לעדכן סטטוס, לא להוסיף ידנית.
+        </p>
+      </div>
 
       {rows.length === 0 ? (
         <p className="text-sm text-gray-400">אין מסמכים רשומים</p>
