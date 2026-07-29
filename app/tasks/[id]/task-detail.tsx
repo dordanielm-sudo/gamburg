@@ -10,6 +10,8 @@ import {
 } from "@/types/database";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { NamedAvatar } from "@/components/ui/avatar";
+import { FieldGroup } from "@/components/ui/field-group";
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: "open", label: "פתוחה" },
@@ -125,45 +127,60 @@ export function TaskDetail({
         </div>
       )}
 
-      <dl className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <Field label="מטפל" value={current.assigned_to_profile?.full_name ?? "—"} />
-        <Field label="נוצר על ידי" value={current.created_by_profile?.full_name ?? "—"} />
-        <Field
-          label="תיק"
-          value={
-            current.case ? (
-              <Link
-                href={`/cases/${current.case.id}`}
-                className="text-blue-700 hover:underline"
-              >
-                {current.case.case_number} - {current.case.case_name}
-              </Link>
-            ) : (
-              "ללא תיק"
-            )
-          }
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <FieldGroup
+          title="פרטי משימה"
+          tone="indigo"
+          fields={[
+            {
+              label: "מטפל",
+              value: current.assigned_to_profile?.full_name ? (
+                <NamedAvatar name={current.assigned_to_profile.full_name} />
+              ) : (
+                "—"
+              ),
+            },
+            {
+              label: "תיק",
+              value: current.case ? (
+                <Link
+                  href={`/cases/${current.case.id}`}
+                  className="text-blue-700 hover:underline"
+                >
+                  {current.case.case_number} - {current.case.case_name}
+                </Link>
+              ) : (
+                "ללא תיק"
+              ),
+            },
+            { label: "קטגוריה", value: current.category_name ?? "—" },
+            { label: "תאריך התחלה", value: formatDate(current.start_date) },
+            { label: "תאריך יעד", value: formatDate(current.due_date) },
+          ]}
         />
-        <Field label="תאריך התחלה" value={formatDate(current.start_date)} />
-        <Field label="תאריך יעד" value={formatDate(current.due_date)} />
-        <Field label="קטגוריה" value={current.category_name ?? "—"} />
-        <Field label="נוצרה בתאריך" value={formatDateTime(current.created_at)} />
-        <Field label="הושלמה בתאריך" value={formatDateTime(current.completed_at)} />
-      </dl>
+        <FieldGroup
+          title="מעקב"
+          tone="purple"
+          fields={[
+            {
+              label: "נוצר על ידי",
+              value: current.created_by_profile?.full_name ? (
+                <NamedAvatar name={current.created_by_profile.full_name} />
+              ) : (
+                "—"
+              ),
+            },
+            { label: "נוצרה בתאריך", value: formatDateTime(current.created_at) },
+            { label: "הושלמה בתאריך", value: formatDateTime(current.completed_at) },
+          ]}
+        />
+      </div>
       {current.notes && (
-        <div className="mt-4">
-          <dt className="text-xs text-gray-400">הערות</dt>
-          <dd className="mt-0.5 text-sm text-gray-700">{current.notes}</dd>
+        <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+          <div className="text-xs text-gray-400">הערות</div>
+          <div className="mt-0.5 text-sm text-gray-700">{current.notes}</div>
         </div>
       )}
     </section>
-  );
-}
-
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <dt className="text-xs text-gray-400">{label}</dt>
-      <dd className="mt-0.5 text-sm font-medium text-gray-900">{value}</dd>
-    </div>
   );
 }

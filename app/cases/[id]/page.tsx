@@ -18,8 +18,9 @@ import {
   type CaseField,
   type ApprovalRequestWithNames,
 } from "@/types/database";
-import { Badge, hashTone, TONE_HEX, type Tone } from "@/components/ui/badge";
+import { Badge, hashTone, TONE_HEX } from "@/components/ui/badge";
 import { NamedAvatar } from "@/components/ui/avatar";
+import { FieldGroup, type FieldValue } from "@/components/ui/field-group";
 
 const APPROVAL_SELECT =
   "*, submitted_by_profile:profiles!approval_requests_submitted_by_fkey(id, full_name), reviewed_by_profile:profiles!approval_requests_reviewed_by_fkey(id, full_name), approved_by_profile:profiles!approval_requests_approved_by_fkey(id, full_name), case:cases!approval_requests_case_id_fkey(id, case_number, case_name)";
@@ -165,8 +166,6 @@ function lookupCaseField(fields: CaseField[], fieldName: string): string {
   return match ? formatCaseFieldValue(match) : "—";
 }
 
-type FieldValue = { label: string; value: React.ReactNode };
-
 function statusOrDash(value: string | null | undefined) {
   return value ? <Badge tone={hashTone(value)}>{value}</Badge> : "—";
 }
@@ -253,39 +252,6 @@ function CaseSummary({
           זיהוי נוסף: {caseRow.external_ref}
         </div>
       )}
-    </div>
-  );
-}
-
-function FieldGroup({
-  title,
-  tone,
-  fields,
-}: {
-  title: string;
-  tone: Tone;
-  fields: FieldValue[];
-}) {
-  return (
-    <div
-      className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
-      style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[tone]}` }}
-    >
-      <h3 className="mb-3">
-        <Badge tone={tone} dot>
-          {title}
-        </Badge>
-      </h3>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-        {fields.map((f) => (
-          <div key={f.label}>
-            <div className="text-xs text-gray-400">{f.label}</div>
-            <div className="mt-0.5 text-sm font-medium text-gray-900">
-              {f.value}
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
