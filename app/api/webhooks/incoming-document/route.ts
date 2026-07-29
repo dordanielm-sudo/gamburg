@@ -60,10 +60,13 @@ export async function POST(request: Request) {
 
       const documentName = body.document_name?.trim();
       if (documentName) {
+        // status tracks correctness (תקין/בתיקון/נדרש תיקון), not arrival -
+        // a freshly-uploaded document starts unreviewed, so "נדרש תיקון"
+        // until a handler marks it תקין
         const { error: docError } = await admin.from("documents").insert({
           case_id: caseRow.id,
           title: documentName,
-          status: "received",
+          status: "correction_needed",
           doc_date: new Date().toISOString().slice(0, 10),
         });
         if (docError) {

@@ -11,7 +11,7 @@ export type NotificationType =
   | "task_due_soon";
 export type WebhookStatus = "pending" | "success" | "failure" | "warning";
 export type HearingStatus = "scheduled" | "held" | "postponed" | "cancelled";
-export type DocumentStatus = "pending" | "received" | "missing";
+export type DocumentStatus = "valid" | "in_correction" | "correction_needed";
 
 export interface Profile {
   id: string;
@@ -90,9 +90,15 @@ export interface CaseDocument {
   status: DocumentStatus;
   doc_date: string | null;
   notes: string | null;
+  responsible_id: string | null;
+  file_url: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CaseDocumentWithResponsible extends CaseDocument {
+  responsible: Pick<Profile, "id" | "full_name"> | null;
 }
 
 export interface CaseDeadline {
@@ -102,6 +108,11 @@ export interface CaseDeadline {
   due_date: string;
   status: TaskStatus;
   notes: string | null;
+  external_date: string | null;
+  zoom_link: string | null;
+  address: string | null;
+  client_updated: boolean;
+  preparation_done: boolean;
   source_field_name: string | null;
   created_by: string | null;
   created_at: string;
