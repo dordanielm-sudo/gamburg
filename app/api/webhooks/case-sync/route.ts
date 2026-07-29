@@ -32,6 +32,8 @@ interface CaseSyncPayload {
   team?: string | null;
   client_id_number?: string | null;
   client_phone?: string | null;
+  client_email?: string | null;
+  client_address?: string | null;
   // { name, id_number, phone } - some cases have a spouse as a co-party
   spouse_details?: SpouseDetails | null;
   source_updated_at?: string | null;
@@ -85,6 +87,8 @@ export async function POST(request: Request) {
         team: body.team ?? null,
         client_id_number: body.client_id_number ?? null,
         client_phone: body.client_phone ?? null,
+        client_email: body.client_email ?? null,
+        client_address: body.client_address ?? null,
         spouse_details: body.spouse_details ?? null,
         source_updated_at: body.source_updated_at ?? new Date().toISOString(),
       };

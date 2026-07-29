@@ -39,6 +39,8 @@ export interface Case {
   status: string | null;
   client_id_number: string | null;
   client_phone: string | null;
+  client_email: string | null;
+  client_address: string | null;
   spouse_details: SpouseDetails | null;
   drive_url: string | null;
   source_updated_at: string | null;
