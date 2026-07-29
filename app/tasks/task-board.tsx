@@ -79,6 +79,7 @@ export function TaskBoard({
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("open");
   const [range, setRange] = useState<RangeKey>("all");
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
+  const [overdueOnly, setOverdueOnly] = useState(false);
 
   const caseOptions = useMemo(() => {
     const map = new Map<string, CaseOption>();
@@ -126,6 +127,10 @@ export function TaskBoard({
       if (caseFilter && t.case?.id !== caseFilter) return false;
       if (handlerFilter && t.assigned_to !== handlerFilter) return false;
       if (statusFilter && t.status !== statusFilter) return false;
+      if (overdueOnly) {
+        if (!t.due_date || t.status !== "open") return false;
+        return new Date(t.due_date + "T00:00:00") < today;
+      }
       if (start === null && end === null) return true;
       if (!t.due_date) return true;
       const due = new Date(t.due_date + "T00:00:00");
@@ -134,7 +139,7 @@ export function TaskBoard({
       if (end && due > end) return false;
       return true;
     });
-  }, [rows, caseFilter, handlerFilter, statusFilter, range, calendarDate]);
+  }, [rows, caseFilter, handlerFilter, statusFilter, range, calendarDate, overdueOnly]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -200,7 +205,11 @@ export function TaskBoard({
 
   const sortedRows = [...filteredRows].sort(byDueDate);
   const hasActiveFilters =
-    !!caseFilter || !!handlerFilter || statusFilter !== "open" || !!calendarDate;
+    !!caseFilter ||
+    !!handlerFilter ||
+    statusFilter !== "open" ||
+    !!calendarDate ||
+    overdueOnly;
 
   return (
     <div className="space-y-6">
@@ -290,15 +299,29 @@ export function TaskBoard({
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1 rounded-full bg-gray-100 p-1">
+          <button
+            onClick={() => {
+              setOverdueOnly((v) => !v);
+              setCalendarDate(null);
+            }}
+            className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+              overdueOnly
+                ? "bg-rose-600 text-white"
+                : "text-rose-700 hover:bg-gray-200"
+            }`}
+          >
+            באיחור
+          </button>
           {(Object.keys(RANGE_LABELS) as RangeKey[]).map((key) => (
             <button
               key={key}
               onClick={() => {
                 setRange(key);
                 setCalendarDate(null);
+                setOverdueOnly(false);
               }}
               className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                !calendarDate && range === key
+                !calendarDate && !overdueOnly && range === key
                   ? "bg-blue-600 text-white"
                   : "text-gray-600 hover:bg-gray-200"
               }`}
@@ -310,7 +333,10 @@ export function TaskBoard({
         <CalendarPopup
           markedDates={markedDates}
           selectedDate={calendarDate}
-          onSelect={setCalendarDate}
+          onSelect={(date) => {
+            setCalendarDate(date);
+            setOverdueOnly(false);
+          }}
         />
         {calendarDate && (
           <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium whitespace-nowrap text-blue-700">
@@ -357,6 +383,7 @@ export function TaskBoard({
               setHandlerFilter("");
               setStatusFilter("open");
               setCalendarDate(null);
+              setOverdueOnly(false);
             }}
             className="text-sm text-gray-500 underline hover:text-gray-900"
           >
