@@ -2,18 +2,18 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { CaseDocument, DocumentStatus } from "@/types/database";
+import type { CaseDocumentWithResponsible, DocumentStatus } from "@/types/database";
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
-  pending: "בהמתנה",
-  received: "התקבל",
-  missing: "חסר",
+  valid: "תקין",
+  in_correction: "בתיקון",
+  correction_needed: "נדרש תיקון",
 };
 
 const STATUS_BADGE: Record<DocumentStatus, string> = {
-  pending: "bg-amber-50 text-amber-700",
-  received: "bg-emerald-50 text-emerald-700",
-  missing: "bg-rose-50 text-rose-700",
+  valid: "bg-emerald-50 text-emerald-700",
+  in_correction: "bg-amber-50 text-amber-700",
+  correction_needed: "bg-rose-50 text-rose-700",
 };
 
 function formatDate(value: string | null) {
@@ -25,13 +25,13 @@ export function DocumentsPanel({
   documents,
   canEdit,
 }: {
-  documents: CaseDocument[];
+  documents: CaseDocumentWithResponsible[];
   canEdit: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(documents);
 
-  async function updateStatus(doc: CaseDocument, status: DocumentStatus) {
+  async function updateStatus(doc: CaseDocumentWithResponsible, status: DocumentStatus) {
     setRows((prev) =>
       prev.map((d) => (d.id === doc.id ? { ...d, status } : d)),
     );
@@ -83,8 +83,19 @@ export function DocumentsPanel({
                   </span>
                 )}
               </div>
-              <div className="mt-0.5 text-xs text-gray-500">
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500">
                 {[d.doc_type, formatDate(d.doc_date)].filter(Boolean).join(" · ")}
+                {d.responsible?.full_name && <span>אחראי: {d.responsible.full_name}</span>}
+                {d.file_url && (
+                  <a
+                    href={d.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    פתיחת מסמך
+                  </a>
+                )}
               </div>
             </li>
           ))}

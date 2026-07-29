@@ -10,7 +10,7 @@ import { CaseTasksPanel } from "./case-tasks-panel";
 import {
   formatCaseFieldValue,
   type CaseWithHandler,
-  type CaseDocument,
+  type CaseDocumentWithResponsible,
   type CaseDeadline,
   type TaskWithNames,
   type SpouseDetails,
@@ -43,10 +43,12 @@ export default async function CaseDetailPage({
     await Promise.all([
       supabase
         .from("documents")
-        .select("*")
+        .select(
+          "*, responsible:profiles!documents_responsible_id_fkey(id, full_name)",
+        )
         .eq("case_id", id)
         .order("doc_date", { ascending: false, nullsFirst: false })
-        .returns<CaseDocument[]>(),
+        .returns<CaseDocumentWithResponsible[]>(),
       supabase
         .from("case_deadlines")
         .select("*")
