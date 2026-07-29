@@ -13,7 +13,7 @@ import {
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
 
@@ -407,84 +407,105 @@ export function TaskBoard({
           אין משימות
         </p>
       ) : (
-        <div className="space-y-2">
-          {sortedRows.map((t) => (
-            <TaskCard
-              key={t.id}
-              task={t}
-              canDelete={canCreate && t.status !== "open"}
-              deleting={deletingId === t.id}
-              onDelete={() => handleDelete(t)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TaskCard({
-  task: t,
-  canDelete,
-  deleting,
-  onDelete,
-}: {
-  task: TaskWithNames;
-  canDelete: boolean;
-  deleting: boolean;
-  onDelete: () => void;
-}) {
-  const urgency =
-    t.due_date && t.status === "open"
-      ? deadlineUrgency(t.due_date, t.status)
-      : null;
-  const showUrgency = urgency === "overdue" || urgency === "soon";
-
-  return (
-    <div
-      className={`rounded-xl border bg-white p-4 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/30 ${
-        urgency === "overdue"
-          ? "border-rose-200"
-          : urgency === "soon"
-            ? "border-amber-200"
-            : "border-gray-200"
-      }`}
-    >
-      <Link href={`/tasks/${t.id}`} className="block">
-        <div className="flex items-start justify-between gap-3">
-          <span className="font-medium text-gray-900">{t.text}</span>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {t.priority_code === HIGH_PRIORITY_CODE && (
-              <Badge tone="amber">{t.priority_name || "עדיפות גבוהה"}</Badge>
-            )}
-            {showUrgency && <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>}
-            <Badge tone={STATUS_TONE[t.status]}>{STATUS_LABELS[t.status]}</Badge>
-          </div>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-          {t.assigned_to_profile?.full_name && (
-            <NamedAvatar name={t.assigned_to_profile.full_name} size="h-5 w-5 text-[9px]" />
-          )}
-          {t.case && (
-            <span>
-              תיק: {t.case.case_number} - {t.case.case_name}
-            </span>
-          )}
-          {t.due_date && <span>תאריך יעד: {formatDate(t.due_date)}</span>}
-          {t.category_name && <span>קטגוריה: {t.category_name}</span>}
-        </div>
-        {t.notes && <div className="mt-1 text-xs text-gray-500">{t.notes}</div>}
-      </Link>
-      {canDelete && (
-        <div className="mt-2 flex justify-end">
-          <button
-            onClick={onDelete}
-            disabled={deleting}
-            className="flex items-center gap-1.5 text-xs text-rose-600 hover:text-rose-800 hover:underline disabled:opacity-50"
-          >
-            {deleting && <Spinner className="h-3 w-3" />}
-            מחיקה לצמיתות
-          </button>
+        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+          <table className="w-full min-w-[820px] text-sm">
+            <thead className="border-b border-indigo-100 bg-indigo-50/60 text-right">
+              <tr>
+                <th className="w-1 p-0" aria-hidden />
+                <th className="px-4 py-3 font-semibold text-indigo-900">משימה</th>
+                <th className="px-4 py-3 font-semibold text-indigo-900">תיק</th>
+                <th className="px-4 py-3 font-semibold text-indigo-900">מטפל</th>
+                <th className="px-4 py-3 font-semibold text-indigo-900">תאריך יעד</th>
+                <th className="px-4 py-3 font-semibold text-indigo-900">סטטוס</th>
+                {canCreate && (
+                  <th className="px-4 py-3 font-semibold text-indigo-900">פעולות</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((t) => {
+                const urgency =
+                  t.due_date && t.status === "open"
+                    ? deadlineUrgency(t.due_date, t.status)
+                    : null;
+                const showUrgency = urgency === "overdue" || urgency === "soon";
+                const rowTone: Tone = showUrgency
+                  ? URGENCY_TONE[urgency]
+                  : STATUS_TONE[t.status];
+                const canDelete = canCreate && t.status !== "open";
+                const deleting = deletingId === t.id;
+                return (
+                  <tr
+                    key={t.id}
+                    className="border-b border-gray-100 transition-colors hover:bg-gray-50/60"
+                    style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[rowTone]}` }}
+                  >
+                    <td className="w-1 p-0" aria-hidden />
+                    <td className="px-4 py-3.5">
+                      <Link
+                        href={`/tasks/${t.id}`}
+                        className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
+                      >
+                        {t.text}
+                      </Link>
+                      {(t.notes || t.category_name) && (
+                        <div className="mt-0.5 text-xs text-gray-400">
+                          {[t.category_name, t.notes].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
+                      {t.case ? (
+                        <Link
+                          href={`/cases/${t.case.id}`}
+                          className="hover:text-blue-700 hover:underline"
+                        >
+                          {t.case.case_number} - {t.case.case_name}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
+                      {t.assigned_to_profile?.full_name ? (
+                        <NamedAvatar name={t.assigned_to_profile.full_name} />
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
+                      {t.due_date ? formatDate(t.due_date) : "—"}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {t.priority_code === HIGH_PRIORITY_CODE && (
+                          <Badge tone="amber">{t.priority_name || "עדיפות גבוהה"}</Badge>
+                        )}
+                        {showUrgency && (
+                          <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>
+                        )}
+                        <Badge tone={STATUS_TONE[t.status]}>{STATUS_LABELS[t.status]}</Badge>
+                      </div>
+                    </td>
+                    {canCreate && (
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDelete(t)}
+                            disabled={deleting}
+                            className="flex items-center gap-1.5 text-xs text-rose-600 hover:text-rose-800 hover:underline disabled:opacity-50"
+                          >
+                            {deleting && <Spinner className="h-3 w-3" />}
+                            מחיקה
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
