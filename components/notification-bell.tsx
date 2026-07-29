@@ -19,6 +19,8 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   new_document: "מסמך חדש",
   stuck_case: "תיק תקוע",
   task_due_soon: "תזכורת משימה",
+  approval_request_submitted: "בקשת אישור חדשה",
+  approval_request_decided: "החלטה בבקשת אישור",
 };
 
 function timeAgo(iso: string) {
