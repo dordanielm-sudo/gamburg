@@ -18,6 +18,8 @@ import {
   type CaseField,
   type ApprovalRequestWithNames,
 } from "@/types/database";
+import { Badge, hashTone, TONE_HEX, type Tone } from "@/components/ui/badge";
+import { NamedAvatar } from "@/components/ui/avatar";
 
 const APPROVAL_SELECT =
   "*, submitted_by_profile:profiles!approval_requests_submitted_by_fkey(id, full_name), reviewed_by_profile:profiles!approval_requests_reviewed_by_fkey(id, full_name), approved_by_profile:profiles!approval_requests_approved_by_fkey(id, full_name), case:cases!approval_requests_case_id_fkey(id, case_number, case_name)";
@@ -163,6 +165,12 @@ function lookupCaseField(fields: CaseField[], fieldName: string): string {
   return match ? formatCaseFieldValue(match) : "—";
 }
 
+type FieldValue = { label: string; value: React.ReactNode };
+
+function statusOrDash(value: string | null | undefined) {
+  return value ? <Badge tone={hashTone(value)}>{value}</Badge> : "—";
+}
+
 function CaseSummary({
   caseRow,
   caseFields,
@@ -170,14 +178,14 @@ function CaseSummary({
   caseRow: CaseWithHandler;
   caseFields: CaseField[];
 }) {
-  const clientFields: { label: string; value: string }[] = [
+  const clientFields: FieldValue[] = [
     { label: "ת.ז", value: caseRow.client_id_number ?? "—" },
     { label: "טלפון", value: caseRow.client_phone ?? "—" },
     { label: "מייל", value: caseRow.client_email ?? "—" },
     { label: "כתובת", value: caseRow.client_address ?? "—" },
   ];
 
-  const financialFields: { label: string; value: string }[] = [
+  const financialFields: FieldValue[] = [
     { label: "חובות", value: lookupCaseField(caseFields, "חובות") },
     {
       label: "מספר נושים",
@@ -189,10 +197,17 @@ function CaseSummary({
     },
   ];
 
-  const caseInfoFields: { label: string; value: string }[] = [
-    { label: "שלב בתיק", value: caseRow.case_nature ?? "—" },
-    { label: "סטטוס", value: caseRow.status ?? "—" },
-    { label: "מטפל", value: caseRow.handler?.full_name ?? "—" },
+  const caseInfoFields: FieldValue[] = [
+    { label: "שלב בתיק", value: statusOrDash(caseRow.case_nature) },
+    { label: "סטטוס", value: statusOrDash(caseRow.status) },
+    {
+      label: "מטפל",
+      value: caseRow.handler?.full_name ? (
+        <NamedAvatar name={caseRow.handler.full_name} />
+      ) : (
+        "—"
+      ),
+    },
     { label: "צוות", value: caseRow.team ?? "—" },
     {
       label: "עו״ד אחראי",
@@ -206,7 +221,7 @@ function CaseSummary({
     },
   ];
 
-  const dateFields: { label: string; value: string }[] = [
+  const dateFields: FieldValue[] = [
     { label: "תאריך צו", value: lookupCaseField(caseFields, "מועד קבלת צו") },
     { label: "מועד דיון", value: lookupCaseField(caseFields, "תאריך דיון.") },
     { label: "ממונה", value: lookupCaseField(caseFields, "תיק ממונה") },
@@ -214,9 +229,9 @@ function CaseSummary({
   ];
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="space-y-3">
       {caseRow.drive_url && (
-        <div className="mb-4 flex justify-end">
+        <div className="flex justify-end">
           <a
             href={caseRow.drive_url}
             target="_blank"
@@ -227,32 +242,41 @@ function CaseSummary({
           </a>
         </div>
       )}
-      <FieldGroup title="לקוח" fields={clientFields} first />
-      <FieldGroup title="נתונים כלכליים" fields={financialFields} />
-      <FieldGroup title="פרטי תיק" fields={caseInfoFields} />
-      <FieldGroup title="תאריכים" fields={dateFields} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <FieldGroup title="לקוח" tone="blue" fields={clientFields} />
+        <FieldGroup title="נתונים כלכליים" tone="green" fields={financialFields} />
+        <FieldGroup title="פרטי תיק" tone="indigo" fields={caseInfoFields} />
+        <FieldGroup title="תאריכים" tone="purple" fields={dateFields} />
+      </div>
       {caseRow.external_ref && (
-        <div className="mt-4 border-t border-gray-100 pt-4 text-xs text-gray-400">
+        <div className="text-xs text-gray-400">
           זיהוי נוסף: {caseRow.external_ref}
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
 function FieldGroup({
   title,
+  tone,
   fields,
-  first,
 }: {
   title: string;
-  fields: { label: string; value: string }[];
-  first?: boolean;
+  tone: Tone;
+  fields: FieldValue[];
 }) {
   return (
-    <div className={first ? "" : "mt-4 border-t border-gray-100 pt-4"}>
-      <h3 className="mb-2 text-xs font-semibold text-gray-500">{title}</h3>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+    <div
+      className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+      style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[tone]}` }}
+    >
+      <h3 className="mb-3">
+        <Badge tone={tone} dot>
+          {title}
+        </Badge>
+      </h3>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         {fields.map((f) => (
           <div key={f.label}>
             <div className="text-xs text-gray-400">{f.label}</div>
@@ -273,12 +297,18 @@ function CaseFieldsTab({
   pageName: string;
   fields: CaseField[];
 }) {
+  const tone = hashTone(pageName);
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-1 font-semibold text-gray-900">{pageName}</h2>
-      <p className="mb-4 text-xs text-gray-400">
-        נמשך אוטומטית מעדכנית - לתצוגה בלבד
-      </p>
+    <section
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+      style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[tone]}` }}
+    >
+      <div className="mb-4 flex items-center justify-between">
+        <Badge tone={tone} dot>
+          {pageName}
+        </Badge>
+        <p className="text-xs text-gray-400">נמשך אוטומטית מעדכנית - לתצוגה בלבד</p>
+      </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {fields.map((f) => (
           <div key={f.id}>
@@ -294,15 +324,22 @@ function CaseFieldsTab({
 }
 
 function SpouseSummary({ spouse }: { spouse: SpouseDetails }) {
-  const fields: { label: string; value: string }[] = [
-    { label: "שם", value: spouse.name ?? "—" },
+  const fields: FieldValue[] = [
+    { label: "שם", value: spouse.name ? <NamedAvatar name={spouse.name} /> : "—" },
     { label: "ת.ז", value: spouse.id_number ?? "—" },
     { label: "טלפון", value: spouse.phone ?? "—" },
   ];
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-4 font-semibold text-gray-900">פרטי בן/בת הזוג</h2>
+    <section
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+      style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX.purple}` }}
+    >
+      <div className="mb-4">
+        <Badge tone="purple" dot>
+          בן/בת זוג
+        </Badge>
+      </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         {fields.map((f) => (
           <div key={f.label}>
