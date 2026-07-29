@@ -145,6 +145,18 @@ export interface CaseField {
   updated_at: string;
 }
 
+// per-case-type fixed columns on the cases list (migration 0019) - a
+// manager-configured ordered list of (page_name, field_name) shown as
+// extra columns whenever the cases list is narrowed to one case_type
+export interface CaseTypeColumnPreset {
+  id: string;
+  case_type: string;
+  page_name: string;
+  field_name: string;
+  display_order: number;
+  created_at: string;
+}
+
 export function formatCaseFieldValue(
   f: Pick<CaseField, "value_text" | "value_date" | "value_number">,
 ): string {

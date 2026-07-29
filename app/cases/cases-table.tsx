@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   formatCaseFieldValue,
   isCaseStuck,
+  type CaseTypeColumnPreset,
   type CaseWithRelations,
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
@@ -64,9 +65,13 @@ function itemMatchesRange(
 export function CasesTable({
   cases,
   canEdit,
+  columnPresets,
+  isManager,
 }: {
   cases: CaseWithRelations[];
   canEdit: boolean;
+  columnPresets: CaseTypeColumnPreset[];
+  isManager: boolean;
 }) {
   const [rows, setRows] = useState(cases);
   const [search, setSearch] = useState("");
@@ -102,6 +107,19 @@ export function CasesTable({
   const typeOptions = useMemo(
     () => uniqueSorted(rows.map((c) => c.case_type)),
     [rows],
+  );
+
+  // fixed extra columns for the currently-selected סוג תיק (only when the
+  // type filter is narrowed to exactly one type - otherwise rows would need
+  // different columns, which a flat table can't show)
+  const activeColumnPresets = useMemo(
+    () =>
+      typeFilter
+        ? columnPresets
+            .filter((p) => p.case_type === typeFilter)
+            .sort((a, b) => a.display_order - b.display_order)
+        : [],
+    [columnPresets, typeFilter],
   );
 
   // חוצצים available across all cases (page_name) and, once one is picked,
@@ -417,6 +435,14 @@ export function CasesTable({
             onToggle={toggleFieldName}
           />
         )}
+        {isManager && (
+          <Link
+            href="/dashboard/case-columns"
+            className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+          >
+            ניהול עמודות לפי סוג תיק
+          </Link>
+        )}
 
         {hasActiveFilters && (
           <button
@@ -451,6 +477,14 @@ export function CasesTable({
               <Th onClick={() => toggleSort("last_touched_at")}>
                 נגיעה אחרונה
               </Th>
+              {activeColumnPresets.map((p) => (
+                <th
+                  key={p.id}
+                  className="px-4 py-3 font-medium text-gray-600 whitespace-nowrap"
+                >
+                  {p.field_name}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -572,10 +606,28 @@ export function CasesTable({
                       <SyncBadge sync={sync} />
                     </div>
                   </td>
+                  {activeColumnPresets.map((p) => {
+                    const field = c.case_fields.find(
+                      (f) =>
+                        f.page_name === p.page_name &&
+                        f.field_name === p.field_name,
+                    );
+                    return (
+                      <td
+                        key={p.id}
+                        className="px-4 py-3 whitespace-nowrap text-gray-600"
+                      >
+                        {field ? formatCaseFieldValue(field) : "—"}
+                      </td>
+                    );
+                  })}
                 </tr>
                 {tabFilter && selectedFieldNames.size > 0 && (
                   <tr className="border-b border-gray-100 bg-gray-50/40">
-                    <td colSpan={11} className="px-4 py-2">
+                    <td
+                      colSpan={11 + activeColumnPresets.length}
+                      className="px-4 py-2"
+                    >
                       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-600">
                         {Array.from(selectedFieldNames).map((fieldName) => {
                           const field = c.case_fields.find(
@@ -601,7 +653,10 @@ export function CasesTable({
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-gray-400">
+                <td
+                  colSpan={11 + activeColumnPresets.length}
+                  className="px-4 py-8 text-center text-gray-400"
+                >
                   לא נמצאו תיקים
                 </td>
               </tr>
