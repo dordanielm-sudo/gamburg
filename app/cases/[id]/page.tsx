@@ -82,7 +82,7 @@ export default async function CaseDetailPage({
       label: "פרטי תיק",
       content: (
         <div className="space-y-6">
-          <CaseSummary caseRow={caseRow} />
+          <CaseSummary caseRow={caseRow} caseFields={caseFields ?? []} />
           <div className="grid gap-6 lg:grid-cols-2">
             <DeadlinesPanel deadlines={deadlines ?? []} canEdit={canEdit} />
             <DocumentsPanel documents={documents ?? []} canEdit={canEdit} />
@@ -138,25 +138,62 @@ export default async function CaseDetailPage({
   );
 }
 
-function CaseSummary({ caseRow }: { caseRow: CaseWithHandler }) {
-  const fields: { label: string; value: string }[] = [
-    { label: "סוג תיק", value: caseRow.case_type ?? "—" },
-    { label: "מהות", value: caseRow.case_nature ?? "—" },
+// looks up a חוצץ field by name regardless of which page it's on - best
+// guess at the field names these highlights map to in עדכנית; shows "—"
+// harmlessly if the guess is wrong or the field hasn't synced yet
+function lookupCaseField(fields: CaseField[], fieldName: string): string {
+  const match = fields.find((f) => f.field_name === fieldName);
+  return match ? formatCaseFieldValue(match) : "—";
+}
+
+function CaseSummary({
+  caseRow,
+  caseFields,
+}: {
+  caseRow: CaseWithHandler;
+  caseFields: CaseField[];
+}) {
+  const clientFields: { label: string; value: string }[] = [
+    { label: "ת.ז", value: caseRow.client_id_number ?? "—" },
+    { label: "טלפון", value: caseRow.client_phone ?? "—" },
+    { label: "מייל", value: caseRow.client_email ?? "—" },
+    { label: "כתובת", value: caseRow.client_address ?? "—" },
+  ];
+
+  const financialFields: { label: string; value: string }[] = [
+    { label: "חובות", value: lookupCaseField(caseFields, "חובות") },
+    {
+      label: "מספר נושים",
+      value: lookupCaseField(caseFields, "מספר נושים"),
+    },
+    {
+      label: "תשלום חודשי",
+      value: lookupCaseField(caseFields, "תשלום חודשי לממונה"),
+    },
+  ];
+
+  const caseInfoFields: { label: string; value: string }[] = [
+    { label: "שלב בתיק", value: caseRow.case_nature ?? "—" },
+    { label: "סטטוס", value: caseRow.status ?? "—" },
     { label: "מטפל", value: caseRow.handler?.full_name ?? "—" },
     { label: "צוות", value: caseRow.team ?? "—" },
-    { label: "סטטוס", value: caseRow.status ?? "—" },
     {
-      label: "תאריך פתיחה",
+      label: "עו״ד אחראי",
+      value: lookupCaseField(caseFields, "עורך דין אחראי"),
+    },
+    {
+      label: "מועד פתיחת תיק",
       value: caseRow.opened_date
         ? new Date(caseRow.opened_date).toLocaleDateString("he-IL")
         : "—",
     },
-    { label: "זיהוי נוסף", value: caseRow.external_ref ?? "—" },
   ];
 
-  const clientFields: { label: string; value: string }[] = [
-    { label: "ת.ז לקוח", value: caseRow.client_id_number ?? "—" },
-    { label: "טלפון לקוח", value: caseRow.client_phone ?? "—" },
+  const dateFields: { label: string; value: string }[] = [
+    { label: "תאריך צו", value: lookupCaseField(caseFields, "מועד קבלת צו") },
+    { label: "מועד דיון", value: lookupCaseField(caseFields, "תאריך דיון.") },
+    { label: "ממונה", value: lookupCaseField(caseFields, "תיק ממונה") },
+    { label: "נאמן", value: lookupCaseField(caseFields, "שם הנאמן") },
   ];
 
   return (
@@ -173,7 +210,32 @@ function CaseSummary({ caseRow }: { caseRow: CaseWithHandler }) {
           </a>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <FieldGroup title="לקוח" fields={clientFields} first />
+      <FieldGroup title="נתונים כלכליים" fields={financialFields} />
+      <FieldGroup title="פרטי תיק" fields={caseInfoFields} />
+      <FieldGroup title="תאריכים" fields={dateFields} />
+      {caseRow.external_ref && (
+        <div className="mt-4 border-t border-gray-100 pt-4 text-xs text-gray-400">
+          זיהוי נוסף: {caseRow.external_ref}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function FieldGroup({
+  title,
+  fields,
+  first,
+}: {
+  title: string;
+  fields: { label: string; value: string }[];
+  first?: boolean;
+}) {
+  return (
+    <div className={first ? "" : "mt-4 border-t border-gray-100 pt-4"}>
+      <h3 className="mb-2 text-xs font-semibold text-gray-500">{title}</h3>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         {fields.map((f) => (
           <div key={f.label}>
             <div className="text-xs text-gray-400">{f.label}</div>
@@ -183,17 +245,7 @@ function CaseSummary({ caseRow }: { caseRow: CaseWithHandler }) {
           </div>
         ))}
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 sm:grid-cols-3 lg:grid-cols-6">
-        {clientFields.map((f) => (
-          <div key={f.label}>
-            <div className="text-xs text-gray-400">{f.label}</div>
-            <div className="mt-0.5 text-sm font-medium text-gray-900">
-              {f.value}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
+    </div>
   );
 }
 
