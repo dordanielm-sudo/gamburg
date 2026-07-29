@@ -11,6 +11,8 @@ import {
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
+import { Badge, hashTone } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 
 type SortKey = "case_number" | "case_name" | "opened_date" | "last_touched_at";
 
@@ -453,8 +455,8 @@ export function CasesTable({
           </button>
         )}
 
-        <span className="mr-auto rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
-          {filtered.length} תיקים
+        <span className="mr-auto">
+          <Badge tone="indigo">{filtered.length} תיקים</Badge>
         </span>
       </div>
 
@@ -531,9 +533,9 @@ export function CasesTable({
                   </td>
                   <td className="px-4 py-3">
                     {c.status ? (
-                      <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                      <Badge tone={hashTone(c.status)} dot>
                         {c.status}
-                      </span>
+                      </Badge>
                     ) : (
                       <span className="text-gray-400">—</span>
                     )}
@@ -671,7 +673,11 @@ export function CasesTable({
 function SyncBadge({ sync }: { sync?: SyncStatus }) {
   if (!sync) return null;
   if (sync.phase === "saving") {
-    return <span className="text-xs text-gray-400">שומר…</span>;
+    return (
+      <span className="flex items-center gap-1 text-xs text-gray-400">
+        <Spinner className="h-3 w-3" /> שומר…
+      </span>
+    );
   }
   if (sync.phase === "success") {
     return (

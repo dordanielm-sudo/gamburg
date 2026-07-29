@@ -7,12 +7,14 @@ import {
   type CaseDeadline,
   type TaskStatus,
 } from "@/types/database";
+import { Badge, type Tone } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 
-const URGENCY_BADGE: Record<string, string> = {
-  overdue: "bg-rose-50 text-rose-700",
-  soon: "bg-amber-50 text-amber-700",
-  normal: "bg-gray-100 text-gray-600",
-  done: "bg-emerald-50 text-emerald-700",
+const URGENCY_TONE: Record<string, Tone> = {
+  overdue: "rose",
+  soon: "amber",
+  normal: "gray",
+  done: "green",
 };
 
 const URGENCY_LABEL: Record<string, string> = {
@@ -35,16 +37,19 @@ export function DeadlinesPanel({
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(deadlines);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   async function toggleDone(deadline: CaseDeadline) {
     const status: TaskStatus = deadline.status === "open" ? "done" : "open";
     setRows((prev) =>
       prev.map((d) => (d.id === deadline.id ? { ...d, status } : d)),
     );
+    setSavingId(deadline.id);
     const { error } = await supabase
       .from("case_deadlines")
       .update({ status })
       .eq("id", deadline.id);
+    setSavingId(null);
     if (error) {
       setRows((prev) =>
         prev.map((d) => (d.id === deadline.id ? deadline : d)),
@@ -68,12 +73,18 @@ export function DeadlinesPanel({
             return (
               <li key={d.id} className="flex items-center gap-3 py-2.5">
                 {canEdit && (
-                  <input
-                    type="checkbox"
-                    checked={d.status === "done"}
-                    onChange={() => toggleDone(d)}
-                    className="h-4 w-4 accent-blue-600"
-                  />
+                  <span className="relative flex h-4 w-4 items-center justify-center">
+                    {savingId === d.id ? (
+                      <Spinner className="h-4 w-4 text-gray-400" />
+                    ) : (
+                      <input
+                        type="checkbox"
+                        checked={d.status === "done"}
+                        onChange={() => toggleDone(d)}
+                        className="h-4 w-4 accent-blue-600"
+                      />
+                    )}
+                  </span>
                 )}
                 <div className="flex-1">
                   <div
@@ -102,11 +113,7 @@ export function DeadlinesPanel({
                 <span className="text-sm text-gray-600 whitespace-nowrap">
                   {formatDate(d.due_date)}
                 </span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
-                >
-                  {URGENCY_LABEL[urgency]}
-                </span>
+                <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>
               </li>
             );
           })}

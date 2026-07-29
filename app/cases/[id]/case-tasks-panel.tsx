@@ -7,6 +7,7 @@ import {
   type TaskWithNames,
   type TaskStatus,
 } from "@/types/database";
+import { Badge, type Tone } from "@/components/ui/badge";
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   open: "פתוחה",
@@ -14,15 +15,15 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   cancelled: "בוטלה",
 };
 
-const STATUS_BADGE: Record<TaskStatus, string> = {
-  open: "bg-blue-50 text-blue-700",
-  done: "bg-emerald-50 text-emerald-700",
-  cancelled: "bg-gray-100 text-gray-500",
+const STATUS_TONE: Record<TaskStatus, Tone> = {
+  open: "blue",
+  done: "green",
+  cancelled: "gray",
 };
 
-const URGENCY_BADGE: Record<string, string> = {
-  overdue: "bg-rose-50 text-rose-700",
-  soon: "bg-amber-50 text-amber-700",
+const URGENCY_TONE: Record<string, Tone> = {
+  overdue: "rose",
+  soon: "amber",
 };
 
 const URGENCY_LABEL: Record<string, string> = {
@@ -92,17 +93,9 @@ export function CaseTasksPanel({ tasks }: { tasks: TaskWithNames[] }) {
                   </span>
                   <div className="flex shrink-0 items-center gap-1.5">
                     {showUrgency && (
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
-                      >
-                        {URGENCY_LABEL[urgency]}
-                      </span>
+                      <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>
                     )}
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[t.status]}`}
-                    >
-                      {STATUS_LABELS[t.status]}
-                    </span>
+                    <Badge tone={STATUS_TONE[t.status]}>{STATUS_LABELS[t.status]}</Badge>
                   </div>
                 </div>
                 {(t.assigned_to_profile?.full_name || t.due_date) && (

@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
+import { StatTile } from "@/components/ui/stat-tile";
+import { DonutChart } from "@/components/ui/donut-chart";
+import { Badge, hashTone } from "@/components/ui/badge";
 import { isCaseStuck } from "@/types/database";
 
 interface DashboardCaseRow {
@@ -15,44 +19,16 @@ interface DashboardCaseRow {
   handler: { full_name: string } | null;
 }
 
-const ACCENTS = {
-  blue: { bar: "bg-blue-600", text: "text-blue-700", ring: "ring-blue-100" },
-  amber: { bar: "bg-amber-500", text: "text-amber-700", ring: "ring-amber-100" },
-  rose: { bar: "bg-rose-500", text: "text-rose-700", ring: "ring-rose-100" },
-  slate: { bar: "bg-slate-500", text: "text-slate-700", ring: "ring-slate-100" },
-} as const;
-
-function StatCard({
-  label,
-  value,
-  percent,
-  accent,
-}: {
+interface UpcomingItem {
+  id: string;
+  kind: "task" | "deadline";
   label: string;
-  value: number;
-  percent?: number;
-  accent: keyof typeof ACCENTS;
-}) {
-  const a = ACCENTS[accent];
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="flex items-baseline justify-between">
-        <div className="text-3xl font-bold text-gray-900">{value}</div>
-        {percent !== undefined && (
-          <span className={`text-sm font-semibold ${a.text}`}>{percent}%</span>
-        )}
-      </div>
-      <div className="mt-1 text-sm text-gray-500">{label}</div>
-      {percent !== undefined && (
-        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
-          <div
-            className={`h-full rounded-full ${a.bar}`}
-            style={{ width: `${Math.min(percent, 100)}%` }}
-          />
-        </div>
-      )}
-    </div>
-  );
+  due_date: string;
+  case: { id: string; case_number: string; case_name: string } | null;
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export default async function DashboardPage() {
@@ -61,12 +37,50 @@ export default async function DashboardPage() {
   if (profile.role !== "manager") redirect("/cases");
 
   const supabase = await createClient();
-  const { data: cases, error } = await supabase
-    .from("cases")
-    .select(
-      "id, status, handler_id, last_touched_at, flag_problematic_client, flag_non_paying, flag_transferring_documents, handler:profiles!cases_handler_id_fkey(full_name)",
-    )
-    .returns<DashboardCaseRow[]>();
+  const today = todayIso();
+
+  const [
+    { data: cases, error },
+    { count: overdueTaskCount },
+    { count: deadlinesTodayCount },
+    { count: pendingDocumentCount },
+    { data: upcomingTasks },
+    { data: upcomingDeadlines },
+  ] = await Promise.all([
+    supabase
+      .from("cases")
+      .select(
+        "id, status, handler_id, last_touched_at, flag_problematic_client, flag_non_paying, flag_transferring_documents, handler:profiles!cases_handler_id_fkey(full_name)",
+      )
+      .returns<DashboardCaseRow[]>(),
+    supabase
+      .from("tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "open")
+      .lt("due_date", today),
+    supabase
+      .from("case_deadlines")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "open")
+      .eq("due_date", today),
+    supabase
+      .from("documents")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["in_correction", "correction_needed"]),
+    supabase
+      .from("tasks")
+      .select("id, text, due_date, case:cases!tasks_case_id_fkey(id, case_number, case_name)")
+      .eq("status", "open")
+      .not("due_date", "is", null)
+      .order("due_date", { ascending: true })
+      .limit(6),
+    supabase
+      .from("case_deadlines")
+      .select("id, label, due_date, case:cases!case_deadlines_case_id_fkey(id, case_number, case_name)")
+      .eq("status", "open")
+      .order("due_date", { ascending: true })
+      .limit(6),
+  ]);
 
   const rows = cases ?? [];
   const stuckCount = rows.filter((c) => isCaseStuck(c.last_touched_at)).length;
@@ -76,13 +90,17 @@ export default async function DashboardPage() {
       c.flag_non_paying ||
       c.flag_transferring_documents,
   ).length;
-  const pct = (n: number) => (rows.length === 0 ? 0 : Math.round((n / rows.length) * 100));
 
   const byStatus = new Map<string, number>();
   for (const c of rows) {
     const key = c.status ?? "ללא סטטוס";
     byStatus.set(key, (byStatus.get(key) ?? 0) + 1);
   }
+  const statusSegments = [...byStatus.entries()].map(([label, value]) => ({
+    label,
+    value,
+    tone: hashTone(label),
+  }));
 
   const byHandler = new Map<
     string,
@@ -101,6 +119,25 @@ export default async function DashboardPage() {
       entry.flagged += 1;
     byHandler.set(key, entry);
   }
+
+  const upcoming: UpcomingItem[] = [
+    ...(upcomingTasks ?? []).map((t) => ({
+      id: t.id,
+      kind: "task" as const,
+      label: t.text,
+      due_date: t.due_date as string,
+      case: t.case as unknown as UpcomingItem["case"],
+    })),
+    ...(upcomingDeadlines ?? []).map((d) => ({
+      id: d.id,
+      kind: "deadline" as const,
+      label: d.label,
+      due_date: d.due_date,
+      case: d.case as unknown as UpcomingItem["case"],
+    })),
+  ]
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))
+    .slice(0, 6);
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
@@ -127,91 +164,122 @@ export default async function DashboardPage() {
         ) : (
           <>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <StatCard label="תיקים" value={rows.length} accent="blue" />
-              <StatCard
-                label="תיקים תקועים"
-                value={stuckCount}
-                percent={pct(stuckCount)}
-                accent="amber"
+              <StatTile label="תיקים פעילים" value={rows.length} tone="indigo" />
+              <StatTile
+                label="משימות באיחור"
+                value={overdueTaskCount ?? 0}
+                tone="rose"
               />
-              <StatCard
-                label="תיקים עם דגל"
-                value={flaggedCount}
-                percent={pct(flaggedCount)}
-                accent="rose"
+              <StatTile
+                label="מועדים היום"
+                value={deadlinesTodayCount ?? 0}
+                tone="amber"
               />
-              <StatCard label="מטפלים" value={byHandler.size} accent="slate" />
+              <StatTile
+                label="מסמכים ממתינים"
+                value={pendingDocumentCount ?? 0}
+                tone="blue"
+              />
             </div>
 
             <div className="grid gap-6 lg:grid-cols-2">
               <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-                <h2 className="mb-3 font-semibold text-gray-900">
-                  פירוט לפי מטפל
+                <h2 className="mb-4 font-semibold text-gray-900">
+                  סטטוס תיקים לפי שלב
                 </h2>
-                <table className="w-full text-sm">
-                  <thead className="text-right text-gray-500">
-                    <tr>
-                      <th className="py-1.5">מטפל</th>
-                      <th className="py-1.5">תיקים</th>
-                      <th className="py-1.5">תקועים</th>
-                      <th className="py-1.5">דגלים</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...byHandler.entries()].map(([name, s]) => (
-                      <tr key={name} className="border-t border-gray-100">
-                        <td className="py-2 font-medium text-gray-800">
-                          {name}
-                        </td>
-                        <td className="py-2">{s.total}</td>
-                        <td className="py-2">
-                          {s.stuck > 0 ? (
-                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                              {s.stuck}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">0</span>
-                          )}
-                        </td>
-                        <td className="py-2">
-                          {s.flagged > 0 ? (
-                            <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">
-                              {s.flagged}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">0</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {statusSegments.length === 0 ? (
+                  <p className="text-sm text-gray-400">אין נתונים להצגה</p>
+                ) : (
+                  <DonutChart segments={statusSegments} />
+                )}
               </section>
 
               <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-                <h2 className="mb-3 font-semibold text-gray-900">
-                  פירוט לפי סטטוס
-                </h2>
-                <table className="w-full text-sm">
-                  <thead className="text-right text-gray-500">
-                    <tr>
-                      <th className="py-1.5">סטטוס</th>
-                      <th className="py-1.5">תיקים</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...byStatus.entries()].map(([status, count]) => (
-                      <tr key={status} className="border-t border-gray-100">
-                        <td className="py-2 font-medium text-gray-800">
-                          {status}
-                        </td>
-                        <td className="py-2">{count}</td>
-                      </tr>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="font-semibold text-gray-900">משימות קרובות</h2>
+                  <div className="flex items-center gap-2">
+                    {stuckCount > 0 && (
+                      <Badge tone="amber">{stuckCount} תיקים תקועים</Badge>
+                    )}
+                    {flaggedCount > 0 && (
+                      <Badge tone="rose">{flaggedCount} עם דגל</Badge>
+                    )}
+                  </div>
+                </div>
+                {upcoming.length === 0 ? (
+                  <p className="text-sm text-gray-400">אין משימות או מועדים פתוחים</p>
+                ) : (
+                  <ul className="divide-y divide-gray-100">
+                    {upcoming.map((item) => (
+                      <li key={`${item.kind}-${item.id}`} className="py-2.5">
+                        <Link
+                          href={item.kind === "task" ? `/tasks/${item.id}` : item.case ? `/cases/${item.case.id}` : "#"}
+                          className="flex items-center justify-between gap-3 hover:text-blue-700"
+                        >
+                          <span className="text-sm font-medium text-gray-900">
+                            {item.label}
+                            {item.case && (
+                              <span className="mr-1.5 text-xs text-gray-400">
+                                · {item.case.case_number} {item.case.case_name}
+                              </span>
+                            )}
+                          </span>
+                          <span className="shrink-0 text-xs whitespace-nowrap text-gray-500">
+                            {new Date(item.due_date + "T00:00:00").toLocaleDateString("he-IL")}
+                          </span>
+                        </Link>
+                      </li>
                     ))}
-                  </tbody>
-                </table>
+                  </ul>
+                )}
+                <Link
+                  href="/tasks"
+                  className="mt-3 inline-block text-sm text-blue-600 hover:underline"
+                >
+                  כל המשימות
+                </Link>
               </section>
             </div>
+
+            <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-3 font-semibold text-gray-900">
+                פירוט לפי מטפל
+              </h2>
+              <table className="w-full text-sm">
+                <thead className="text-right text-gray-500">
+                  <tr>
+                    <th className="py-1.5">מטפל</th>
+                    <th className="py-1.5">תיקים</th>
+                    <th className="py-1.5">תקועים</th>
+                    <th className="py-1.5">דגלים</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...byHandler.entries()].map(([name, s]) => (
+                    <tr key={name} className="border-t border-gray-100">
+                      <td className="py-2 font-medium text-gray-800">
+                        {name}
+                      </td>
+                      <td className="py-2">{s.total}</td>
+                      <td className="py-2">
+                        {s.stuck > 0 ? (
+                          <Badge tone="amber">{s.stuck}</Badge>
+                        ) : (
+                          <span className="text-gray-400">0</span>
+                        )}
+                      </td>
+                      <td className="py-2">
+                        {s.flagged > 0 ? (
+                          <Badge tone="rose">{s.flagged}</Badge>
+                        ) : (
+                          <span className="text-gray-400">0</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
           </>
         )}
       </main>
