@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { CaseDocumentWithResponsible, DocumentStatus } from "@/types/database";
+import { Badge, TONE_BADGE, type Tone } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
   valid: "תקין",
@@ -10,10 +12,10 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   correction_needed: "נדרש תיקון",
 };
 
-const STATUS_BADGE: Record<DocumentStatus, string> = {
-  valid: "bg-emerald-50 text-emerald-700",
-  in_correction: "bg-amber-50 text-amber-700",
-  correction_needed: "bg-rose-50 text-rose-700",
+const STATUS_TONE: Record<DocumentStatus, Tone> = {
+  valid: "green",
+  in_correction: "amber",
+  correction_needed: "rose",
 };
 
 function formatDate(value: string | null) {
@@ -30,15 +32,18 @@ export function DocumentsPanel({
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(documents);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   async function updateStatus(doc: CaseDocumentWithResponsible, status: DocumentStatus) {
     setRows((prev) =>
       prev.map((d) => (d.id === doc.id ? { ...d, status } : d)),
     );
+    setSavingId(doc.id);
     const { error } = await supabase
       .from("documents")
       .update({ status })
       .eq("id", doc.id);
+    setSavingId(null);
     if (error) {
       setRows((prev) => prev.map((d) => (d.id === doc.id ? doc : d)));
     }
@@ -62,25 +67,25 @@ export function DocumentsPanel({
                   {d.title}
                 </span>
                 {canEdit ? (
-                  <select
-                    value={d.status}
-                    onChange={(e) =>
-                      updateStatus(d, e.target.value as DocumentStatus)
-                    }
-                    className={`rounded-full border-0 px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[d.status]}`}
-                  >
-                    {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-1.5">
+                    {savingId === d.id && <Spinner className="h-3.5 w-3.5 text-gray-400" />}
+                    <select
+                      value={d.status}
+                      onChange={(e) =>
+                        updateStatus(d, e.target.value as DocumentStatus)
+                      }
+                      disabled={savingId === d.id}
+                      className={`rounded-full border-0 px-2 py-0.5 text-xs font-medium ${TONE_BADGE[STATUS_TONE[d.status]]}`}
+                    >
+                      {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 ) : (
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[d.status]}`}
-                  >
-                    {STATUS_LABELS[d.status]}
-                  </span>
+                  <Badge tone={STATUS_TONE[d.status]}>{STATUS_LABELS[d.status]}</Badge>
                 )}
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500">

@@ -5,6 +5,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { ApprovalRequestWithNames, ApprovalStatus, Case } from "@/types/database";
 import { CaseCombobox } from "@/components/case-combobox";
+import { Badge, type Tone } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
+import { ApprovalFlow } from "@/components/ui/approval-flow";
 
 const STATUS_LABELS: Record<ApprovalStatus, string> = {
   pending_review: "ממתין לבדיקת עו״ד",
@@ -13,11 +16,11 @@ const STATUS_LABELS: Record<ApprovalStatus, string> = {
   rejected: "נדחה",
 };
 
-const STATUS_BADGE: Record<ApprovalStatus, string> = {
-  pending_review: "bg-amber-50 text-amber-700",
-  pending_approval: "bg-blue-50 text-blue-700",
-  approved: "bg-emerald-50 text-emerald-700",
-  rejected: "bg-rose-50 text-rose-700",
+const STATUS_TONE: Record<ApprovalStatus, Tone> = {
+  pending_review: "amber",
+  pending_approval: "blue",
+  approved: "green",
+  rejected: "rose",
 };
 
 function formatDateTime(value: string) {
@@ -198,8 +201,9 @@ export function ApprovalBoard({
             <button
               type="submit"
               disabled={creating}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
+              {creating && <Spinner className="h-4 w-4" />}
               {creating ? "שולח..." : "שליחה"}
             </button>
           </form>
@@ -222,8 +226,8 @@ export function ApprovalBoard({
             </option>
           ))}
         </select>
-        <span className="mr-auto rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
-          {filtered.length} בקשות
+        <span className="mr-auto">
+          <Badge tone="indigo">{filtered.length} בקשות</Badge>
         </span>
       </div>
 
@@ -252,22 +256,14 @@ export function ApprovalBoard({
                     </Link>
                   )}
                 </div>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[r.status]}`}
-                >
-                  {STATUS_LABELS[r.status]}
-                </span>
+                <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABELS[r.status]}</Badge>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                {r.submitted_by_profile?.full_name && (
-                  <span>הוגש ע״י: {r.submitted_by_profile.full_name}</span>
-                )}
-                {r.reviewed_by_profile?.full_name && (
-                  <span>נבדק ע״י: {r.reviewed_by_profile.full_name}</span>
-                )}
-                {r.approved_by_profile?.full_name && (
-                  <span>הוכרע ע״י: {r.approved_by_profile.full_name}</span>
-                )}
+
+              <div className="my-4 overflow-x-auto">
+                <ApprovalFlow request={r} />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
                 <span>{formatDateTime(r.created_at)}</span>
               </div>
               {r.notes && (
@@ -279,8 +275,9 @@ export function ApprovalBoard({
                     <button
                       onClick={() => markReviewed(r)}
                       disabled={pendingId === r.id}
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                     >
+                      {pendingId === r.id && <Spinner className="h-3.5 w-3.5" />}
                       סמן כנבדק ע״י עו״ד
                     </button>
                   )}
@@ -289,15 +286,17 @@ export function ApprovalBoard({
                       <button
                         onClick={() => decide(r, true)}
                         disabled={pendingId === r.id}
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                        className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                       >
+                        {pendingId === r.id && <Spinner className="h-3.5 w-3.5" />}
                         אישור
                       </button>
                       <button
                         onClick={() => decide(r, false)}
                         disabled={pendingId === r.id}
-                        className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                        className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
                       >
+                        {pendingId === r.id && <Spinner className="h-3.5 w-3.5" />}
                         דחייה
                       </button>
                     </>

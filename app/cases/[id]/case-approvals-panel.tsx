@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ApprovalRequestWithNames, ApprovalStatus } from "@/types/database";
+import { Badge, type Tone } from "@/components/ui/badge";
 
 const STATUS_LABELS: Record<ApprovalStatus, string> = {
   pending_review: "ממתין לבדיקת עו״ד",
@@ -8,11 +9,11 @@ const STATUS_LABELS: Record<ApprovalStatus, string> = {
   rejected: "נדחה",
 };
 
-const STATUS_BADGE: Record<ApprovalStatus, string> = {
-  pending_review: "bg-amber-50 text-amber-700",
-  pending_approval: "bg-blue-50 text-blue-700",
-  approved: "bg-emerald-50 text-emerald-700",
-  rejected: "bg-rose-50 text-rose-700",
+const STATUS_TONE: Record<ApprovalStatus, Tone> = {
+  pending_review: "amber",
+  pending_approval: "blue",
+  approved: "green",
+  rejected: "rose",
 };
 
 export function CaseApprovalsPanel({
@@ -33,11 +34,7 @@ export function CaseApprovalsPanel({
                 <span className="text-sm font-medium text-gray-900">
                   {r.request_type}
                 </span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[r.status]}`}
-                >
-                  {STATUS_LABELS[r.status]}
-                </span>
+                <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABELS[r.status]}</Badge>
               </div>
             </li>
           ))}
