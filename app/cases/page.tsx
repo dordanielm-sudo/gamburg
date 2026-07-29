@@ -3,20 +3,28 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { CasesTable } from "./cases-table";
-import type { CaseWithRelations } from "@/types/database";
+import type { CaseTypeColumnPreset, CaseWithRelations } from "@/types/database";
 
 export default async function CasesPage() {
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
 
   const supabase = await createClient();
-  const { data: cases, error } = await supabase
-    .from("cases")
-    .select(
-      "*, handler:profiles!cases_handler_id_fkey(id, full_name), case_deadlines(id, due_date, status), tasks(id, due_date, status), case_fields(page_name, field_name, value_text, value_date, value_number)",
-    )
-    .order("last_touched_at", { ascending: false })
-    .returns<CaseWithRelations[]>();
+  const [{ data: cases, error }, { data: columnPresets }] = await Promise.all([
+    supabase
+      .from("cases")
+      .select(
+        "*, handler:profiles!cases_handler_id_fkey(id, full_name), case_deadlines(id, due_date, status), tasks(id, due_date, status), case_fields(page_name, field_name, value_text, value_date, value_number)",
+      )
+      .order("last_touched_at", { ascending: false })
+      .returns<CaseWithRelations[]>(),
+    supabase
+      .from("case_type_column_presets")
+      .select("*")
+      .order("case_type")
+      .order("display_order")
+      .returns<CaseTypeColumnPreset[]>(),
+  ]);
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
@@ -35,6 +43,8 @@ export default async function CasesPage() {
           <CasesTable
             cases={cases ?? []}
             canEdit={profile.role !== "secretary"}
+            columnPresets={columnPresets ?? []}
+            isManager={profile.role === "manager"}
           />
         )}
       </main>
