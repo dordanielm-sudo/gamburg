@@ -7,8 +7,10 @@ import {
   type TaskWithNames,
   type TaskStatus,
 } from "@/types/database";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { NamedAvatar } from "@/components/ui/avatar";
+
+const PANEL_TONE: Tone = "green";
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   open: "פתוחה",
@@ -52,9 +54,14 @@ export function CaseTasksPanel({ tasks }: { tasks: TaskWithNames[] }) {
   ).sort(byDueDate);
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm lg:col-span-2">
+    <section
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm lg:col-span-2"
+      style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[PANEL_TONE]}` }}
+    >
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="font-semibold">משימות ({visibleRows.length})</h2>
+        <Badge tone={PANEL_TONE} dot>
+          משימות ({visibleRows.length})
+        </Badge>
         {doneCount > 0 && (
           <label className="flex items-center gap-1.5 text-sm text-gray-600">
             <input
@@ -76,6 +83,8 @@ export function CaseTasksPanel({ tasks }: { tasks: TaskWithNames[] }) {
               ? deadlineUrgency(t.due_date, t.status)
               : null;
             const showUrgency = urgency === "overdue" || urgency === "soon";
+            const primaryTone = showUrgency ? URGENCY_TONE[urgency] : STATUS_TONE[t.status];
+            const primaryLabel = showUrgency ? URGENCY_LABEL[urgency] : STATUS_LABELS[t.status];
             return (
               <Link
                 key={t.id}
@@ -92,12 +101,7 @@ export function CaseTasksPanel({ tasks }: { tasks: TaskWithNames[] }) {
                   <span className="text-sm font-medium text-gray-900">
                     {t.text}
                   </span>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {showUrgency && (
-                      <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>
-                    )}
-                    <Badge tone={STATUS_TONE[t.status]}>{STATUS_LABELS[t.status]}</Badge>
-                  </div>
+                  <Badge tone={primaryTone}>{primaryLabel}</Badge>
                 </div>
                 {(t.assigned_to_profile?.full_name || t.due_date) && (
                   <div className="mt-1.5 flex items-center gap-x-3 gap-y-1 text-xs text-gray-500">

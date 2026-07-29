@@ -7,8 +7,10 @@ import {
   type CaseDeadline,
   type TaskStatus,
 } from "@/types/database";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+
+const PANEL_TONE: Tone = "amber";
 
 const URGENCY_TONE: Record<string, Tone> = {
   overdue: "rose",
@@ -58,11 +60,18 @@ export function DeadlinesPanel({
   }
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm lg:col-span-2">
-      <h2 className="mb-3 font-semibold">מועדים ({rows.length})</h2>
-      <p className="mb-3 text-xs text-gray-400">
-        נמשך אוטומטית מעדכנית - ניתן לסמן כבוצע, לא להוסיף ידנית.
-      </p>
+    <section
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm lg:col-span-2"
+      style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[PANEL_TONE]}` }}
+    >
+      <div className="mb-3">
+        <Badge tone={PANEL_TONE} dot>
+          מועדים ({rows.length})
+        </Badge>
+        <p className="mt-1.5 text-xs text-gray-400">
+          נמשך אוטומטית מעדכנית - ניתן לסמן כבוצע, לא להוסיף ידנית.
+        </p>
+      </div>
 
       {rows.length === 0 ? (
         <p className="text-sm text-gray-400">אין מועדים רשומים</p>

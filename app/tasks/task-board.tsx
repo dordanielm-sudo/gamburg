@@ -414,9 +414,9 @@ export function TaskBoard({
                 <th className="w-1 p-0" aria-hidden />
                 <th className="px-4 py-3 font-semibold text-indigo-900">משימה</th>
                 <th className="px-4 py-3 font-semibold text-indigo-900">תיק</th>
+                <th className="px-4 py-3 text-center font-semibold text-indigo-900">סטטוס</th>
                 <th className="px-4 py-3 font-semibold text-indigo-900">מטפל</th>
                 <th className="px-4 py-3 font-semibold text-indigo-900">תאריך יעד</th>
-                <th className="px-4 py-3 font-semibold text-indigo-900">סטטוס</th>
                 {canCreate && (
                   <th className="px-4 py-3 font-semibold text-indigo-900">פעולות</th>
                 )}
@@ -429,25 +429,37 @@ export function TaskBoard({
                     ? deadlineUrgency(t.due_date, t.status)
                     : null;
                 const showUrgency = urgency === "overdue" || urgency === "soon";
-                const rowTone: Tone = showUrgency
-                  ? URGENCY_TONE[urgency]
-                  : STATUS_TONE[t.status];
+                // one primary badge per row: an open task's urgency (overdue/
+                // soon) is more actionable than "it's open" - only rows that
+                // actually need attention get a colored side accent, so red
+                // stays meaningful instead of every row having some color
+                const primaryTone: Tone = showUrgency ? URGENCY_TONE[urgency] : STATUS_TONE[t.status];
+                const primaryLabel = showUrgency ? URGENCY_LABEL[urgency] : STATUS_LABELS[t.status];
                 const canDelete = canCreate && t.status !== "open";
                 const deleting = deletingId === t.id;
                 return (
                   <tr
                     key={t.id}
                     className="border-b border-gray-100 transition-colors hover:bg-gray-50/60"
-                    style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[rowTone]}` }}
+                    style={
+                      showUrgency
+                        ? { boxShadow: `inset -3px 0 0 0 ${TONE_HEX[primaryTone]}` }
+                        : undefined
+                    }
                   >
                     <td className="w-1 p-0" aria-hidden />
                     <td className="px-4 py-3.5">
-                      <Link
-                        href={`/tasks/${t.id}`}
-                        className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
-                      >
-                        {t.text}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/tasks/${t.id}`}
+                          className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
+                        >
+                          {t.text}
+                        </Link>
+                        {t.priority_code === HIGH_PRIORITY_CODE && (
+                          <Badge tone="amber">{t.priority_name || "עדיפות גבוהה"}</Badge>
+                        )}
+                      </div>
                       {(t.notes || t.category_name) && (
                         <div className="mt-0.5 text-xs text-gray-400">
                           {[t.category_name, t.notes].filter(Boolean).join(" · ")}
@@ -466,6 +478,11 @@ export function TaskBoard({
                         "—"
                       )}
                     </td>
+                    <td className="px-4 py-3.5 text-center">
+                      <Badge tone={primaryTone} size="md">
+                        {primaryLabel}
+                      </Badge>
+                    </td>
                     <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
                       {t.assigned_to_profile?.full_name ? (
                         <NamedAvatar name={t.assigned_to_profile.full_name} />
@@ -475,17 +492,6 @@ export function TaskBoard({
                     </td>
                     <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
                       {t.due_date ? formatDate(t.due_date) : "—"}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {t.priority_code === HIGH_PRIORITY_CODE && (
-                          <Badge tone="amber">{t.priority_name || "עדיפות גבוהה"}</Badge>
-                        )}
-                        {showUrgency && (
-                          <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>
-                        )}
-                        <Badge tone={STATUS_TONE[t.status]}>{STATUS_LABELS[t.status]}</Badge>
-                      </div>
                     </td>
                     {canCreate && (
                       <td className="px-4 py-3.5 whitespace-nowrap">

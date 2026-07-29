@@ -12,7 +12,7 @@ import {
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
 
@@ -420,113 +420,143 @@ export function DeadlinesBoard({
             אין מועדים בטווח שנבחר
           </p>
         ) : (
-          <div className="space-y-2">
-            {filtered.map((d) => {
-              const urgency = deadlineUrgency(d.due_date, d.status);
-              const showUrgency = urgency === "overdue" || urgency === "soon";
-              return (
-                <Link
-                  key={d.id}
-                  href={d.case ? `/cases/${d.case.id}` : "#"}
-                  className={`block rounded-xl border bg-white p-4 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/30 ${
-                    urgency === "overdue"
-                      ? "border-rose-200"
-                      : urgency === "soon"
-                        ? "border-amber-200"
-                        : "border-gray-200"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      {savingId === d.id ? (
-                        <Spinner className="h-4 w-4 text-gray-400" />
-                      ) : (
-                        <input
-                          type="checkbox"
-                          checked={d.status === "done"}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={() => toggleDone(d)}
-                          className="h-4 w-4 accent-blue-600"
-                        />
-                      )}
-                      <span className="font-medium text-gray-900">
-                        {d.label}
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      {showUrgency && (
-                        <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>
-                      )}
-                      <Badge tone={STATUS_TONE[d.status]}>{STATUS_LABEL[d.status]}</Badge>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                    {d.case && (
-                      <span>
-                        תיק: {d.case.case_number} - {d.case.case_name}
-                      </span>
-                    )}
-                    {d.case?.handler?.full_name && (
-                      <NamedAvatar name={d.case.handler.full_name} size="h-5 w-5 text-[9px]" />
-                    )}
-                    <span>תאריך יעד: {formatDate(d.due_date)}</span>
-                    {d.external_date && (
-                      <span>תאריך חיצוני: {formatDate(d.external_date)}</span>
-                    )}
-                    {d.address && <span>כתובת: {d.address}</span>}
-                  </div>
-                  {d.notes && (
-                    <div className="mt-1 text-xs text-gray-500">{d.notes}</div>
-                  )}
-                  <div className="mt-2 flex flex-wrap items-center gap-4 text-xs">
-                    {d.zoom_link && (
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          window.open(d.zoom_link!, "_blank", "noopener,noreferrer");
-                        }}
-                        className="text-blue-600 hover:underline"
-                      >
-                        פתיחת זום
-                      </button>
-                    )}
-                    <label
-                      className="flex items-center gap-1.5 text-gray-500"
-                      onClick={(e) => e.stopPropagation()}
+          <div className="overflow-x-auto rounded-xl border border-gray-200">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="border-b border-indigo-100 bg-indigo-50/60 text-right">
+                <tr>
+                  <th className="w-1 p-0" aria-hidden />
+                  <th className="px-4 py-3 font-semibold text-indigo-900">בוצע</th>
+                  <th className="px-4 py-3 font-semibold text-indigo-900">נושא</th>
+                  <th className="px-4 py-3 font-semibold text-indigo-900">תיק</th>
+                  <th className="px-4 py-3 text-center font-semibold text-indigo-900">סטטוס</th>
+                  <th className="px-4 py-3 font-semibold text-indigo-900">מטפל</th>
+                  <th className="px-4 py-3 font-semibold text-indigo-900">תאריך יעד</th>
+                  <th className="px-4 py-3 font-semibold text-indigo-900">מעקב</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((d) => {
+                  const urgency = deadlineUrgency(d.due_date, d.status);
+                  const showUrgency = urgency === "overdue" || urgency === "soon";
+                  const primaryTone: Tone = showUrgency ? URGENCY_TONE[urgency] : STATUS_TONE[d.status];
+                  const primaryLabel = showUrgency ? URGENCY_LABEL[urgency] : STATUS_LABEL[d.status];
+                  const saving = savingId === d.id;
+                  return (
+                    <tr
+                      key={d.id}
+                      className="border-b border-gray-100 transition-colors hover:bg-gray-50/60"
+                      style={
+                        showUrgency
+                          ? { boxShadow: `inset -3px 0 0 0 ${TONE_HEX[primaryTone]}` }
+                          : undefined
+                      }
                     >
-                      {savingId === d.id ? (
-                        <Spinner className="h-3.5 w-3.5 text-gray-400" />
-                      ) : (
-                        <input
-                          type="checkbox"
-                          checked={d.client_updated}
-                          onChange={() => toggleFlag(d, "client_updated")}
-                          className="h-3.5 w-3.5 accent-blue-600"
-                        />
-                      )}
-                      לקוח מעודכן
-                    </label>
-                    <label
-                      className="flex items-center gap-1.5 text-gray-500"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {savingId === d.id ? (
-                        <Spinner className="h-3.5 w-3.5 text-gray-400" />
-                      ) : (
-                        <input
-                          type="checkbox"
-                          checked={d.preparation_done}
-                          onChange={() => toggleFlag(d, "preparation_done")}
-                          className="h-3.5 w-3.5 accent-blue-600"
-                        />
-                      )}
-                      הכנה בוצעה
-                    </label>
-                  </div>
-                </Link>
-              );
-            })}
+                      <td className="w-1 p-0" aria-hidden />
+                      <td className="px-4 py-3.5">
+                        <span className="flex h-4 w-4 items-center justify-center">
+                          {saving ? (
+                            <Spinner className="h-4 w-4 text-gray-400" />
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={d.status === "done"}
+                              onChange={() => toggleDone(d)}
+                              className="h-4 w-4 accent-blue-600"
+                            />
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <Link
+                          href={d.case ? `/cases/${d.case.id}` : "#"}
+                          className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
+                        >
+                          {d.label}
+                        </Link>
+                        {(d.notes || d.address || d.external_date) && (
+                          <div className="mt-0.5 text-xs text-gray-400">
+                            {[
+                              d.notes,
+                              d.address,
+                              d.external_date && `תאריך חיצוני: ${formatDate(d.external_date)}`,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </div>
+                        )}
+                        {d.zoom_link && (
+                          <button
+                            onClick={() =>
+                              window.open(d.zoom_link!, "_blank", "noopener,noreferrer")
+                            }
+                            className="mt-0.5 block text-xs text-blue-600 hover:underline"
+                          >
+                            פתיחת זום
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
+                        {d.case ? (
+                          <Link
+                            href={`/cases/${d.case.id}`}
+                            className="hover:text-blue-700 hover:underline"
+                          >
+                            {d.case.case_number} - {d.case.case_name}
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 text-center">
+                        <Badge tone={primaryTone} size="md">
+                          {primaryLabel}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
+                        {d.case?.handler?.full_name ? (
+                          <NamedAvatar name={d.case.handler.full_name} />
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
+                        {formatDate(d.due_date)}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex flex-col gap-1 text-xs text-gray-500">
+                          <label className="flex items-center gap-1.5">
+                            {saving ? (
+                              <Spinner className="h-3.5 w-3.5 text-gray-400" />
+                            ) : (
+                              <input
+                                type="checkbox"
+                                checked={d.client_updated}
+                                onChange={() => toggleFlag(d, "client_updated")}
+                                className="h-3.5 w-3.5 accent-blue-600"
+                              />
+                            )}
+                            לקוח מעודכן
+                          </label>
+                          <label className="flex items-center gap-1.5">
+                            {saving ? (
+                              <Spinner className="h-3.5 w-3.5 text-gray-400" />
+                            ) : (
+                              <input
+                                type="checkbox"
+                                checked={d.preparation_done}
+                                onChange={() => toggleFlag(d, "preparation_done")}
+                                className="h-3.5 w-3.5 accent-blue-600"
+                              />
+                            )}
+                            הכנה בוצעה
+                          </label>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </section>
