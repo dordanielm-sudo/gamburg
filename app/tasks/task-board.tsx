@@ -13,6 +13,8 @@ import {
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
+import { Badge, type Tone } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 
 const TASK_SELECT =
   "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)";
@@ -23,15 +25,15 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   cancelled: "בוטלה",
 };
 
-const STATUS_BADGE: Record<TaskStatus, string> = {
-  open: "bg-blue-50 text-blue-700",
-  done: "bg-emerald-50 text-emerald-700",
-  cancelled: "bg-gray-100 text-gray-500",
+const STATUS_TONE: Record<TaskStatus, Tone> = {
+  open: "blue",
+  done: "green",
+  cancelled: "gray",
 };
 
-const URGENCY_BADGE: Record<string, string> = {
-  overdue: "bg-rose-50 text-rose-700",
-  soon: "bg-amber-50 text-amber-700",
+const URGENCY_TONE: Record<string, Tone> = {
+  overdue: "rose",
+  soon: "amber",
 };
 
 const URGENCY_LABEL: Record<string, string> = {
@@ -80,6 +82,7 @@ export function TaskBoard({
   const [range, setRange] = useState<RangeKey>("all");
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const caseOptions = useMemo(() => {
     const map = new Map<string, CaseOption>();
@@ -197,7 +200,9 @@ export function TaskBoard({
     if (!confirm(`למחוק לצמיתות את המשימה "${task.text}"? לא ניתן לשחזר.`)) {
       return;
     }
+    setDeletingId(task.id);
     const { error } = await supabase.from("tasks").delete().eq("id", task.id);
+    setDeletingId(null);
     if (!error) {
       setRows((prev) => prev.filter((t) => t.id !== task.id));
     }
@@ -286,8 +291,9 @@ export function TaskBoard({
             <button
               type="submit"
               disabled={creating}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
+              {creating && <Spinner className="h-4 w-4" />}
               {creating ? "יוצר..." : "יצירה"}
             </button>
           </form>
@@ -390,8 +396,8 @@ export function TaskBoard({
             נקה סינון
           </button>
         )}
-        <span className="mr-auto rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
-          {sortedRows.length} משימות
+        <span className="mr-auto">
+          <Badge tone="indigo">{sortedRows.length} משימות</Badge>
         </span>
       </div>
 
@@ -406,6 +412,7 @@ export function TaskBoard({
               key={t.id}
               task={t}
               canDelete={canCreate && t.status !== "open"}
+              deleting={deletingId === t.id}
               onDelete={() => handleDelete(t)}
             />
           ))}
@@ -418,10 +425,12 @@ export function TaskBoard({
 function TaskCard({
   task: t,
   canDelete,
+  deleting,
   onDelete,
 }: {
   task: TaskWithNames;
   canDelete: boolean;
+  deleting: boolean;
   onDelete: () => void;
 }) {
   const urgency =
@@ -445,22 +454,10 @@ function TaskCard({
           <span className="font-medium text-gray-900">{t.text}</span>
           <div className="flex shrink-0 items-center gap-1.5">
             {t.priority_code === HIGH_PRIORITY_CODE && (
-              <span className="rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-orange-700">
-                {t.priority_name || "עדיפות גבוהה"}
-              </span>
+              <Badge tone="amber">{t.priority_name || "עדיפות גבוהה"}</Badge>
             )}
-            {showUrgency && (
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
-              >
-                {URGENCY_LABEL[urgency]}
-              </span>
-            )}
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[t.status]}`}
-            >
-              {STATUS_LABELS[t.status]}
-            </span>
+            {showUrgency && <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>}
+            <Badge tone={STATUS_TONE[t.status]}>{STATUS_LABELS[t.status]}</Badge>
           </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
@@ -481,8 +478,10 @@ function TaskCard({
         <div className="mt-2 flex justify-end">
           <button
             onClick={onDelete}
-            className="text-xs text-rose-600 hover:text-rose-800 hover:underline"
+            disabled={deleting}
+            className="flex items-center gap-1.5 text-xs text-rose-600 hover:text-rose-800 hover:underline disabled:opacity-50"
           >
+            {deleting && <Spinner className="h-3 w-3" />}
             מחיקה לצמיתות
           </button>
         </div>

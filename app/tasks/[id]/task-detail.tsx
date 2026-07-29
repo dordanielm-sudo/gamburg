@@ -8,6 +8,8 @@ import {
   type TaskWithNames,
   type TaskStatus,
 } from "@/types/database";
+import { Badge, type Tone } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: "open", label: "פתוחה" },
@@ -15,15 +17,15 @@ const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: "cancelled", label: "בוטלה" },
 ];
 
-const STATUS_BADGE: Record<TaskStatus, string> = {
-  open: "bg-blue-50 text-blue-700",
-  done: "bg-emerald-50 text-emerald-700",
-  cancelled: "bg-gray-100 text-gray-500",
+const STATUS_TONE: Record<TaskStatus, Tone> = {
+  open: "blue",
+  done: "green",
+  cancelled: "gray",
 };
 
-const URGENCY_BADGE: Record<string, string> = {
-  overdue: "bg-rose-50 text-rose-700",
-  soon: "bg-amber-50 text-amber-700",
+const URGENCY_TONE: Record<string, Tone> = {
+  overdue: "rose",
+  soon: "amber",
 };
 
 const URGENCY_LABEL: Record<string, string> = {
@@ -94,22 +96,12 @@ export function TaskDetail({
         </h1>
         <div className="flex shrink-0 items-center gap-1.5">
           {current.priority_code === HIGH_PRIORITY_CODE && (
-            <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium whitespace-nowrap text-orange-700">
-              {current.priority_name || "עדיפות גבוהה"}
-            </span>
+            <Badge tone="amber">{current.priority_name || "עדיפות גבוהה"}</Badge>
           )}
-          {showUrgency && (
-            <span
-              className={`rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap ${URGENCY_BADGE[urgency]}`}
-            >
-              {URGENCY_LABEL[urgency]}
-            </span>
-          )}
-          <span
-            className={`rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap ${STATUS_BADGE[current.status]}`}
-          >
+          {showUrgency && <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>}
+          <Badge tone={STATUS_TONE[current.status]}>
             {STATUS_OPTIONS.find((s) => s.value === current.status)?.label}
-          </span>
+          </Badge>
         </div>
       </div>
 
@@ -120,7 +112,7 @@ export function TaskDetail({
               key={s.value}
               disabled={saving || current.status === s.value}
               onClick={() => setStatus(s.value)}
-              className={`rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors disabled:cursor-default ${
+              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors disabled:cursor-default ${
                 current.status === s.value
                   ? "bg-blue-600 text-white"
                   : "border border-gray-300 text-gray-600 hover:bg-gray-100"
@@ -129,6 +121,7 @@ export function TaskDetail({
               {s.label}
             </button>
           ))}
+          {saving && <Spinner className="h-4 w-4 text-gray-400" />}
         </div>
       )}
 
