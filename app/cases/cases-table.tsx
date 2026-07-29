@@ -11,8 +11,9 @@ import {
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
-import { Badge, hashTone } from "@/components/ui/badge";
+import { Badge, hashTone, TONE_HEX } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { NamedAvatar } from "@/components/ui/avatar";
 
 type SortKey = "case_number" | "case_name" | "opened_date" | "last_touched_at";
 
@@ -462,18 +463,19 @@ export function CasesTable({
 
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
         <table className="w-full min-w-[900px] text-sm">
-          <thead className="border-b border-gray-200 bg-gray-50 text-right">
+          <thead className="border-b border-indigo-100 bg-indigo-50/60 text-right">
             <tr>
+              <th className="w-1 p-0" aria-hidden />
               <Th onClick={() => toggleSort("case_number")}>מספר תיק</Th>
               <Th onClick={() => toggleSort("case_name")}>שם תיק</Th>
-              <th className="px-4 py-3 font-medium text-gray-600">סוג</th>
-              <th className="px-4 py-3 font-medium text-gray-600">מטפל</th>
-              <th className="px-4 py-3 font-medium text-gray-600">צוות</th>
-              <th className="px-4 py-3 font-medium text-gray-600">סטטוס</th>
+              <th className="px-4 py-3 font-semibold text-indigo-900">סוג</th>
+              <th className="px-4 py-3 font-semibold text-indigo-900">מטפל</th>
+              <th className="px-4 py-3 font-semibold text-indigo-900">צוות</th>
+              <th className="px-4 py-3 font-semibold text-indigo-900">סטטוס</th>
               <Th onClick={() => toggleSort("opened_date")}>תאריך פתיחה</Th>
-              <th className="px-4 py-3 font-medium text-gray-600">דגלים</th>
-              <th className="px-4 py-3 font-medium text-gray-600">מעקב</th>
-              <th className="px-4 py-3 font-medium text-gray-600">
+              <th className="px-4 py-3 font-semibold text-indigo-900">דגלים</th>
+              <th className="px-4 py-3 font-semibold text-indigo-900">מעקב</th>
+              <th className="px-4 py-3 font-semibold text-indigo-900">
                 הערת מנהל
               </th>
               <Th onClick={() => toggleSort("last_touched_at")}>
@@ -482,7 +484,7 @@ export function CasesTable({
               {activeColumnPresets.map((p) => (
                 <th
                   key={p.id}
-                  className="px-4 py-3 font-medium text-gray-600 whitespace-nowrap"
+                  className="px-4 py-3 font-semibold text-indigo-900 whitespace-nowrap"
                 >
                   {p.field_name}
                 </th>
@@ -493,10 +495,15 @@ export function CasesTable({
             {filtered.map((c) => {
               const stuck = isCaseStuck(c.last_touched_at);
               const sync = syncStatus[c.id];
+              const rowTone = c.status ? hashTone(c.status) : "gray";
               return (
                 <Fragment key={c.id}>
-                <tr className="border-b border-gray-100 hover:bg-gray-50/60">
-                  <td className="px-4 py-3 font-medium text-gray-500 whitespace-nowrap">
+                <tr
+                  className="border-b border-gray-100 transition-colors hover:bg-gray-50/60"
+                  style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[rowTone]}` }}
+                >
+                  <td className="w-1 p-0" aria-hidden />
+                  <td className="px-4 py-3.5 font-medium text-gray-500 whitespace-nowrap">
                     <Link
                       href={`/cases/${c.id}`}
                       className="hover:text-blue-700 hover:underline"
@@ -504,7 +511,7 @@ export function CasesTable({
                       {c.case_number}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 font-medium text-gray-900">
+                  <td className="px-4 py-3.5 font-semibold text-gray-900">
                     <Link
                       href={`/cases/${c.id}`}
                       className="hover:text-blue-700 hover:underline"
@@ -522,33 +529,37 @@ export function CasesTable({
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">
+                  <td className="px-4 py-3.5 text-gray-600">
                     {c.case_type ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {c.handler?.full_name ?? "—"}
+                  <td className="px-4 py-3.5 text-gray-600">
+                    {c.handler?.full_name ? (
+                      <NamedAvatar name={c.handler.full_name} />
+                    ) : (
+                      "—"
+                    )}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">
+                  <td className="px-4 py-3.5 text-gray-600">
                     {c.team ?? "—"}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3.5">
                     {c.status ? (
-                      <Badge tone={hashTone(c.status)} dot>
+                      <Badge tone={rowTone} dot>
                         {c.status}
                       </Badge>
                     ) : (
                       <span className="text-gray-400">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-gray-600">
+                  <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
                     {formatDate(c.opened_date)}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3.5">
                     <div className="flex flex-wrap gap-1.5">
                       {FLAG_DEFS.map((f) => (
                         <label
                           key={f.key}
-                          className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
+                          className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
                             c[f.key]
                               ? "border-rose-200 bg-rose-50 text-rose-700"
                               : "border-gray-200 text-gray-400"
@@ -568,7 +579,7 @@ export function CasesTable({
                       ))}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-4 py-3.5 text-center">
                     <input
                       type="checkbox"
                       checked={c.manager_follow_up}
@@ -579,7 +590,7 @@ export function CasesTable({
                       className="h-4 w-4 accent-blue-600"
                     />
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3.5">
                     <input
                       type="text"
                       defaultValue={c.manager_note ?? ""}
@@ -592,19 +603,12 @@ export function CasesTable({
                       className="w-full rounded-md border border-transparent px-2 py-1 text-sm focus:border-blue-300 focus:ring-1 focus:ring-blue-300 focus:outline-none disabled:bg-transparent"
                     />
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
+                  <td className="px-4 py-3.5 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <span className="text-gray-600">
                         {formatDate(c.last_touched_at)}
                       </span>
-                      {stuck && (
-                        <span
-                          title="לא טופל מעל 30 יום"
-                          className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
-                        >
-                          תיק תקוע
-                        </span>
-                      )}
+                      {stuck && <Badge tone="amber">תיק תקוע</Badge>}
                       <SyncBadge sync={sync} />
                     </div>
                   </td>
@@ -617,7 +621,7 @@ export function CasesTable({
                     return (
                       <td
                         key={p.id}
-                        className="px-4 py-3 whitespace-nowrap text-gray-600"
+                        className="px-4 py-3.5 whitespace-nowrap text-gray-600"
                       >
                         {field ? formatCaseFieldValue(field) : "—"}
                       </td>
@@ -627,7 +631,7 @@ export function CasesTable({
                 {tabFilter && selectedFieldNames.size > 0 && (
                   <tr className="border-b border-gray-100 bg-gray-50/40">
                     <td
-                      colSpan={11 + activeColumnPresets.length}
+                      colSpan={12 + activeColumnPresets.length}
                       className="px-4 py-2"
                     >
                       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-600">
@@ -656,7 +660,7 @@ export function CasesTable({
             {filtered.length === 0 && (
               <tr>
                 <td
-                  colSpan={11 + activeColumnPresets.length}
+                  colSpan={12 + activeColumnPresets.length}
                   className="px-4 py-8 text-center text-gray-400"
                 >
                   לא נמצאו תיקים

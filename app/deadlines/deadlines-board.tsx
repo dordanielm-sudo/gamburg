@@ -14,6 +14,7 @@ import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { NamedAvatar } from "@/components/ui/avatar";
 
 const URGENCY_TONE: Record<string, Tone> = {
   overdue: "rose",
@@ -466,7 +467,7 @@ export function DeadlinesBoard({
                       </span>
                     )}
                     {d.case?.handler?.full_name && (
-                      <span>מטפל: {d.case.handler.full_name}</span>
+                      <NamedAvatar name={d.case.handler.full_name} size="h-5 w-5 text-[9px]" />
                     )}
                     <span>תאריך יעד: {formatDate(d.due_date)}</span>
                     {d.external_date && (

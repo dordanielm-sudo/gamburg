@@ -15,6 +15,7 @@ import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { NamedAvatar } from "@/components/ui/avatar";
 
 const TASK_SELECT =
   "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)";
@@ -462,7 +463,7 @@ function TaskCard({
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
           {t.assigned_to_profile?.full_name && (
-            <span>מטפל: {t.assigned_to_profile.full_name}</span>
+            <NamedAvatar name={t.assigned_to_profile.full_name} size="h-5 w-5 text-[9px]" />
           )}
           {t.case && (
             <span>

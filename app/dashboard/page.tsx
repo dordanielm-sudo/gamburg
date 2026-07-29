@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/app-header";
 import { StatTile } from "@/components/ui/stat-tile";
 import { DonutChart } from "@/components/ui/donut-chart";
 import { Badge, hashTone } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/avatar";
 import { isCaseStuck } from "@/types/database";
 
 interface DashboardCaseRow {
@@ -242,43 +243,27 @@ export default async function DashboardPage() {
             </div>
 
             <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-              <h2 className="mb-3 font-semibold text-gray-900">
+              <h2 className="mb-4 font-semibold text-gray-900">
                 פירוט לפי מטפל
               </h2>
-              <table className="w-full text-sm">
-                <thead className="text-right text-gray-500">
-                  <tr>
-                    <th className="py-1.5">מטפל</th>
-                    <th className="py-1.5">תיקים</th>
-                    <th className="py-1.5">תקועים</th>
-                    <th className="py-1.5">דגלים</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...byHandler.entries()].map(([name, s]) => (
-                    <tr key={name} className="border-t border-gray-100">
-                      <td className="py-2 font-medium text-gray-800">
-                        {name}
-                      </td>
-                      <td className="py-2">{s.total}</td>
-                      <td className="py-2">
-                        {s.stuck > 0 ? (
-                          <Badge tone="amber">{s.stuck}</Badge>
-                        ) : (
-                          <span className="text-gray-400">0</span>
-                        )}
-                      </td>
-                      <td className="py-2">
-                        {s.flagged > 0 ? (
-                          <Badge tone="rose">{s.flagged}</Badge>
-                        ) : (
-                          <span className="text-gray-400">0</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {[...byHandler.entries()].map(([name, s]) => (
+                  <div
+                    key={name}
+                    className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/60 p-3"
+                  >
+                    <Avatar name={name} size="h-10 w-10 text-sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium text-gray-900">{name}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <Badge tone="indigo">{s.total} תיקים</Badge>
+                        {s.stuck > 0 && <Badge tone="amber">{s.stuck} תקועים</Badge>}
+                        {s.flagged > 0 && <Badge tone="rose">{s.flagged} דגלים</Badge>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </section>
           </>
         )}

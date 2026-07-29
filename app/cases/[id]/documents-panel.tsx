@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { CaseDocumentWithResponsible, DocumentStatus } from "@/types/database";
 import { Badge, TONE_BADGE, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { NamedAvatar } from "@/components/ui/avatar";
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
   valid: "תקין",
@@ -88,9 +89,11 @@ export function DocumentsPanel({
                   <Badge tone={STATUS_TONE[d.status]}>{STATUS_LABELS[d.status]}</Badge>
                 )}
               </div>
-              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500">
-                {[d.doc_type, formatDate(d.doc_date)].filter(Boolean).join(" · ")}
-                {d.responsible?.full_name && <span>אחראי: {d.responsible.full_name}</span>}
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                <span>{[d.doc_type, formatDate(d.doc_date)].filter(Boolean).join(" · ")}</span>
+                {d.responsible?.full_name && (
+                  <NamedAvatar name={d.responsible.full_name} size="h-5 w-5 text-[9px]" />
+                )}
                 {d.file_url && (
                   <a
                     href={d.file_url}

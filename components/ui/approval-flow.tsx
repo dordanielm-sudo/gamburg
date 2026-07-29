@@ -1,4 +1,5 @@
 import type { ApprovalRequestWithNames } from "@/types/database";
+import { Avatar } from "./avatar";
 
 type StepState = "done" | "current" | "rejected" | "future";
 
@@ -31,23 +32,33 @@ export function ApprovalFlow({ request }: { request: ApprovalRequestWithNames })
   const step2 = reviewState(request.status);
   const step3 = approvalState(request.status);
 
-  const steps: { title: string; subtitle: string | null; state: StepState }[] = [
+  const steps: {
+    title: string;
+    personName: string | null;
+    statusText: string | null;
+    state: StepState;
+  }[] = [
     {
       title: "הוגש ע״י מטפל",
-      subtitle: request.submitted_by_profile?.full_name ?? null,
+      personName: request.submitted_by_profile?.full_name ?? null,
+      statusText: null,
       state: "done",
     },
     {
       title: "בדיקת עו״ד",
-      subtitle: request.reviewed_by_profile?.full_name ?? (step2 === "current" ? "ממתין לבדיקה" : null),
+      personName: request.reviewed_by_profile?.full_name ?? null,
+      statusText: !request.reviewed_by_profile && step2 === "current" ? "ממתין לבדיקה" : null,
       state: step2,
     },
     {
       title: "אישור סופי מנהל",
-      subtitle:
+      personName: request.approved_by_profile?.full_name ?? null,
+      statusText:
         request.status === "rejected"
-          ? `נדחה${request.approved_by_profile?.full_name ? ` ע״י ${request.approved_by_profile.full_name}` : ""}`
-          : request.approved_by_profile?.full_name ?? (step3 === "current" ? "ממתין לאישור" : null),
+          ? "נדחה"
+          : !request.approved_by_profile && step3 === "current"
+            ? "ממתין לאישור"
+            : null,
       state: step3,
     },
   ];
@@ -63,8 +74,14 @@ export function ApprovalFlow({ request }: { request: ApprovalRequestWithNames })
               {s.state === "done" ? "✓" : s.state === "rejected" ? "✕" : i + 1}
             </div>
             <div className="w-24 text-xs font-semibold text-gray-800">{s.title}</div>
-            {s.subtitle && (
-              <div className="w-24 text-[11px] leading-tight text-gray-500">{s.subtitle}</div>
+            {s.personName && (
+              <div className="flex w-24 flex-col items-center gap-1">
+                <Avatar name={s.personName} size="h-6 w-6 text-[10px]" />
+                <span className="text-[11px] leading-tight text-gray-500">{s.personName}</span>
+              </div>
+            )}
+            {!s.personName && s.statusText && (
+              <div className="w-24 text-[11px] leading-tight text-gray-500">{s.statusText}</div>
             )}
           </div>
           {i < steps.length - 1 && (
