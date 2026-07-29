@@ -55,7 +55,7 @@ export function CaseTasksPanel({ tasks }: { tasks: TaskWithNames[] }) {
 
   return (
     <section
-      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm lg:col-span-2"
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
       style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[PANEL_TONE]}` }}
     >
       <div className="mb-3 flex items-center justify-between">
