@@ -21,6 +21,15 @@ export interface Profile {
   created_at: string;
 }
 
+// per-user חוצץ visibility (migration 0023) - zero rows for a profile
+// means unrestricted (sees every tab)
+export interface ProfileTabPermission {
+  id: string;
+  profile_id: string;
+  page_name: string;
+  created_at: string;
+}
+
 export interface SpouseDetails {
   name?: string | null;
   id_number?: string | null;

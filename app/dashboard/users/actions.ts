@@ -99,3 +99,27 @@ export async function setUserStatus(
 
   revalidatePath("/dashboard/users");
 }
+
+export async function addTabPermission(profileId: string, pageName: string) {
+  const supabase = await requireManager();
+
+  const { error } = await supabase.from("profile_tab_permissions").insert({
+    profile_id: profileId,
+    page_name: pageName.trim(),
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/dashboard/users/${profileId}/tabs`);
+}
+
+export async function removeTabPermission(id: string, profileId: string) {
+  const supabase = await requireManager();
+
+  const { error } = await supabase
+    .from("profile_tab_permissions")
+    .delete()
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/dashboard/users/${profileId}/tabs`);
+}

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { setUserStatus } from "./actions";
 import type { Profile, UserRole } from "@/types/database";
 
@@ -68,13 +69,23 @@ export function UsersTable({ users }: { users: Profile[] }) {
                 )}
               </td>
               <td className="py-1.5">
-                <button
-                  disabled={pendingId === u.id}
-                  onClick={() => apply(u, u.role, !u.is_active)}
-                  className="text-sm text-gray-500 underline hover:text-gray-900 disabled:opacity-50"
-                >
-                  {u.is_active ? "השבתה" : "הפעלה"}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    disabled={pendingId === u.id}
+                    onClick={() => apply(u, u.role, !u.is_active)}
+                    className="text-sm text-gray-500 underline hover:text-gray-900 disabled:opacity-50"
+                  >
+                    {u.is_active ? "השבתה" : "הפעלה"}
+                  </button>
+                  {u.role !== "manager" && (
+                    <Link
+                      href={`/dashboard/users/${u.id}/tabs`}
+                      className="text-sm text-blue-600 underline hover:text-blue-800"
+                    >
+                      הרשאות חוצצים
+                    </Link>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
