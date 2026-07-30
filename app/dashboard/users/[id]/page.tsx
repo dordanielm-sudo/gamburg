@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { UserEditForm } from "./user-edit-form";
@@ -45,6 +46,11 @@ export default async function UserDetailPage({
 
   if (!targetUser) notFound();
 
+  // email lives only in auth.users, not in profiles - Admin API lookup
+  const admin = createAdminClient();
+  const { data: authUser } = await admin.auth.admin.getUserById(id);
+  const email = authUser?.user?.email ?? "";
+
   const pageNameOptions = Array.from(
     new Set((fieldRows ?? []).map((r) => r.page_name)),
   ).sort((a, b) => a.localeCompare(b, "he"));
@@ -80,7 +86,7 @@ export default async function UserDetailPage({
           </div>
         </div>
 
-        <UserEditForm user={targetUser} />
+        <UserEditForm user={targetUser} email={email} />
         <ResetPasswordPanel userId={targetUser.id} userFullName={targetUser.full_name} />
         {targetUser.role !== "manager" && (
           <TabPermissionsPanel
