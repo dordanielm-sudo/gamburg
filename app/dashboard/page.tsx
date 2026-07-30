@@ -45,6 +45,7 @@ export default async function DashboardPage() {
     { count: overdueTaskCount },
     { count: deadlinesTodayCount },
     { count: pendingDocumentCount },
+    { count: pendingApprovalCount },
     { data: upcomingTasks },
     { data: upcomingDeadlines },
   ] = await Promise.all([
@@ -68,6 +69,10 @@ export default async function DashboardPage() {
       .from("documents")
       .select("id", { count: "exact", head: true })
       .in("status", ["in_correction", "correction_needed"]),
+    supabase
+      .from("approval_requests")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["pending_review", "pending_approval"]),
     supabase
       .from("tasks")
       .select("id, text, due_date, case:cases!tasks_case_id_fkey(id, case_number, case_name)")
@@ -164,23 +169,36 @@ export default async function DashboardPage() {
           </p>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <StatTile label="תיקים פעילים" value={rows.length} tone="indigo" />
-              <StatTile
-                label="משימות באיחור"
-                value={overdueTaskCount ?? 0}
-                tone="rose"
-              />
-              <StatTile
-                label="מועדים היום"
-                value={deadlinesTodayCount ?? 0}
-                tone="amber"
-              />
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              <Link href="/cases">
+                <StatTile label="תיקים פעילים" value={rows.length} tone="indigo" />
+              </Link>
+              <Link href="/tasks?overdue=1">
+                <StatTile
+                  label="משימות באיחור"
+                  value={overdueTaskCount ?? 0}
+                  tone="rose"
+                />
+              </Link>
+              <Link href={`/deadlines?date=${today}`}>
+                <StatTile
+                  label="מועדים היום"
+                  value={deadlinesTodayCount ?? 0}
+                  tone="amber"
+                />
+              </Link>
               <StatTile
                 label="מסמכים ממתינים"
                 value={pendingDocumentCount ?? 0}
                 tone="blue"
               />
+              <Link href="/approvals?status=pending">
+                <StatTile
+                  label="ממתין לאישור"
+                  value={pendingApprovalCount ?? 0}
+                  tone="purple"
+                />
+              </Link>
             </div>
 
             <div className="grid gap-6 lg:grid-cols-2">

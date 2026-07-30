@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   deadlineUrgency,
@@ -49,10 +50,13 @@ export function DeadlinesBoard({
   canCreate: boolean;
   cases: Pick<Case, "id" | "case_number" | "case_name">[];
 }) {
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(deadlines);
   const [range, setRange] = useState<RangeKey>("week");
-  const [calendarDate, setCalendarDate] = useState<string | null>(null);
+  const [calendarDate, setCalendarDate] = useState<string | null>(
+    () => searchParams.get("date"),
+  );
   const [showDone, setShowDone] = useState(false);
   const [caseFilter, setCaseFilter] = useState("");
   const [handlerFilter, setHandlerFilter] = useState("");

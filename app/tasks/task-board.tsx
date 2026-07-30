@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   deadlineUrgency,
@@ -71,6 +72,7 @@ export function TaskBoard({
   cases: Pick<Case, "id" | "case_number" | "case_name">[];
   currentUserId: string;
 }) {
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(tasks);
   const [creating, setCreating] = useState(false);
@@ -82,7 +84,7 @@ export function TaskBoard({
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("open");
   const [range, setRange] = useState<RangeKey>("all");
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
-  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [overdueOnly, setOverdueOnly] = useState(() => searchParams.get("overdue") === "1");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const caseOptions = useMemo(() => {
