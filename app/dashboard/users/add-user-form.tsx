@@ -2,8 +2,11 @@
 
 import { useActionState } from "react";
 import { createUser, type CreateUserState } from "./actions";
+import { Badge, TONE_HEX } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 
 const initialState: CreateUserState = {};
+const TONE = "blue" as const;
 
 export function AddUserForm() {
   const [state, formAction, pending] = useActionState(
@@ -12,8 +15,14 @@ export function AddUserForm() {
   );
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-3 font-semibold">הוספת משתמש</h2>
+    <section
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+      style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[TONE]}` }}
+    >
+      <Badge tone={TONE} dot>
+        הוספת משתמש
+      </Badge>
+      <div className="mt-4">
 
       <form action={formAction} className="flex flex-wrap items-end gap-3">
         <div>
@@ -48,8 +57,9 @@ export function AddUserForm() {
         <button
           type="submit"
           disabled={pending}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
         >
+          {pending && <Spinner className="h-4 w-4" />}
           {pending ? "מוסיף..." : "הוספה"}
         </button>
       </form>
@@ -67,6 +77,7 @@ export function AddUserForm() {
           <div className="mt-1 font-mono text-base">{state.tempPassword}</div>
         </div>
       )}
+      </div>
     </section>
   );
 }
