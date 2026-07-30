@@ -15,9 +15,10 @@ const ROLE_LABELS: Record<UserRole, string> = {
 
 const TONE = "indigo" as const;
 
-export function UserEditForm({ user }: { user: Profile }) {
+export function UserEditForm({ user, email }: { user: Profile; email: string }) {
   const router = useRouter();
   const [fullName, setFullName] = useState(user.full_name);
+  const [emailValue, setEmailValue] = useState(email);
   const [role, setRole] = useState<UserRole>(user.role);
   const [isActive, setIsActive] = useState(user.is_active);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +26,10 @@ export function UserEditForm({ user }: { user: Profile }) {
   const [pending, startTransition] = useTransition();
 
   const dirty =
-    fullName !== user.full_name || role !== user.role || isActive !== user.is_active;
+    fullName !== user.full_name ||
+    emailValue !== email ||
+    role !== user.role ||
+    isActive !== user.is_active;
 
   function handleSave() {
     setError(null);
@@ -34,9 +38,13 @@ export function UserEditForm({ user }: { user: Profile }) {
       setError("שם מלא לא יכול להיות ריק");
       return;
     }
+    if (!emailValue.trim()) {
+      setError("אימייל לא יכול להיות ריק");
+      return;
+    }
     startTransition(async () => {
       try {
-        await updateUserProfile(user.id, fullName.trim(), role, isActive);
+        await updateUserProfile(user.id, fullName.trim(), emailValue.trim(), role, isActive);
         setSaved(true);
         router.refresh();
       } catch (e) {
@@ -54,13 +62,25 @@ export function UserEditForm({ user }: { user: Profile }) {
         פרטי משתמש
       </Badge>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <label className="mb-1 block text-xs text-gray-500">שם מלא</label>
           <input
             value={fullName}
             onChange={(e) => {
               setFullName(e.target.value);
+              setSaved(false);
+            }}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-gray-500">אימייל</label>
+          <input
+            type="email"
+            value={emailValue}
+            onChange={(e) => {
+              setEmailValue(e.target.value);
               setSaved(false);
             }}
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"

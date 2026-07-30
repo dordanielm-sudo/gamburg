@@ -81,10 +81,14 @@ export async function createUser(
 // manager to update any profile's name; the "self only" column grant from
 // migration 0004 is what non-managers are limited by). role/is_active still
 // have to go through admin_set_user_status() - see 0004 for why a raw
-// UPDATE can't be used for those two columns.
+// UPDATE can't be used for those two columns. email lives only in
+// auth.users (profiles has no email column), so it's Admin-API only -
+// email_confirm: true sets it immediately with no confirmation-link
+// round-trip, same as at account creation.
 export async function updateUserProfile(
   userId: string,
   fullName: string,
+  email: string,
   role: UserRole,
   isActive: boolean,
 ) {
@@ -106,9 +110,12 @@ export async function updateUserProfile(
   // is_active only gates access to our tables via RLS - also disable/enable
   // the actual Supabase Auth login so a deactivated user can't sign in at all.
   const admin = createAdminClient();
-  await admin.auth.admin.updateUserById(userId, {
+  const { error: authError } = await admin.auth.admin.updateUserById(userId, {
+    email,
+    email_confirm: true,
     ban_duration: isActive ? "none" : "876000h",
   });
+  if (authError) throw new Error(authError.message);
 
   revalidatePath("/dashboard/users");
   revalidatePath(`/dashboard/users/${userId}`);
