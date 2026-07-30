@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { ApprovalRequestWithNames, ApprovalStatus, Case } from "@/types/database";
 import { CaseCombobox } from "@/components/case-combobox";
@@ -45,19 +46,27 @@ export function ApprovalBoard({
   currentUserId: string;
   currentUserFullName: string;
 }) {
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(requests);
-  const [statusFilter, setStatusFilter] = useState<ApprovalStatus | "">("");
+  const [statusFilter, setStatusFilter] = useState<ApprovalStatus | "pending" | "">(
+    () => (searchParams.get("status") === "pending" ? "pending" : ""),
+  );
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [createCaseId, setCreateCaseId] = useState("");
   const [createCaseText, setCreateCaseText] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
 
-  const filtered = useMemo(
-    () => (statusFilter ? rows.filter((r) => r.status === statusFilter) : rows),
-    [rows, statusFilter],
-  );
+  const filtered = useMemo(() => {
+    if (!statusFilter) return rows;
+    if (statusFilter === "pending") {
+      return rows.filter(
+        (r) => r.status === "pending_review" || r.status === "pending_approval",
+      );
+    }
+    return rows.filter((r) => r.status === statusFilter);
+  }, [rows, statusFilter]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -216,10 +225,13 @@ export function ApprovalBoard({
       <div className="flex flex-wrap items-center gap-3">
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as ApprovalStatus | "")}
+          onChange={(e) =>
+            setStatusFilter(e.target.value as ApprovalStatus | "pending" | "")
+          }
           className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
         >
           <option value="">סטטוס: הכל</option>
+          <option value="pending">ממתין (לבדיקה או לאישור)</option>
           {Object.entries(STATUS_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
               {label}

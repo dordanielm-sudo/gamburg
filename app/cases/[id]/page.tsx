@@ -21,6 +21,13 @@ import {
 import { Badge, hashTone, TONE_HEX } from "@/components/ui/badge";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FieldGroup, type FieldValue } from "@/components/ui/field-group";
+import { StatusStageEditor } from "./status-stage-editor";
+
+function uniqueSorted(values: (string | null)[]) {
+  return Array.from(new Set(values.filter((v): v is string => !!v))).sort(
+    (a, b) => a.localeCompare(b, "he"),
+  );
+}
 
 const APPROVAL_SELECT =
   "*, submitted_by_profile:profiles!approval_requests_submitted_by_fkey(id, full_name), reviewed_by_profile:profiles!approval_requests_reviewed_by_fkey(id, full_name), approved_by_profile:profiles!approval_requests_approved_by_fkey(id, full_name), case:cases!approval_requests_case_id_fkey(id, case_number, case_name)";
@@ -53,6 +60,7 @@ export default async function CaseDetailPage({
     { data: caseTasks },
     { data: caseFields },
     { data: approvalRequests },
+    { data: peerCases },
   ] = await Promise.all([
       supabase
         .from("documents")
@@ -86,11 +94,21 @@ export default async function CaseDetailPage({
         .eq("case_id", id)
         .order("created_at", { ascending: false })
         .returns<ApprovalRequestWithNames[]>(),
+      // options for the status/שלב בתיק dropdowns - values already seen
+      // among cases of the same type, so the list stays relevant instead of
+      // mixing חדל"פ stages with הסדרי נושים stages
+      supabase
+        .from("cases")
+        .select("status, case_nature")
+        .eq("case_type", caseRow.case_type ?? ""),
     ]);
 
   const canEdit =
     profile.role === "manager" ||
     (profile.role === "handler" && caseRow.handler_id === profile.id);
+
+  const statusOptions = uniqueSorted((peerCases ?? []).map((c) => c.status));
+  const stageOptions = uniqueSorted((peerCases ?? []).map((c) => c.case_nature));
 
   const spouse = caseRow.spouse_details;
   const hasSpouse = !!(spouse?.name || spouse?.id_number || spouse?.phone);
@@ -101,7 +119,13 @@ export default async function CaseDetailPage({
       label: "פרטי תיק",
       content: (
         <div className="space-y-6">
-          <CaseSummary caseRow={caseRow} caseFields={caseFields ?? []} />
+          <CaseSummary
+            caseRow={caseRow}
+            caseFields={caseFields ?? []}
+            canEdit={canEdit}
+            statusOptions={statusOptions}
+            stageOptions={stageOptions}
+          />
           <div className="grid gap-6 lg:grid-cols-2">
             <DeadlinesPanel deadlines={deadlines ?? []} canEdit={canEdit} />
             <DocumentsPanel documents={documents ?? []} canEdit={canEdit} />
@@ -173,9 +197,15 @@ function statusOrDash(value: string | null | undefined) {
 function CaseSummary({
   caseRow,
   caseFields,
+  canEdit,
+  statusOptions,
+  stageOptions,
 }: {
   caseRow: CaseWithHandler;
   caseFields: CaseField[];
+  canEdit: boolean;
+  statusOptions: string[];
+  stageOptions: string[];
 }) {
   const clientFields: FieldValue[] = [
     { label: "ת.ז", value: caseRow.client_id_number ?? "—" },
@@ -197,8 +227,34 @@ function CaseSummary({
   ];
 
   const caseInfoFields: FieldValue[] = [
-    { label: "שלב בתיק", value: statusOrDash(caseRow.case_nature) },
-    { label: "סטטוס", value: statusOrDash(caseRow.status) },
+    {
+      label: "שלב בתיק",
+      value: canEdit ? (
+        <StatusStageEditor
+          caseId={caseRow.id}
+          caseNumber={caseRow.case_number}
+          fieldName="case_nature"
+          value={caseRow.case_nature}
+          options={stageOptions}
+        />
+      ) : (
+        statusOrDash(caseRow.case_nature)
+      ),
+    },
+    {
+      label: "סטטוס",
+      value: canEdit ? (
+        <StatusStageEditor
+          caseId={caseRow.id}
+          caseNumber={caseRow.case_number}
+          fieldName="status"
+          value={caseRow.status}
+          options={statusOptions}
+        />
+      ) : (
+        statusOrDash(caseRow.status)
+      ),
+    },
     {
       label: "מטפל",
       value: caseRow.handler?.full_name ? (
