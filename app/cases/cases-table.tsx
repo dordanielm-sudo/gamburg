@@ -659,6 +659,14 @@ export function CasesTable({
             ניהול עמודות לפי סוג תיק
           </Link>
         )}
+        {isManager && (
+          <Link
+            href="/dashboard/case-stages"
+            className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+          >
+            ניהול שלבים לפי סוג תיק
+          </Link>
+        )}
 
         {hasActiveFilters && (
           <button

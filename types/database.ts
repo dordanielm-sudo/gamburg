@@ -181,6 +181,16 @@ export interface CaseTypeColumnPreset {
   created_at: string;
 }
 
+// שלבים בתיק - a manager-configured ordered stage list per case_type
+// (migration 0028), powering the visual stepper on the case card
+export interface CaseTypeStage {
+  id: string;
+  case_type: string;
+  stage_name: string;
+  display_order: number;
+  created_at: string;
+}
+
 // per-user drag-reordered column order for a given table (migration 0026) -
 // self-served, unlike CaseTypeColumnPreset which a manager configures
 export interface ProfileColumnOrder {

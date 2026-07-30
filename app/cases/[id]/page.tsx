@@ -17,11 +17,13 @@ import {
   type SpouseDetails,
   type CaseField,
   type ApprovalRequestWithNames,
+  type CaseTypeStage,
 } from "@/types/database";
 import { Badge, hashTone, TONE_HEX } from "@/components/ui/badge";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FieldGroup, type FieldValue } from "@/components/ui/field-group";
 import { StatusStageEditor } from "./status-stage-editor";
+import { StageStepperPanel } from "./stage-stepper-panel";
 
 function uniqueSorted(values: (string | null)[]) {
   return Array.from(new Set(values.filter((v): v is string => !!v))).sort(
@@ -61,6 +63,7 @@ export default async function CaseDetailPage({
     { data: caseFields },
     { data: approvalRequests },
     { data: peerCases },
+    { data: stageRows },
   ] = await Promise.all([
       supabase
         .from("documents")
@@ -101,6 +104,15 @@ export default async function CaseDetailPage({
         .from("cases")
         .select("status, case_nature")
         .eq("case_type", caseRow.case_type ?? ""),
+      // שלבים בתיק - manager-defined ordered stage list for this case's
+      // case_type (migration 0028); no rows means this type has none
+      // configured yet, and the card falls back to the plain dropdown
+      supabase
+        .from("case_type_stages")
+        .select("*")
+        .eq("case_type", caseRow.case_type ?? "")
+        .order("display_order")
+        .returns<CaseTypeStage[]>(),
     ]);
 
   const canEdit =
@@ -109,6 +121,7 @@ export default async function CaseDetailPage({
 
   const statusOptions = uniqueSorted((peerCases ?? []).map((c) => c.status));
   const stageOptions = uniqueSorted((peerCases ?? []).map((c) => c.case_nature));
+  const stageNames = (stageRows ?? []).map((s) => s.stage_name);
 
   const spouse = caseRow.spouse_details;
   const hasSpouse = !!(spouse?.name || spouse?.id_number || spouse?.phone);
@@ -125,7 +138,17 @@ export default async function CaseDetailPage({
             canEdit={canEdit}
             statusOptions={statusOptions}
             stageOptions={stageOptions}
+            hasConfiguredStages={stageNames.length > 0}
           />
+          {stageNames.length > 0 && (
+            <StageStepperPanel
+              caseId={caseRow.id}
+              caseNumber={caseRow.case_number}
+              stageNames={stageNames}
+              currentStage={caseRow.case_nature}
+              canEdit={canEdit}
+            />
+          )}
           <div className="grid gap-6 lg:grid-cols-2">
             <DeadlinesPanel deadlines={deadlines ?? []} canEdit={canEdit} />
             <DocumentsPanel documents={documents ?? []} canEdit={canEdit} />
@@ -200,12 +223,14 @@ function CaseSummary({
   canEdit,
   statusOptions,
   stageOptions,
+  hasConfiguredStages,
 }: {
   caseRow: CaseWithHandler;
   caseFields: CaseField[];
   canEdit: boolean;
   statusOptions: string[];
   stageOptions: string[];
+  hasConfiguredStages: boolean;
 }) {
   const clientFields: FieldValue[] = [
     { label: "ת.ז", value: caseRow.client_id_number ?? "—" },
@@ -229,7 +254,9 @@ function CaseSummary({
   const caseInfoFields: FieldValue[] = [
     {
       label: "שלב בתיק",
-      value: canEdit ? (
+      value: hasConfiguredStages ? (
+        statusOrDash(caseRow.case_nature)
+      ) : canEdit ? (
         <StatusStageEditor
           caseId={caseRow.id}
           caseNumber={caseRow.case_number}
