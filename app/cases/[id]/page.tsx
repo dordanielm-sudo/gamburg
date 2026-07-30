@@ -17,11 +17,15 @@ import {
   type SpouseDetails,
   type CaseField,
   type ApprovalRequestWithNames,
+  type CaseTypeStage,
+  type CaseTypeStageItem,
+  type CaseStageChecklistEntry,
 } from "@/types/database";
 import { Badge, hashTone, TONE_HEX } from "@/components/ui/badge";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FieldGroup, type FieldValue } from "@/components/ui/field-group";
 import { StatusStageEditor } from "./status-stage-editor";
+import { StageStepperPanel } from "./stage-stepper-panel";
 
 function uniqueSorted(values: (string | null)[]) {
   return Array.from(new Set(values.filter((v): v is string => !!v))).sort(
@@ -61,6 +65,7 @@ export default async function CaseDetailPage({
     { data: caseFields },
     { data: approvalRequests },
     { data: peerCases },
+    { data: stageRows },
   ] = await Promise.all([
       supabase
         .from("documents")
@@ -101,6 +106,15 @@ export default async function CaseDetailPage({
         .from("cases")
         .select("status, case_nature")
         .eq("case_type", caseRow.case_type ?? ""),
+      // שלבים בתיק - manager-defined ordered stage list for this case's
+      // case_type (migration 0028); no rows means this type has none
+      // configured yet, and the card falls back to the plain dropdown
+      supabase
+        .from("case_type_stages")
+        .select("*")
+        .eq("case_type", caseRow.case_type ?? "")
+        .order("display_order")
+        .returns<CaseTypeStage[]>(),
     ]);
 
   const canEdit =
@@ -109,6 +123,27 @@ export default async function CaseDetailPage({
 
   const statusOptions = uniqueSorted((peerCases ?? []).map((c) => c.status));
   const stageOptions = uniqueSorted((peerCases ?? []).map((c) => c.case_nature));
+
+  // תתי-שלבים (checklist per שלב) - needs the stage ids from the query
+  // above first, so this is a second round trip rather than part of the
+  // same Promise.all
+  const stageIds = (stageRows ?? []).map((s) => s.id);
+  const [{ data: stageItems }, { data: checklistEntries }] =
+    await Promise.all([
+      stageIds.length > 0
+        ? supabase
+            .from("case_type_stage_items")
+            .select("*")
+            .in("stage_id", stageIds)
+            .order("display_order")
+            .returns<CaseTypeStageItem[]>()
+        : Promise.resolve({ data: [] as CaseTypeStageItem[], error: null }),
+      supabase
+        .from("case_stage_checklist")
+        .select("*")
+        .eq("case_id", id)
+        .returns<CaseStageChecklistEntry[]>(),
+    ]);
 
   const spouse = caseRow.spouse_details;
   const hasSpouse = !!(spouse?.name || spouse?.id_number || spouse?.phone);
@@ -126,6 +161,17 @@ export default async function CaseDetailPage({
             statusOptions={statusOptions}
             stageOptions={stageOptions}
           />
+          {stageRows && stageRows.length > 0 && (
+            <StageStepperPanel
+              caseId={caseRow.id}
+              caseNumber={caseRow.case_number}
+              stages={stageRows}
+              items={stageItems ?? []}
+              checklistEntries={checklistEntries ?? []}
+              currentStage={caseRow.case_stage}
+              canEdit={canEdit}
+            />
+          )}
           <div className="grid gap-6 lg:grid-cols-2">
             <DeadlinesPanel deadlines={deadlines ?? []} canEdit={canEdit} />
             <DocumentsPanel documents={documents ?? []} canEdit={canEdit} />
@@ -228,7 +274,7 @@ function CaseSummary({
 
   const caseInfoFields: FieldValue[] = [
     {
-      label: "שלב בתיק",
+      label: "מהות תיק",
       value: canEdit ? (
         <StatusStageEditor
           caseId={caseRow.id}
