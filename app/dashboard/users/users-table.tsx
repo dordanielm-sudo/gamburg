@@ -1,10 +1,7 @@
-"use client";
-
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { setUserStatus } from "./actions";
 import type { Profile, UserRole } from "@/types/database";
+import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
+import { NamedAvatar } from "@/components/ui/avatar";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   manager: "מנהל/ת",
@@ -12,83 +9,69 @@ const ROLE_LABELS: Record<UserRole, string> = {
   secretary: "מזכירה",
 };
 
+const ROLE_TONE: Record<UserRole, Tone> = {
+  manager: "indigo",
+  handler: "blue",
+  secretary: "purple",
+};
+
 export function UsersTable({ users }: { users: Profile[] }) {
-  const router = useRouter();
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
-
-  function apply(user: Profile, role: UserRole, isActive: boolean) {
-    setPendingId(user.id);
-    startTransition(async () => {
-      try {
-        await setUserStatus(user.id, role, isActive);
-      } finally {
-        setPendingId(null);
-        router.refresh();
-      }
-    });
-  }
-
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-3 font-semibold">משתמשים</h2>
+    <section className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       <table className="w-full text-sm">
-        <thead className="text-right text-gray-500">
+        <thead className="border-b border-indigo-100 bg-indigo-50/60 text-right">
           <tr>
-            <th className="py-1">שם</th>
-            <th className="py-1">תפקיד</th>
-            <th className="py-1">סטטוס</th>
-            <th className="py-1"></th>
+            <th className="w-1 p-0" aria-hidden />
+            <th className="px-4 py-3 font-semibold text-indigo-900">שם</th>
+            <th className="px-4 py-3 font-semibold text-indigo-900">תפקיד</th>
+            <th className="px-4 py-3 font-semibold text-indigo-900">סטטוס</th>
+            <th className="px-4 py-3 font-semibold text-indigo-900"></th>
           </tr>
         </thead>
         <tbody>
-          {users.map((u) => (
-            <tr key={u.id} className="border-t border-gray-100">
-              <td className="py-1.5">{u.full_name}</td>
-              <td className="py-1.5">
-                <select
-                  value={u.role}
-                  disabled={pendingId === u.id}
-                  onChange={(e) =>
-                    apply(u, e.target.value as UserRole, u.is_active)
-                  }
-                  className="rounded-md border border-gray-200 bg-transparent px-2 py-1 text-sm"
-                >
-                  {Object.entries(ROLE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td className="py-1.5">
-                {u.is_active ? (
-                  <span className="text-green-700">פעיל</span>
-                ) : (
-                  <span className="text-gray-400">מושבת</span>
-                )}
-              </td>
-              <td className="py-1.5">
-                <div className="flex items-center gap-3">
-                  <button
-                    disabled={pendingId === u.id}
-                    onClick={() => apply(u, u.role, !u.is_active)}
-                    className="text-sm text-gray-500 underline hover:text-gray-900 disabled:opacity-50"
+          {users.map((u) => {
+            const rowTone = u.is_active ? ROLE_TONE[u.role] : "gray";
+            return (
+              <tr
+                key={u.id}
+                className="border-b border-gray-100 transition-colors hover:bg-gray-50/60"
+                style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[rowTone]}` }}
+              >
+                <td className="w-1 p-0" aria-hidden />
+                <td className="px-4 py-3.5">
+                  <Link
+                    href={`/dashboard/users/${u.id}`}
+                    className="hover:text-blue-700 hover:underline"
                   >
-                    {u.is_active ? "השבתה" : "הפעלה"}
-                  </button>
-                  {u.role !== "manager" && (
-                    <Link
-                      href={`/dashboard/users/${u.id}/tabs`}
-                      className="text-sm text-blue-600 underline hover:text-blue-800"
-                    >
-                      הרשאות חוצצים
-                    </Link>
-                  )}
-                </div>
+                    <NamedAvatar name={u.full_name} />
+                  </Link>
+                </td>
+                <td className="px-4 py-3.5">
+                  <Badge tone={ROLE_TONE[u.role]}>{ROLE_LABELS[u.role]}</Badge>
+                </td>
+                <td className="px-4 py-3.5">
+                  <Badge tone={u.is_active ? "green" : "gray"}>
+                    {u.is_active ? "פעיל" : "מושבת"}
+                  </Badge>
+                </td>
+                <td className="px-4 py-3.5 text-left">
+                  <Link
+                    href={`/dashboard/users/${u.id}`}
+                    className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                  >
+                    פתיחת כרטיס ←
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+          {users.length === 0 && (
+            <tr>
+              <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                אין משתמשים
               </td>
             </tr>
-          ))}
+          )}
         </tbody>
       </table>
     </section>

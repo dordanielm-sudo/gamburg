@@ -76,12 +76,25 @@ export async function createUser(
   return { createdEmail: email, tempPassword };
 }
 
-export async function setUserStatus(
+// consolidated manager-side edit: full_name goes through the regular
+// client (RLS + the profiles_manager_write_all policy already allow a
+// manager to update any profile's name; the "self only" column grant from
+// migration 0004 is what non-managers are limited by). role/is_active still
+// have to go through admin_set_user_status() - see 0004 for why a raw
+// UPDATE can't be used for those two columns.
+export async function updateUserProfile(
   userId: string,
+  fullName: string,
   role: UserRole,
   isActive: boolean,
 ) {
   const supabase = await requireManager();
+
+  const { error: nameError } = await supabase
+    .from("profiles")
+    .update({ full_name: fullName })
+    .eq("id", userId);
+  if (nameError) throw new Error(nameError.message);
 
   const { error } = await supabase.rpc("admin_set_user_status", {
     target_id: userId,
@@ -98,6 +111,30 @@ export async function setUserStatus(
   });
 
   revalidatePath("/dashboard/users");
+  revalidatePath(`/dashboard/users/${userId}`);
+}
+
+export interface ResetPasswordState {
+  error?: string;
+  tempPassword?: string;
+}
+
+// same "temp password, shown once, relayed manually" pattern as createUser -
+// no outbound email dependency, matches how the office already hands out
+// credentials for new accounts.
+export async function resetUserPassword(
+  userId: string,
+): Promise<ResetPasswordState> {
+  await requireManager();
+
+  const tempPassword = generateTempPassword();
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.updateUserById(userId, {
+    password: tempPassword,
+  });
+  if (error) return { error: error.message };
+
+  return { tempPassword };
 }
 
 export async function addTabPermission(profileId: string, pageName: string) {
@@ -109,7 +146,7 @@ export async function addTabPermission(profileId: string, pageName: string) {
   });
   if (error) throw new Error(error.message);
 
-  revalidatePath(`/dashboard/users/${profileId}/tabs`);
+  revalidatePath(`/dashboard/users/${profileId}`);
 }
 
 export async function removeTabPermission(id: string, profileId: string) {
@@ -121,5 +158,5 @@ export async function removeTabPermission(id: string, profileId: string) {
     .eq("id", id);
   if (error) throw new Error(error.message);
 
-  revalidatePath(`/dashboard/users/${profileId}/tabs`);
+  revalidatePath(`/dashboard/users/${profileId}`);
 }

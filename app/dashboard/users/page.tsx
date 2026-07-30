@@ -34,6 +34,7 @@ export default async function UsersPage() {
         ) : (
           <>
             <AddUserForm />
+            <h2 className="font-semibold text-gray-900">משתמשים</h2>
             <UsersTable users={users ?? []} />
           </>
         )}

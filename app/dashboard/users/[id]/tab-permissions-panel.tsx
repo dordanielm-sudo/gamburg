@@ -1,8 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { addTabPermission, removeTabPermission } from "../../actions";
+import { addTabPermission, removeTabPermission } from "../actions";
 import type { ProfileTabPermission } from "@/types/database";
+import { Badge, TONE_HEX } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
+
+const TONE = "purple" as const;
 
 export function TabPermissionsPanel({
   profileId,
@@ -46,22 +50,25 @@ export function TabPermissionsPanel({
   }
 
   return (
-    <section className="max-w-xl rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-1 font-semibold text-gray-900">הרשאות חוצצים</h2>
-      <p className="mb-4 text-xs text-gray-400">
+    <section
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+      style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[TONE]}` }}
+    >
+      <Badge tone={TONE} dot>
+        הרשאות חוצצים
+      </Badge>
+      <p className="mt-2 mb-4 text-xs text-gray-400">
         כברירת מחדל המשתמש רואה את כל החוצצים. ברגע שמוסיפים חוצץ אחד לרשימה
         למטה, המשתמש יראה <strong>רק</strong> את החוצצים שברשימה.
       </p>
 
-      {restricted ? (
-        <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          מוגבל - רואה רק את החוצצים המפורטים למטה
-        </div>
-      ) : (
-        <div className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          ללא הגבלה - רואה את כל החוצצים
-        </div>
-      )}
+      <div className="mb-4">
+        {restricted ? (
+          <Badge tone="amber">מוגבל - רואה רק את החוצצים המפורטים למטה</Badge>
+        ) : (
+          <Badge tone="green">ללא הגבלה - רואה את כל החוצצים</Badge>
+        )}
+      </div>
 
       {permissions.length > 0 && (
         <ul className="mb-4 space-y-1.5">
@@ -104,8 +111,9 @@ export function TabPermissionsPanel({
         <button
           onClick={handleAdd}
           disabled={pending}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
         >
+          {pending && <Spinner className="h-4 w-4" />}
           {pending ? "מוסיף..." : "הוספה"}
         </button>
       </div>
