@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { CaseStagesPanel } from "./case-stages-panel";
-import type { CaseTypeStage } from "@/types/database";
+import type { CaseTypeStage, CaseTypeStageItem } from "@/types/database";
 
 export default async function CaseStagesPage() {
   const profile = await getCurrentProfile();
@@ -11,15 +11,21 @@ export default async function CaseStagesPage() {
   if (profile.role !== "manager") redirect("/cases");
 
   const supabase = await createClient();
-  const [{ data: stages, error }, { data: caseTypeRows }] = await Promise.all([
-    supabase
-      .from("case_type_stages")
-      .select("*")
-      .order("case_type")
-      .order("display_order")
-      .returns<CaseTypeStage[]>(),
-    supabase.from("cases").select("case_type"),
-  ]);
+  const [{ data: stages, error }, { data: caseTypeRows }, { data: items }] =
+    await Promise.all([
+      supabase
+        .from("case_type_stages")
+        .select("*")
+        .order("case_type")
+        .order("display_order")
+        .returns<CaseTypeStage[]>(),
+      supabase.from("cases").select("case_type"),
+      supabase
+        .from("case_type_stage_items")
+        .select("*")
+        .order("display_order")
+        .returns<CaseTypeStageItem[]>(),
+    ]);
 
   const caseTypeOptions = Array.from(
     new Set(
@@ -45,6 +51,7 @@ export default async function CaseStagesPage() {
         ) : (
           <CaseStagesPanel
             stages={stages ?? []}
+            items={items ?? []}
             caseTypeOptions={caseTypeOptions}
           />
         )}

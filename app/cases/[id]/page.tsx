@@ -18,6 +18,8 @@ import {
   type CaseField,
   type ApprovalRequestWithNames,
   type CaseTypeStage,
+  type CaseTypeStageItem,
+  type CaseStageChecklistEntry,
 } from "@/types/database";
 import { Badge, hashTone, TONE_HEX } from "@/components/ui/badge";
 import { NamedAvatar } from "@/components/ui/avatar";
@@ -121,7 +123,27 @@ export default async function CaseDetailPage({
 
   const statusOptions = uniqueSorted((peerCases ?? []).map((c) => c.status));
   const stageOptions = uniqueSorted((peerCases ?? []).map((c) => c.case_nature));
-  const stageNames = (stageRows ?? []).map((s) => s.stage_name);
+
+  // תתי-שלבים (checklist per שלב) - needs the stage ids from the query
+  // above first, so this is a second round trip rather than part of the
+  // same Promise.all
+  const stageIds = (stageRows ?? []).map((s) => s.id);
+  const [{ data: stageItems }, { data: checklistEntries }] =
+    await Promise.all([
+      stageIds.length > 0
+        ? supabase
+            .from("case_type_stage_items")
+            .select("*")
+            .in("stage_id", stageIds)
+            .order("display_order")
+            .returns<CaseTypeStageItem[]>()
+        : Promise.resolve({ data: [] as CaseTypeStageItem[], error: null }),
+      supabase
+        .from("case_stage_checklist")
+        .select("*")
+        .eq("case_id", id)
+        .returns<CaseStageChecklistEntry[]>(),
+    ]);
 
   const spouse = caseRow.spouse_details;
   const hasSpouse = !!(spouse?.name || spouse?.id_number || spouse?.phone);
@@ -138,14 +160,15 @@ export default async function CaseDetailPage({
             canEdit={canEdit}
             statusOptions={statusOptions}
             stageOptions={stageOptions}
-            hasConfiguredStages={stageNames.length > 0}
           />
-          {stageNames.length > 0 && (
+          {stageRows && stageRows.length > 0 && (
             <StageStepperPanel
               caseId={caseRow.id}
               caseNumber={caseRow.case_number}
-              stageNames={stageNames}
-              currentStage={caseRow.case_nature}
+              stages={stageRows}
+              items={stageItems ?? []}
+              checklistEntries={checklistEntries ?? []}
+              currentStage={caseRow.case_stage}
               canEdit={canEdit}
             />
           )}
@@ -223,14 +246,12 @@ function CaseSummary({
   canEdit,
   statusOptions,
   stageOptions,
-  hasConfiguredStages,
 }: {
   caseRow: CaseWithHandler;
   caseFields: CaseField[];
   canEdit: boolean;
   statusOptions: string[];
   stageOptions: string[];
-  hasConfiguredStages: boolean;
 }) {
   const clientFields: FieldValue[] = [
     { label: "ת.ז", value: caseRow.client_id_number ?? "—" },
@@ -253,10 +274,8 @@ function CaseSummary({
 
   const caseInfoFields: FieldValue[] = [
     {
-      label: "שלב בתיק",
-      value: hasConfiguredStages ? (
-        statusOrDash(caseRow.case_nature)
-      ) : canEdit ? (
+      label: "מהות תיק",
+      value: canEdit ? (
         <StatusStageEditor
           caseId={caseRow.id}
           caseNumber={caseRow.case_number}

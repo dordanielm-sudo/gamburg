@@ -45,6 +45,7 @@ export interface Case {
   opened_date: string | null;
   case_type: string | null;
   case_nature: string | null;
+  case_stage: string | null;
   handler_id: string | null;
   external_ref: string | null;
   status: string | null;
@@ -188,6 +189,28 @@ export interface CaseTypeStage {
   case_type: string;
   stage_name: string;
   display_order: number;
+  created_at: string;
+}
+
+// תתי-שלבים - a manager-configured checklist per שלב (migration 0029),
+// e.g. under "הכנת טופס 5": בדיקה מקדמית, חוצץ כללי השלמת מסמכים, etc.
+export interface CaseTypeStageItem {
+  id: string;
+  stage_id: string;
+  item_text: string;
+  display_order: number;
+  created_at: string;
+}
+
+// per-case completion state for a תת-שלב (migration 0029) - absence of a
+// row for a given (case_id, item_id) means "not done yet"
+export interface CaseStageChecklistEntry {
+  id: string;
+  case_id: string;
+  item_id: string;
+  done: boolean;
+  done_by: string | null;
+  done_at: string | null;
   created_at: string;
 }
 

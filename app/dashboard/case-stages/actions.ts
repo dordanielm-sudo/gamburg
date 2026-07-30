@@ -88,3 +88,35 @@ export async function moveStage(
   revalidatePath("/dashboard/case-stages");
   revalidatePath("/cases");
 }
+
+// תתי-שלבים - checklist items nested under a stage (migration 0029)
+export async function addChecklistItem(
+  stageId: string,
+  itemText: string,
+  displayOrder: number,
+) {
+  const supabase = await requireManager();
+
+  const { error } = await supabase.from("case_type_stage_items").insert({
+    stage_id: stageId,
+    item_text: itemText.trim(),
+    display_order: displayOrder,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/dashboard/case-stages");
+  revalidatePath("/cases");
+}
+
+export async function deleteChecklistItem(id: string) {
+  const supabase = await requireManager();
+
+  const { error } = await supabase
+    .from("case_type_stage_items")
+    .delete()
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/dashboard/case-stages");
+  revalidatePath("/cases");
+}
