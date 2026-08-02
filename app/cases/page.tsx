@@ -7,6 +7,7 @@ import type {
   CaseTypeColumnPreset,
   CaseWithRelations,
   ProfileColumnOrder,
+  ViewTemplate,
 } from "@/types/database";
 
 export default async function CasesPage() {
@@ -14,8 +15,12 @@ export default async function CasesPage() {
   if (!profile) redirect("/login");
 
   const supabase = await createClient();
-  const [{ data: cases, error }, { data: columnPresets }, { data: columnOrder }] =
-    await Promise.all([
+  const [
+    { data: cases, error },
+    { data: columnPresets },
+    { data: columnOrder },
+    { data: viewTemplates },
+  ] = await Promise.all([
       supabase
         .from("cases")
         .select(
@@ -35,6 +40,12 @@ export default async function CasesPage() {
         .eq("profile_id", profile.id)
         .eq("table_key", "cases")
         .maybeSingle<ProfileColumnOrder>(),
+      supabase
+        .from("view_templates")
+        .select("*")
+        .eq("screen", "cases")
+        .order("display_order")
+        .returns<ViewTemplate[]>(),
     ]);
 
   return (
@@ -58,6 +69,7 @@ export default async function CasesPage() {
             isManager={profile.role === "manager"}
             currentUserId={profile.id}
             initialColumnOrder={columnOrder?.column_order ?? null}
+            viewTemplates={viewTemplates ?? []}
           />
         )}
       </main>
