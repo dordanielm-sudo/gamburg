@@ -4,14 +4,16 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { StatTile } from "@/components/ui/stat-tile";
-import { DonutChart } from "@/components/ui/donut-chart";
-import { Badge, hashTone } from "@/components/ui/badge";
+import { CaseChartsPanel, type ChartCaseRow } from "./case-charts-panel";
+import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { isCaseStuck } from "@/types/database";
 
 interface DashboardCaseRow {
   id: string;
   status: string | null;
+  case_type: string | null;
+  case_nature: string | null;
   handler_id: string | null;
   last_touched_at: string;
   flag_problematic_client: boolean;
@@ -52,7 +54,7 @@ export default async function DashboardPage() {
     supabase
       .from("cases")
       .select(
-        "id, status, handler_id, last_touched_at, flag_problematic_client, flag_non_paying, flag_transferring_documents, handler:profiles!cases_handler_id_fkey(full_name)",
+        "id, status, case_type, case_nature, handler_id, last_touched_at, flag_problematic_client, flag_non_paying, flag_transferring_documents, handler:profiles!cases_handler_id_fkey(full_name)",
       )
       .returns<DashboardCaseRow[]>(),
     supabase
@@ -97,15 +99,11 @@ export default async function DashboardPage() {
       c.flag_transferring_documents,
   ).length;
 
-  const byStatus = new Map<string, number>();
-  for (const c of rows) {
-    const key = c.status ?? "ללא סטטוס";
-    byStatus.set(key, (byStatus.get(key) ?? 0) + 1);
-  }
-  const statusSegments = [...byStatus.entries()].map(([label, value]) => ({
-    label,
-    value,
-    tone: hashTone(label),
+  const chartRows: ChartCaseRow[] = rows.map((c) => ({
+    status: c.status,
+    case_type: c.case_type,
+    case_nature: c.case_nature,
+    handler_name: c.handler?.full_name ?? null,
   }));
 
   const byHandler = new Map<
@@ -201,19 +199,9 @@ export default async function DashboardPage() {
               </Link>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
-              <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-                <h2 className="mb-4 font-semibold text-gray-900">
-                  סטטוס תיקים לפי שלב
-                </h2>
-                {statusSegments.length === 0 ? (
-                  <p className="text-sm text-gray-400">אין נתונים להצגה</p>
-                ) : (
-                  <DonutChart segments={statusSegments} />
-                )}
-              </section>
+            <CaseChartsPanel cases={chartRows} />
 
-              <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="font-semibold text-gray-900">משימות קרובות</h2>
                   <div className="flex items-center gap-2">
@@ -257,8 +245,7 @@ export default async function DashboardPage() {
                 >
                   כל המשימות
                 </Link>
-              </section>
-            </div>
+            </section>
 
             <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
               <h2 className="mb-4 font-semibold text-gray-900">
