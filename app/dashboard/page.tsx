@@ -7,7 +7,7 @@ import { StatTile } from "@/components/ui/stat-tile";
 import { CaseChartsPanel, type ChartCaseRow } from "./case-charts-panel";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { isCaseStuck } from "@/types/database";
+import { isCaseStuck, type ViewTemplate } from "@/types/database";
 
 interface DashboardCaseRow {
   id: string;
@@ -50,6 +50,7 @@ export default async function DashboardPage() {
     { count: pendingApprovalCount },
     { data: upcomingTasks },
     { data: upcomingDeadlines },
+    { data: chartTemplates },
   ] = await Promise.all([
     supabase
       .from("cases")
@@ -88,6 +89,12 @@ export default async function DashboardPage() {
       .eq("status", "open")
       .order("due_date", { ascending: true })
       .limit(6),
+    supabase
+      .from("view_templates")
+      .select("*")
+      .eq("screen", "dashboard")
+      .order("display_order")
+      .returns<ViewTemplate[]>(),
   ]);
 
   const rows = cases ?? [];
@@ -199,7 +206,12 @@ export default async function DashboardPage() {
               </Link>
             </div>
 
-            <CaseChartsPanel cases={chartRows} />
+            <CaseChartsPanel
+              cases={chartRows}
+              viewTemplates={chartTemplates ?? []}
+              isManager={profile.role === "manager"}
+              currentUserId={profile.id}
+            />
 
             <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-center justify-between">

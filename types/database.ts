@@ -214,18 +214,37 @@ export interface CaseStageChecklistEntry {
   created_at: string;
 }
 
-// תבניות סינון שמורות (migration 0030) - a manager builds a set of
-// equality conditions (on a fixed column or a specific חוצץ field) and
-// saves it by name; anyone can pick a saved template to apply it
-export type ViewFilterCondition =
-  | { source: "fixed"; field: string; value: string }
-  | { source: "case_field"; page_name: string; field_name: string; value: string };
+// תבניות סינון שמורות (migration 0031) - a manager builds a set of
+// conditions (on a fixed column or a specific חוצץ field), each allowing
+// multiple values (OR within the condition, AND across conditions), and
+// saves it by name; anyone can pick a saved template to apply it.
+// `key` encodes the field exactly like the field picker in the UI:
+// "fixed:<col>" or "case_field:<page_name>::<field_name>".
+export interface ViewFilterCondition {
+  key: string;
+  values: string[];
+}
+
+// screen === "cases": also remembers which columns are shown, in what
+// order, and the active sort - not just the filter
+export interface CasesViewConfig {
+  filters: ViewFilterCondition[];
+  columns?: string[];
+  sortKey?: string;
+  sortDir?: "asc" | "desc";
+}
+
+// screen === "dashboard": one donut slot's pre-filter + group-by field
+export interface ChartViewConfig {
+  filters: ViewFilterCondition[];
+  groupBy: string;
+}
 
 export interface ViewTemplate {
   id: string;
   screen: string;
   name: string;
-  filters: ViewFilterCondition[];
+  config: CasesViewConfig | ChartViewConfig;
   display_order: number;
   created_by: string | null;
   created_at: string;
