@@ -49,6 +49,7 @@ type ColumnKey =
   | "flags"
   | "follow_up"
   | "manager_note"
+  | "open_tasks"
   | "last_touched";
 
 const ALL_COLUMNS: ColumnKey[] = [
@@ -62,6 +63,7 @@ const ALL_COLUMNS: ColumnKey[] = [
   "flags",
   "follow_up",
   "manager_note",
+  "open_tasks",
   "last_touched",
 ];
 
@@ -76,6 +78,7 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   flags: "דגלים",
   follow_up: "מעקב",
   manager_note: "הערת מנהל",
+  open_tasks: "משימות פתוחות",
   last_touched: "נגיעה אחרונה",
 };
 
@@ -97,6 +100,7 @@ const CELL_CLASS: Record<ColumnKey, string> = {
   flags: "px-4 py-3.5",
   follow_up: "px-4 py-3.5 text-center",
   manager_note: "px-4 py-3.5",
+  open_tasks: "px-4 py-3.5 text-center",
   last_touched: "px-4 py-3.5 whitespace-nowrap",
 };
 
@@ -297,10 +301,20 @@ export function CasesTable({
       );
     }
 
+    // clicking a column header groups rows-with-a-value before empty rows
+    // (or the opposite, on the next click) rather than letting "" just
+    // fall wherever it lands in plain string comparison
     const sorted = [...list].sort((a, b) => {
-      const av = a[sortKey] ?? "";
-      const bv = b[sortKey] ?? "";
-      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      const aEmpty = av === null || av === undefined || av === "";
+      const bEmpty = bv === null || bv === undefined || bv === "";
+      if (aEmpty !== bEmpty) {
+        const emptyCmp = aEmpty ? 1 : -1;
+        return sortDir === "asc" ? emptyCmp : -emptyCmp;
+      }
+      if (aEmpty && bEmpty) return 0;
+      const cmp = av! < bv! ? -1 : av! > bv! ? 1 : 0;
       return sortDir === "asc" ? cmp : -cmp;
     });
 
@@ -529,6 +543,16 @@ export function CasesTable({
             className="w-full rounded-md border border-transparent px-2 py-1 text-sm focus:border-blue-300 focus:ring-1 focus:ring-blue-300 focus:outline-none disabled:bg-transparent"
           />
         );
+      case "open_tasks": {
+        const openCount = c.tasks.filter(
+          (t) => t.status !== "done" && t.status !== "cancelled",
+        ).length;
+        return openCount > 0 ? (
+          <Badge tone="blue">{openCount}</Badge>
+        ) : (
+          <span className="text-gray-400">0</span>
+        );
+      }
       case "last_touched":
         return (
           <div className="flex items-center gap-2">
