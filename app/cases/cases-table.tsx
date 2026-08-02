@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   formatCaseFieldValue,
@@ -158,6 +159,7 @@ export function CasesTable({
   currentUserId: string;
   initialColumnOrder: string[] | null;
 }) {
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState(cases);
   const [columnOrder, setColumnOrder] = useState<ColumnKey[]>(() =>
     sanitizeColumnOrder(initialColumnOrder),
@@ -165,10 +167,20 @@ export function CasesTable({
   const dragKeyRef = useRef<ColumnKey | null>(null);
   const [dragOverKey, setDragOverKey] = useState<ColumnKey | null>(null);
   const [search, setSearch] = useState("");
-  const [handlerFilter, setHandlerFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [natureFilter, setNatureFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
+  // initialized from the URL so dashboard donut slices/KPI tiles can link
+  // straight into a pre-filtered cases list (e.g. /cases?status=פתוח)
+  const [handlerFilter, setHandlerFilter] = useState(
+    () => searchParams.get("handler") ?? "",
+  );
+  const [statusFilter, setStatusFilter] = useState(
+    () => searchParams.get("status") ?? "",
+  );
+  const [natureFilter, setNatureFilter] = useState(
+    () => searchParams.get("case_nature") ?? "",
+  );
+  const [typeFilter, setTypeFilter] = useState(
+    () => searchParams.get("case_type") ?? "",
+  );
   const [flagFilter, setFlagFilter] = useState<"" | (typeof FLAG_DEFS)[number]["key"]>("");
   const [range, setRange] = useState<RangeKey>("all");
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
