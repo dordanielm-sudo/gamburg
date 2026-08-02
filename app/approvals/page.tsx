@@ -3,10 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { ApprovalBoard } from "./approval-board";
-import type { ApprovalRequestWithNames, Case } from "@/types/database";
+import type { ApprovalRequestWithNames, Case, ViewTemplate } from "@/types/database";
 
 const APPROVAL_SELECT =
-  "*, submitted_by_profile:profiles!approval_requests_submitted_by_fkey(id, full_name), reviewed_by_profile:profiles!approval_requests_reviewed_by_fkey(id, full_name), approved_by_profile:profiles!approval_requests_approved_by_fkey(id, full_name), case:cases!approval_requests_case_id_fkey(id, case_number, case_name)";
+  "*, submitted_by_profile:profiles!approval_requests_submitted_by_fkey(id, full_name), reviewed_by_profile:profiles!approval_requests_reviewed_by_fkey(id, full_name), approved_by_profile:profiles!approval_requests_approved_by_fkey(id, full_name), case:cases!approval_requests_case_id_fkey(id, case_number, case_name, case_type, case_nature, status, team, handler:profiles!cases_handler_id_fkey(id, full_name), case_fields(page_name, field_name, value_text, value_date, value_number))";
 
 export default async function ApprovalsPage() {
   const profile = await getCurrentProfile();
@@ -14,11 +14,19 @@ export default async function ApprovalsPage() {
 
   const supabase = await createClient();
 
-  const { data: requests, error } = await supabase
-    .from("approval_requests")
-    .select(APPROVAL_SELECT)
-    .order("created_at", { ascending: false })
-    .returns<ApprovalRequestWithNames[]>();
+  const [{ data: requests, error }, { data: viewTemplates }] = await Promise.all([
+    supabase
+      .from("approval_requests")
+      .select(APPROVAL_SELECT)
+      .order("created_at", { ascending: false })
+      .returns<ApprovalRequestWithNames[]>(),
+    supabase
+      .from("view_templates")
+      .select("*")
+      .eq("screen", "approvals")
+      .order("display_order")
+      .returns<ViewTemplate[]>(),
+  ]);
 
   const canCreate = profile.role !== "secretary";
   let cases: Pick<Case, "id" | "case_number" | "case_name">[] = [];
@@ -55,6 +63,7 @@ export default async function ApprovalsPage() {
             cases={cases}
             currentUserId={profile.id}
             currentUserFullName={profile.full_name}
+            viewTemplates={viewTemplates ?? []}
           />
         )}
       </main>

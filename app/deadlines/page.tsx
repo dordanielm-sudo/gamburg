@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { DeadlinesBoard } from "./deadlines-board";
-import type { CaseDeadlineWithCase, Case } from "@/types/database";
+import type { CaseDeadlineWithCase, Case, ViewTemplate } from "@/types/database";
 
 const DEADLINE_SELECT =
   "*, case:cases!case_deadlines_case_id_fkey(id, case_number, case_name, handler:profiles!cases_handler_id_fkey(id, full_name))";
@@ -14,11 +14,19 @@ export default async function DeadlinesPage() {
 
   const supabase = await createClient();
 
-  const { data: deadlines, error } = await supabase
-    .from("case_deadlines")
-    .select(DEADLINE_SELECT)
-    .order("due_date", { ascending: true })
-    .returns<CaseDeadlineWithCase[]>();
+  const [{ data: deadlines, error }, { data: viewTemplates }] = await Promise.all([
+    supabase
+      .from("case_deadlines")
+      .select(DEADLINE_SELECT)
+      .order("due_date", { ascending: true })
+      .returns<CaseDeadlineWithCase[]>(),
+    supabase
+      .from("view_templates")
+      .select("*")
+      .eq("screen", "deadlines")
+      .order("display_order")
+      .returns<ViewTemplate[]>(),
+  ]);
 
   // handlers can only add deadlines to cases they handle; manager to any case
   let cases: Pick<Case, "id" | "case_number" | "case_name">[] = [];
@@ -52,6 +60,9 @@ export default async function DeadlinesPage() {
             deadlines={deadlines ?? []}
             canCreate={profile.role !== "secretary"}
             cases={cases}
+            viewTemplates={viewTemplates ?? []}
+            isManager={profile.role === "manager"}
+            currentUserId={profile.id}
           />
         )}
       </main>

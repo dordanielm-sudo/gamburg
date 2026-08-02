@@ -9,6 +9,8 @@ import {
   type CaseDeadlineWithCase,
   type Case,
   type TaskStatus,
+  type ViewFilterCondition,
+  type ViewTemplate,
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
@@ -16,6 +18,32 @@ import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/da
 import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
+import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
+
+const DEADLINE_FIELD_OPTIONS = [
+  { key: "label", label: "נושא" },
+  { key: "status", label: "סטטוס" },
+  { key: "handler", label: "מטפל" },
+  { key: "client_updated", label: "לקוח מעודכן" },
+  { key: "preparation_done", label: "הכנה בוצעה" },
+];
+
+function getDeadlineValue(d: CaseDeadlineWithCase, key: string): string | null {
+  switch (key) {
+    case "label":
+      return d.label;
+    case "status":
+      return d.status === "done" ? "בוצע" : "פתוח";
+    case "handler":
+      return d.case?.handler?.full_name ?? null;
+    case "client_updated":
+      return d.client_updated ? "כן" : "לא";
+    case "preparation_done":
+      return d.preparation_done ? "כן" : "לא";
+    default:
+      return null;
+  }
+}
 
 const URGENCY_TONE: Record<string, Tone> = {
   overdue: "rose",
@@ -45,10 +73,16 @@ export function DeadlinesBoard({
   deadlines,
   canCreate,
   cases,
+  viewTemplates,
+  isManager,
+  currentUserId,
 }: {
   deadlines: CaseDeadlineWithCase[];
   canCreate: boolean;
   cases: Pick<Case, "id" | "case_number" | "case_name">[];
+  viewTemplates: ViewTemplate[];
+  isManager: boolean;
+  currentUserId: string;
 }) {
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
@@ -66,6 +100,13 @@ export function DeadlinesBoard({
   const [createCaseId, setCreateCaseId] = useState("");
   const [createCaseText, setCreateCaseText] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
+
+  // סינון מתקדם + תבניות שמורות (screen="deadlines")
+  const [templates, setTemplates] = useState(viewTemplates);
+  const [advancedFilters, setAdvancedFilters] = useState<ViewFilterCondition[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   const labelOptions = useMemo(
     () =>
@@ -96,7 +137,52 @@ export function DeadlinesBoard({
   }, [rows]);
 
   const hasActiveFilters =
-    !!caseFilter || !!handlerFilter || !!labelFilter || !!calendarDate;
+    !!caseFilter ||
+    !!handlerFilter ||
+    !!labelFilter ||
+    !!calendarDate ||
+    advancedFilters.length > 0;
+
+  function applyTemplate(id: string) {
+    const template = templates.find((t) => t.id === id);
+    if (template) setAdvancedFilters(template.config.filters ?? []);
+  }
+
+  async function saveTemplate() {
+    setTemplateError(null);
+    if (!templateName.trim()) {
+      setTemplateError("יש לתת שם לתבנית");
+      return;
+    }
+    if (advancedFilters.length === 0) {
+      setTemplateError("יש להוסיף לפחות תנאי סינון אחד");
+      return;
+    }
+    const nextOrder =
+      templates.length > 0 ? Math.max(...templates.map((t) => t.display_order)) + 1 : 0;
+    const { data, error } = await supabase
+      .from("view_templates")
+      .insert({
+        screen: "deadlines",
+        name: templateName.trim(),
+        config: { filters: advancedFilters },
+        display_order: nextOrder,
+        created_by: currentUserId,
+      })
+      .select()
+      .single<ViewTemplate>();
+    if (error || !data) {
+      setTemplateError("שגיאה בשמירת התבנית");
+      return;
+    }
+    setTemplates((prev) => [...prev, data]);
+    setTemplateName("");
+  }
+
+  async function deleteTemplate(id: string) {
+    const { error } = await supabase.from("view_templates").delete().eq("id", id);
+    if (!error) setTemplates((prev) => prev.filter((t) => t.id !== id));
+  }
 
   const caseFilterOption = caseOptions.find((c) => c.id === caseFilter);
   const caseFilterText = caseFilterOption
@@ -120,6 +206,9 @@ export function DeadlinesBoard({
       if (caseFilter && d.case?.id !== caseFilter) return false;
       if (handlerFilter && d.case?.handler?.id !== handlerFilter) return false;
       if (labelFilter && d.label !== labelFilter) return false;
+      if (advancedFilters.length > 0 && !matchesConditions(d, advancedFilters, getDeadlineValue)) {
+        return false;
+      }
       if (!showDone && d.status === "done") return false;
       if (start === null && end === null) return true;
       const due = new Date(d.due_date + "T00:00:00");
@@ -130,7 +219,7 @@ export function DeadlinesBoard({
       if (end && due > end) return false;
       return true;
     });
-  }, [rows, range, calendarDate, showDone, caseFilter, handlerFilter, labelFilter]);
+  }, [rows, range, calendarDate, showDone, caseFilter, handlerFilter, labelFilter, advancedFilters]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -394,6 +483,30 @@ export function DeadlinesBoard({
                 </option>
               ))}
             </select>
+            {templates.length > 0 && (
+              <select
+                value=""
+                onChange={(e) => e.target.value && applyTemplate(e.target.value)}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              >
+                <option value="">תבנית שמורה...</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={() => setShowAdvanced((v) => !v)}
+              className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                advancedFilters.length > 0
+                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                  : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              סינון מתקדם{advancedFilters.length > 0 ? ` (${advancedFilters.length})` : ""}
+            </button>
             {hasActiveFilters && (
               <button
                 onClick={() => {
@@ -401,6 +514,7 @@ export function DeadlinesBoard({
                   setHandlerFilter("");
                   setLabelFilter("");
                   setCalendarDate(null);
+                  setAdvancedFilters([]);
                 }}
                 className="text-sm text-gray-500 underline hover:text-gray-900"
               >
@@ -418,6 +532,49 @@ export function DeadlinesBoard({
             </label>
           </div>
         </div>
+
+        {showAdvanced && (
+          <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+            <FilterBuilder
+              items={rows}
+              fieldOptions={DEADLINE_FIELD_OPTIONS}
+              getValue={getDeadlineValue}
+              conditions={advancedFilters}
+              onConditionsChange={setAdvancedFilters}
+            />
+            {isManager && (
+              <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-indigo-100 pt-3">
+                <input
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="שם תבנית..."
+                  className="min-w-[200px] flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                />
+                <button
+                  onClick={saveTemplate}
+                  className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-900"
+                >
+                  שמירה כתבנית
+                </button>
+                {templates.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => e.target.value && deleteTemplate(e.target.value)}
+                    className="rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-500 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">מחיקת תבנית...</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
+            {templateError && <p className="mt-2 text-xs text-red-700">{templateError}</p>}
+          </div>
+        )}
 
         {filtered.length === 0 ? (
           <p className="py-6 text-center text-sm text-gray-400">
