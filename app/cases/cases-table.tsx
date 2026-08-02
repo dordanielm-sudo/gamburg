@@ -9,6 +9,7 @@ import {
   isCaseStuck,
   type CaseTypeColumnPreset,
   type CaseWithRelations,
+  type CasesViewConfig,
   type ViewFilterCondition,
   type ViewTemplate,
 } from "@/types/database";
@@ -17,6 +18,7 @@ import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/da
 import { Badge, hashTone, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
+import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
 
 type SortKey = "case_number" | "case_name" | "opened_date" | "last_touched_at";
 
@@ -210,13 +212,12 @@ export function CasesTable({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncStatus>>({});
 
-  // סינון מתקדם + תבניות שמורות (migration 0030) - equality conditions on
-  // either a fixed column or a specific חוצץ field, ANDed together
+  // סינון מתקדם + תבניות שמורות (migration 0031) - conditions on either a
+  // fixed column or a specific חוצץ field, each allowing multiple values
+  // (OR within a condition, AND across conditions)
   const [templates, setTemplates] = useState(viewTemplates);
   const [advancedFilters, setAdvancedFilters] = useState<ViewFilterCondition[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [pickerFieldKey, setPickerFieldKey] = useState("");
-  const [pickerValue, setPickerValue] = useState("");
   const [templateName, setTemplateName] = useState("");
   const [templateError, setTemplateError] = useState<string | null>(null);
 
@@ -299,7 +300,7 @@ export function CasesTable({
     [caseFieldKeys],
   );
 
-  function valueForKey(c: CaseWithRelations, pickerKey: string): string | null {
+  const valueForKey = useCallback((c: CaseWithRelations, pickerKey: string): string | null => {
     if (pickerKey.startsWith("fixed:")) {
       const key = pickerKey.slice("fixed:".length);
       const def = FIXED_FIELD_DEFS.find((d) => d.key === key);
@@ -313,54 +314,16 @@ export function CasesTable({
       return match ? formatCaseFieldValue(match) : null;
     }
     return null;
-  }
-
-  const pickerValueOptions = useMemo(
-    () => (pickerFieldKey ? uniqueSorted(rows.map((c) => valueForKey(c, pickerFieldKey))) : []),
-    [rows, pickerFieldKey],
-  );
-
-  function conditionFromPicker(pickerKey: string, value: string): ViewFilterCondition | null {
-    if (pickerKey.startsWith("fixed:")) {
-      return { source: "fixed", field: pickerKey.slice("fixed:".length), value };
-    }
-    if (pickerKey.startsWith("case_field:")) {
-      const [pageName, fieldName] = pickerKey.slice("case_field:".length).split("::");
-      return { source: "case_field", page_name: pageName, field_name: fieldName, value };
-    }
-    return null;
-  }
-
-  function conditionLabel(cond: ViewFilterCondition): string {
-    if (cond.source === "fixed") {
-      const def = FIXED_FIELD_DEFS.find((d) => d.key === cond.field);
-      return `${def?.label ?? cond.field}: ${cond.value}`;
-    }
-    return `${cond.page_name} / ${cond.field_name}: ${cond.value}`;
-  }
-
-  const caseMatchesCondition = useCallback((c: CaseWithRelations, cond: ViewFilterCondition): boolean => {
-    if (cond.source === "fixed") {
-      return valueForKey(c, `fixed:${cond.field}`) === cond.value;
-    }
-    return valueForKey(c, `case_field:${cond.page_name}::${cond.field_name}`) === cond.value;
   }, []);
-
-  function addAdvancedFilter() {
-    if (!pickerFieldKey || !pickerValue) return;
-    const cond = conditionFromPicker(pickerFieldKey, pickerValue);
-    if (!cond) return;
-    setAdvancedFilters((prev) => [...prev, cond]);
-    setPickerValue("");
-  }
-
-  function removeAdvancedFilter(index: number) {
-    setAdvancedFilters((prev) => prev.filter((_, i) => i !== index));
-  }
 
   function applyTemplate(id: string) {
     const template = templates.find((t) => t.id === id);
-    if (template) setAdvancedFilters(template.filters);
+    if (!template) return;
+    const config = template.config as CasesViewConfig;
+    setAdvancedFilters(config.filters ?? []);
+    if (config.columns) setColumnOrder(sanitizeColumnOrder(config.columns));
+    if (config.sortKey) setSortKey(config.sortKey as SortKey);
+    if (config.sortDir) setSortDir(config.sortDir);
   }
 
   async function saveTemplate() {
@@ -375,12 +338,18 @@ export function CasesTable({
     }
     const nextOrder =
       templates.length > 0 ? Math.max(...templates.map((t) => t.display_order)) + 1 : 0;
+    const config: CasesViewConfig = {
+      filters: advancedFilters,
+      columns: columnOrder,
+      sortKey,
+      sortDir,
+    };
     const { data, error } = await supabase
       .from("view_templates")
       .insert({
         screen: "cases",
         name: templateName.trim(),
-        filters: advancedFilters,
+        config,
         display_order: nextOrder,
         created_by: currentUserId,
       })
@@ -436,9 +405,7 @@ export function CasesTable({
       list = list.filter((c) => c[flagFilter]);
     }
     if (advancedFilters.length > 0) {
-      list = list.filter((c) =>
-        advancedFilters.every((cond) => caseMatchesCondition(c, cond)),
-      );
+      list = list.filter((c) => matchesConditions(c, advancedFilters, valueForKey));
     }
 
     // date range/calendar filter mixes deadlines and tasks: a case matches
@@ -492,7 +459,7 @@ export function CasesTable({
     typeFilter,
     flagFilter,
     advancedFilters,
-    caseMatchesCondition,
+    valueForKey,
     range,
     calendarDate,
     sortKey,
@@ -908,68 +875,13 @@ export function CasesTable({
 
       {showAdvanced && (
         <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
-          {advancedFilters.length > 0 && (
-            <ul className="mb-3 flex flex-wrap gap-2">
-              {advancedFilters.map((cond, i) => (
-                <li
-                  key={i}
-                  className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm"
-                >
-                  {conditionLabel(cond)}
-                  <button
-                    onClick={() => removeAdvancedFilter(i)}
-                    className="text-gray-400 hover:text-rose-600"
-                  >
-                    ✕
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[180px]">
-              <label className="mb-1 block text-xs text-gray-500">שדה</label>
-              <select
-                value={pickerFieldKey}
-                onChange={(e) => {
-                  setPickerFieldKey(e.target.value);
-                  setPickerValue("");
-                }}
-                className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-              >
-                <option value="">בחר שדה...</option>
-                {advancedFieldOptions.map((f) => (
-                  <option key={f.key} value={f.key}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="min-w-[180px]">
-              <label className="mb-1 block text-xs text-gray-500">ערך</label>
-              <select
-                value={pickerValue}
-                onChange={(e) => setPickerValue(e.target.value)}
-                disabled={!pickerFieldKey}
-                className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-100"
-              >
-                <option value="">בחר ערך...</option>
-                {pickerValueOptions.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              onClick={addAdvancedFilter}
-              disabled={!pickerFieldKey || !pickerValue}
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              הוספת תנאי
-            </button>
-          </div>
+          <FilterBuilder
+            items={rows}
+            fieldOptions={advancedFieldOptions}
+            getValue={valueForKey}
+            conditions={advancedFilters}
+            onConditionsChange={setAdvancedFilters}
+          />
 
           {isManager && (
             <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-indigo-100 pt-3">
