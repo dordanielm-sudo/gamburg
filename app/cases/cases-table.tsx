@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -9,6 +9,8 @@ import {
   isCaseStuck,
   type CaseTypeColumnPreset,
   type CaseWithRelations,
+  type ViewFilterCondition,
+  type ViewTemplate,
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
@@ -35,6 +37,20 @@ const FLAG_DEFS = [
   { key: "flag_non_paying", label: "לא משלם" },
   { key: "flag_transferring_documents", label: "מעביר מסמכים" },
 ] as const;
+
+// סינון מתקדם: the fixed-column half of the field picker (the other half
+// is built dynamically from whatever חוצץ fields exist on the loaded cases)
+const FIXED_FIELD_DEFS: {
+  key: string;
+  label: string;
+  getValue: (c: CaseWithRelations) => string | null;
+}[] = [
+  { key: "status", label: "סטטוס", getValue: (c) => c.status },
+  { key: "case_type", label: "סוג תיק", getValue: (c) => c.case_type },
+  { key: "case_nature", label: "מהות תיק", getValue: (c) => c.case_nature },
+  { key: "team", label: "צוות", getValue: (c) => c.team },
+  { key: "handler", label: "מטפל", getValue: (c) => c.handler?.full_name ?? null },
+];
 
 // the fixed columns are drag-reorderable (per-user, persisted); the leading
 // accent strip and the per-case-type dynamic columns are not part of this -
@@ -151,6 +167,7 @@ export function CasesTable({
   isManager,
   currentUserId,
   initialColumnOrder,
+  viewTemplates,
 }: {
   cases: CaseWithRelations[];
   canEdit: boolean;
@@ -158,6 +175,7 @@ export function CasesTable({
   isManager: boolean;
   currentUserId: string;
   initialColumnOrder: string[] | null;
+  viewTemplates: ViewTemplate[];
 }) {
   const searchParams = useSearchParams();
   const [rows, setRows] = useState(cases);
@@ -191,6 +209,16 @@ export function CasesTable({
   const [sortKey, setSortKey] = useState<SortKey>("last_touched_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncStatus>>({});
+
+  // סינון מתקדם + תבניות שמורות (migration 0030) - equality conditions on
+  // either a fixed column or a specific חוצץ field, ANDed together
+  const [templates, setTemplates] = useState(viewTemplates);
+  const [advancedFilters, setAdvancedFilters] = useState<ViewFilterCondition[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [pickerFieldKey, setPickerFieldKey] = useState("");
+  const [pickerValue, setPickerValue] = useState("");
+  const [templateName, setTemplateName] = useState("");
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -252,6 +280,125 @@ export function CasesTable({
     });
   }
 
+  const caseFieldKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of rows) {
+      for (const f of c.case_fields) set.add(`${f.page_name}::${f.field_name}`);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "he"));
+  }, [rows]);
+
+  const advancedFieldOptions = useMemo(
+    () => [
+      ...FIXED_FIELD_DEFS.map((d) => ({ key: `fixed:${d.key}`, label: d.label })),
+      ...caseFieldKeys.map((k) => {
+        const [pageName, fieldName] = k.split("::");
+        return { key: `case_field:${k}`, label: `${pageName} / ${fieldName}` };
+      }),
+    ],
+    [caseFieldKeys],
+  );
+
+  function valueForKey(c: CaseWithRelations, pickerKey: string): string | null {
+    if (pickerKey.startsWith("fixed:")) {
+      const key = pickerKey.slice("fixed:".length);
+      const def = FIXED_FIELD_DEFS.find((d) => d.key === key);
+      return def ? def.getValue(c) : null;
+    }
+    if (pickerKey.startsWith("case_field:")) {
+      const [pageName, fieldName] = pickerKey.slice("case_field:".length).split("::");
+      const match = c.case_fields.find(
+        (f) => f.page_name === pageName && f.field_name === fieldName,
+      );
+      return match ? formatCaseFieldValue(match) : null;
+    }
+    return null;
+  }
+
+  const pickerValueOptions = useMemo(
+    () => (pickerFieldKey ? uniqueSorted(rows.map((c) => valueForKey(c, pickerFieldKey))) : []),
+    [rows, pickerFieldKey],
+  );
+
+  function conditionFromPicker(pickerKey: string, value: string): ViewFilterCondition | null {
+    if (pickerKey.startsWith("fixed:")) {
+      return { source: "fixed", field: pickerKey.slice("fixed:".length), value };
+    }
+    if (pickerKey.startsWith("case_field:")) {
+      const [pageName, fieldName] = pickerKey.slice("case_field:".length).split("::");
+      return { source: "case_field", page_name: pageName, field_name: fieldName, value };
+    }
+    return null;
+  }
+
+  function conditionLabel(cond: ViewFilterCondition): string {
+    if (cond.source === "fixed") {
+      const def = FIXED_FIELD_DEFS.find((d) => d.key === cond.field);
+      return `${def?.label ?? cond.field}: ${cond.value}`;
+    }
+    return `${cond.page_name} / ${cond.field_name}: ${cond.value}`;
+  }
+
+  const caseMatchesCondition = useCallback((c: CaseWithRelations, cond: ViewFilterCondition): boolean => {
+    if (cond.source === "fixed") {
+      return valueForKey(c, `fixed:${cond.field}`) === cond.value;
+    }
+    return valueForKey(c, `case_field:${cond.page_name}::${cond.field_name}`) === cond.value;
+  }, []);
+
+  function addAdvancedFilter() {
+    if (!pickerFieldKey || !pickerValue) return;
+    const cond = conditionFromPicker(pickerFieldKey, pickerValue);
+    if (!cond) return;
+    setAdvancedFilters((prev) => [...prev, cond]);
+    setPickerValue("");
+  }
+
+  function removeAdvancedFilter(index: number) {
+    setAdvancedFilters((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function applyTemplate(id: string) {
+    const template = templates.find((t) => t.id === id);
+    if (template) setAdvancedFilters(template.filters);
+  }
+
+  async function saveTemplate() {
+    setTemplateError(null);
+    if (!templateName.trim()) {
+      setTemplateError("יש לתת שם לתבנית");
+      return;
+    }
+    if (advancedFilters.length === 0) {
+      setTemplateError("יש להוסיף לפחות תנאי סינון אחד");
+      return;
+    }
+    const nextOrder =
+      templates.length > 0 ? Math.max(...templates.map((t) => t.display_order)) + 1 : 0;
+    const { data, error } = await supabase
+      .from("view_templates")
+      .insert({
+        screen: "cases",
+        name: templateName.trim(),
+        filters: advancedFilters,
+        display_order: nextOrder,
+        created_by: currentUserId,
+      })
+      .select()
+      .single<ViewTemplate>();
+    if (error || !data) {
+      setTemplateError("שגיאה בשמירת התבנית");
+      return;
+    }
+    setTemplates((prev) => [...prev, data]);
+    setTemplateName("");
+  }
+
+  async function deleteTemplate(id: string) {
+    const { error } = await supabase.from("view_templates").delete().eq("id", id);
+    if (!error) setTemplates((prev) => prev.filter((t) => t.id !== id));
+  }
+
   // days that have an open deadline/task somewhere, for the calendar's dot
   // markers - across all cases, not just the currently filtered ones
   const markedDates = useMemo(() => {
@@ -287,6 +434,11 @@ export function CasesTable({
     }
     if (flagFilter) {
       list = list.filter((c) => c[flagFilter]);
+    }
+    if (advancedFilters.length > 0) {
+      list = list.filter((c) =>
+        advancedFilters.every((cond) => caseMatchesCondition(c, cond)),
+      );
     }
 
     // date range/calendar filter mixes deadlines and tasks: a case matches
@@ -339,6 +491,8 @@ export function CasesTable({
     natureFilter,
     typeFilter,
     flagFilter,
+    advancedFilters,
+    caseMatchesCondition,
     range,
     calendarDate,
     sortKey,
@@ -448,6 +602,7 @@ export function CasesTable({
     !!natureFilter ||
     !!typeFilter ||
     !!flagFilter ||
+    advancedFilters.length > 0 ||
     range !== "all" ||
     !!calendarDate ||
     !!tabFilter;
@@ -459,6 +614,7 @@ export function CasesTable({
     setNatureFilter("");
     setTypeFilter("");
     setFlagFilter("");
+    setAdvancedFilters([]);
     setRange("all");
     setCalendarDate(null);
     setTabFilter("");
@@ -687,6 +843,30 @@ export function CasesTable({
             onToggle={toggleFieldName}
           />
         )}
+        {templates.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => e.target.value && applyTemplate(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="">תבנית שמורה...</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          onClick={() => setShowAdvanced((v) => !v)}
+          className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+            advancedFilters.length > 0
+              ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+              : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          סינון מתקדם{advancedFilters.length > 0 ? ` (${advancedFilters.length})` : ""}
+        </button>
         {isManager && (
           <Link
             href="/dashboard/case-columns"
@@ -725,6 +905,112 @@ export function CasesTable({
           <Badge tone="indigo">{filtered.length} תיקים</Badge>
         </span>
       </div>
+
+      {showAdvanced && (
+        <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+          {advancedFilters.length > 0 && (
+            <ul className="mb-3 flex flex-wrap gap-2">
+              {advancedFilters.map((cond, i) => (
+                <li
+                  key={i}
+                  className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm"
+                >
+                  {conditionLabel(cond)}
+                  <button
+                    onClick={() => removeAdvancedFilter(i)}
+                    className="text-gray-400 hover:text-rose-600"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[180px]">
+              <label className="mb-1 block text-xs text-gray-500">שדה</label>
+              <select
+                value={pickerFieldKey}
+                onChange={(e) => {
+                  setPickerFieldKey(e.target.value);
+                  setPickerValue("");
+                }}
+                className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+              >
+                <option value="">בחר שדה...</option>
+                {advancedFieldOptions.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="min-w-[180px]">
+              <label className="mb-1 block text-xs text-gray-500">ערך</label>
+              <select
+                value={pickerValue}
+                onChange={(e) => setPickerValue(e.target.value)}
+                disabled={!pickerFieldKey}
+                className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-100"
+              >
+                <option value="">בחר ערך...</option>
+                {pickerValueOptions.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={addAdvancedFilter}
+              disabled={!pickerFieldKey || !pickerValue}
+              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              הוספת תנאי
+            </button>
+          </div>
+
+          {isManager && (
+            <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-indigo-100 pt-3">
+              <div className="min-w-[200px] flex-1">
+                <label className="mb-1 block text-xs text-gray-500">
+                  שם תבנית
+                </label>
+                <input
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="למשל: תיקים תקועים בחדל&quot;פ"
+                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <button
+                onClick={saveTemplate}
+                className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-900"
+              >
+                שמירה כתבנית
+              </button>
+              {templates.length > 0 && (
+                <select
+                  value=""
+                  onChange={(e) => e.target.value && deleteTemplate(e.target.value)}
+                  className="rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-500 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="">מחיקת תבנית...</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+          {templateError && (
+            <p className="mt-2 text-xs text-red-700">{templateError}</p>
+          )}
+        </div>
+      )}
 
       <p className="mb-1.5 text-xs text-gray-400">
         ניתן לגרור את כותרות העמודות כדי לשנות את סדר התצוגה

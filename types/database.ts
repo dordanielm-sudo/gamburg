@@ -214,6 +214,23 @@ export interface CaseStageChecklistEntry {
   created_at: string;
 }
 
+// תבניות סינון שמורות (migration 0030) - a manager builds a set of
+// equality conditions (on a fixed column or a specific חוצץ field) and
+// saves it by name; anyone can pick a saved template to apply it
+export type ViewFilterCondition =
+  | { source: "fixed"; field: string; value: string }
+  | { source: "case_field"; page_name: string; field_name: string; value: string };
+
+export interface ViewTemplate {
+  id: string;
+  screen: string;
+  name: string;
+  filters: ViewFilterCondition[];
+  display_order: number;
+  created_by: string | null;
+  created_at: string;
+}
+
 // per-user drag-reordered column order for a given table (migration 0026) -
 // self-served, unlike CaseTypeColumnPreset which a manager configures
 export interface ProfileColumnOrder {
