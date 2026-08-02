@@ -1,14 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { ApprovalRequestWithNames, ApprovalStatus, Case } from "@/types/database";
+import type {
+  ApprovalRequestWithNames,
+  ApprovalStatus,
+  Case,
+  ViewFilterCondition,
+  ViewTemplate,
+} from "@/types/database";
+import { formatCaseFieldValue } from "@/types/database";
 import { CaseCombobox } from "@/components/case-combobox";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { ApprovalFlow } from "@/components/ui/approval-flow";
+import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
 
 const STATUS_LABELS: Record<ApprovalStatus, string> = {
   pending_review: "ממתין לבדיקת עו״ד",
@@ -16,6 +24,22 @@ const STATUS_LABELS: Record<ApprovalStatus, string> = {
   approved: "אושר",
   rejected: "נדחה",
 };
+
+// own fields (request_type/status) + fixed case fields; חוצצים (case_field)
+// are added dynamically once we know what's actually synced on these cases
+const FIXED_APPROVAL_FIELDS: {
+  key: string;
+  label: string;
+  getValue: (r: ApprovalRequestWithNames) => string | null;
+}[] = [
+  { key: "request_type", label: "סוג בקשה", getValue: (r) => r.request_type },
+  { key: "approval_status", label: "סטטוס בקשה", getValue: (r) => STATUS_LABELS[r.status] ?? r.status },
+  { key: "case_type", label: "סוג תיק", getValue: (r) => r.case?.case_type ?? null },
+  { key: "case_nature", label: "מהות תיק", getValue: (r) => r.case?.case_nature ?? null },
+  { key: "case_status", label: "סטטוס תיק", getValue: (r) => r.case?.status ?? null },
+  { key: "team", label: "צוות", getValue: (r) => r.case?.team ?? null },
+  { key: "handler", label: "מטפל", getValue: (r) => r.case?.handler?.full_name ?? null },
+];
 
 const STATUS_TONE: Record<ApprovalStatus, Tone> = {
   pending_review: "amber",
@@ -38,6 +62,7 @@ export function ApprovalBoard({
   cases,
   currentUserId,
   currentUserFullName,
+  viewTemplates,
 }: {
   requests: ApprovalRequestWithNames[];
   canCreate: boolean;
@@ -45,6 +70,7 @@ export function ApprovalBoard({
   cases: Pick<Case, "id" | "case_number" | "case_name">[];
   currentUserId: string;
   currentUserFullName: string;
+  viewTemplates: ViewTemplate[];
 }) {
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
@@ -53,20 +79,112 @@ export function ApprovalBoard({
     () => (searchParams.get("status") === "pending" ? "pending" : ""),
   );
   const [creating, setCreating] = useState(false);
+
+  // סינון מתקדם + תבניות שמורות (screen="approvals") - fields on the
+  // request itself, on its case, or on any חוצץ field synced to that case
+  const [templates, setTemplates] = useState(viewTemplates);
+  const [advancedFilters, setAdvancedFilters] = useState<ViewFilterCondition[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateError, setTemplateError] = useState<string | null>(null);
+
+  const caseFieldKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      for (const f of r.case?.case_fields ?? []) set.add(`${f.page_name}::${f.field_name}`);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "he"));
+  }, [rows]);
+
+  const advancedFieldOptions = useMemo(
+    () => [
+      ...FIXED_APPROVAL_FIELDS.map((d) => ({ key: `fixed:${d.key}`, label: d.label })),
+      ...caseFieldKeys.map((k) => {
+        const [pageName, fieldName] = k.split("::");
+        return { key: `case_field:${k}`, label: `${pageName} / ${fieldName}` };
+      }),
+    ],
+    [caseFieldKeys],
+  );
+
+  const getApprovalValue = useCallback(
+    (r: ApprovalRequestWithNames, pickerKey: string): string | null => {
+      if (pickerKey.startsWith("fixed:")) {
+        const key = pickerKey.slice("fixed:".length);
+        const def = FIXED_APPROVAL_FIELDS.find((d) => d.key === key);
+        return def ? def.getValue(r) : null;
+      }
+      if (pickerKey.startsWith("case_field:")) {
+        const [pageName, fieldName] = pickerKey.slice("case_field:".length).split("::");
+        const match = r.case?.case_fields?.find(
+          (f) => f.page_name === pageName && f.field_name === fieldName,
+        );
+        return match ? formatCaseFieldValue(match) : null;
+      }
+      return null;
+    },
+    [],
+  );
+
+  function applyTemplate(id: string) {
+    const template = templates.find((t) => t.id === id);
+    if (template) setAdvancedFilters(template.config.filters ?? []);
+  }
+
+  async function saveTemplate() {
+    setTemplateError(null);
+    if (!templateName.trim()) {
+      setTemplateError("יש לתת שם לתבנית");
+      return;
+    }
+    if (advancedFilters.length === 0) {
+      setTemplateError("יש להוסיף לפחות תנאי סינון אחד");
+      return;
+    }
+    const nextOrder =
+      templates.length > 0 ? Math.max(...templates.map((t) => t.display_order)) + 1 : 0;
+    const { data, error } = await supabase
+      .from("view_templates")
+      .insert({
+        screen: "approvals",
+        name: templateName.trim(),
+        config: { filters: advancedFilters },
+        display_order: nextOrder,
+        created_by: currentUserId,
+      })
+      .select()
+      .single<ViewTemplate>();
+    if (error || !data) {
+      setTemplateError("שגיאה בשמירת התבנית");
+      return;
+    }
+    setTemplates((prev) => [...prev, data]);
+    setTemplateName("");
+  }
+
+  async function deleteTemplate(id: string) {
+    const { error } = await supabase.from("view_templates").delete().eq("id", id);
+    if (!error) setTemplates((prev) => prev.filter((t) => t.id !== id));
+  }
   const [formError, setFormError] = useState<string | null>(null);
   const [createCaseId, setCreateCaseId] = useState("");
   const [createCaseText, setCreateCaseText] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
-    if (!statusFilter) return rows;
+    let list = rows;
     if (statusFilter === "pending") {
-      return rows.filter(
+      list = list.filter(
         (r) => r.status === "pending_review" || r.status === "pending_approval",
       );
+    } else if (statusFilter) {
+      list = list.filter((r) => r.status === statusFilter);
     }
-    return rows.filter((r) => r.status === statusFilter);
-  }, [rows, statusFilter]);
+    if (advancedFilters.length > 0) {
+      list = list.filter((r) => matchesConditions(r, advancedFilters, getApprovalValue));
+    }
+    return list;
+  }, [rows, statusFilter, advancedFilters, getApprovalValue]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -238,10 +356,88 @@ export function ApprovalBoard({
             </option>
           ))}
         </select>
+        {templates.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => e.target.value && applyTemplate(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="">תבנית שמורה...</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          onClick={() => setShowAdvanced((v) => !v)}
+          className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+            advancedFilters.length > 0
+              ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+              : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          סינון מתקדם{advancedFilters.length > 0 ? ` (${advancedFilters.length})` : ""}
+        </button>
+        {(advancedFilters.length > 0 || statusFilter) && (
+          <button
+            onClick={() => {
+              setStatusFilter("");
+              setAdvancedFilters([]);
+            }}
+            className="text-sm text-gray-500 underline hover:text-gray-900"
+          >
+            נקה סינון
+          </button>
+        )}
         <span className="mr-auto">
           <Badge tone="indigo">{filtered.length} בקשות</Badge>
         </span>
       </div>
+
+      {showAdvanced && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+          <FilterBuilder
+            items={rows}
+            fieldOptions={advancedFieldOptions}
+            getValue={getApprovalValue}
+            conditions={advancedFilters}
+            onConditionsChange={setAdvancedFilters}
+          />
+          {isManager && (
+            <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-indigo-100 pt-3">
+              <input
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="שם תבנית..."
+                className="min-w-[200px] flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                onClick={saveTemplate}
+                className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-900"
+              >
+                שמירה כתבנית
+              </button>
+              {templates.length > 0 && (
+                <select
+                  value=""
+                  onChange={(e) => e.target.value && deleteTemplate(e.target.value)}
+                  className="rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-500 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="">מחיקת תבנית...</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+          {templateError && <p className="mt-2 text-xs text-red-700">{templateError}</p>}
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <p className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-400 shadow-sm">

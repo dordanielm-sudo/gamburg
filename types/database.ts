@@ -294,7 +294,19 @@ export interface ApprovalRequestWithNames extends ApprovalRequest {
   submitted_by_profile: Pick<Profile, "id" | "full_name"> | null;
   reviewed_by_profile: Pick<Profile, "id" | "full_name"> | null;
   approved_by_profile: Pick<Profile, "id" | "full_name"> | null;
-  case: Pick<Case, "id" | "case_number" | "case_name"> | null;
+  // the extra case_type/case_nature/status/team/handler/case_fields are
+  // optional - only fetched on the /approvals board (for its advanced
+  // filter), not on the case-detail page's approvals panel
+  case:
+    | (Pick<Case, "id" | "case_number" | "case_name"> &
+        Partial<Pick<Case, "case_type" | "case_nature" | "status" | "team">> & {
+          handler?: Pick<Profile, "id" | "full_name"> | null;
+          case_fields?: Pick<
+            CaseField,
+            "page_name" | "field_name" | "value_text" | "value_date" | "value_number"
+          >[];
+        })
+    | null;
 }
 
 export interface Task {
