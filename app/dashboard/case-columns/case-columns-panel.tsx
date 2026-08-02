@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { addColumnPreset, deleteColumnPreset } from "./actions";
+import { addColumnPreset, deleteColumnPreset, moveColumnPreset } from "./actions";
 import type { CaseTypeColumnPreset } from "@/types/database";
 
 export function CaseColumnsPanel({
@@ -42,7 +42,9 @@ export function CaseColumnsPanel({
   const presetsForType = useMemo(
     () =>
       caseType
-        ? presets.filter((p) => p.case_type === caseType)
+        ? presets
+            .filter((p) => p.case_type === caseType)
+            .sort((a, b) => a.display_order - b.display_order)
         : [],
     [presets, caseType],
   );
@@ -73,6 +75,16 @@ export function CaseColumnsPanel({
         await deleteColumnPreset(id);
       } catch (e) {
         setError(e instanceof Error ? e.message : "שגיאה במחיקה");
+      }
+    });
+  }
+
+  function handleMove(id: string, direction: "up" | "down") {
+    startTransition(async () => {
+      try {
+        await moveColumnPreset(presetsForType, id, direction);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "שגיאה בשינוי סדר");
       }
     });
   }
@@ -109,7 +121,7 @@ export function CaseColumnsPanel({
             <p className="mb-4 text-sm text-gray-400">אין עמודות מוגדרות עדיין</p>
           ) : (
             <ul className="mb-4 space-y-1.5">
-              {presetsForType.map((p) => (
+              {presetsForType.map((p, i) => (
                 <li
                   key={p.id}
                   className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2 text-sm"
@@ -120,13 +132,29 @@ export function CaseColumnsPanel({
                       {p.field_name}
                     </span>
                   </span>
-                  <button
-                    onClick={() => handleDelete(p.id)}
-                    disabled={pending}
-                    className="text-xs text-rose-600 hover:text-rose-800 hover:underline"
-                  >
-                    הסרה
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => handleMove(p.id, "up")}
+                      disabled={pending || i === 0}
+                      className="text-xs text-gray-500 hover:text-gray-900 disabled:opacity-30"
+                    >
+                      למעלה
+                    </button>
+                    <button
+                      onClick={() => handleMove(p.id, "down")}
+                      disabled={pending || i === presetsForType.length - 1}
+                      className="text-xs text-gray-500 hover:text-gray-900 disabled:opacity-30"
+                    >
+                      למטה
+                    </button>
+                    <button
+                      onClick={() => handleDelete(p.id)}
+                      disabled={pending}
+                      className="text-xs text-rose-600 hover:text-rose-800 hover:underline"
+                    >
+                      הסרה
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
