@@ -40,6 +40,8 @@ const FLAG_DEFS = [
   { key: "flag_transferring_documents", label: "מעביר מסמכים" },
 ] as const;
 
+const PAGE_SIZE = 100;
+
 // סינון מתקדם: the fixed-column half of the field picker (the other half
 // is built dynamically from whatever חוצץ fields exist on the loaded cases)
 const FIXED_FIELD_DEFS: {
@@ -208,6 +210,7 @@ export function CasesTable({
   const [selectedFieldNames, setSelectedFieldNames] = useState<Set<string>>(
     new Set(),
   );
+  const [page, setPage] = useState(1);
   const [sortKey, setSortKey] = useState<SortKey>("last_touched_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncStatus>>({});
@@ -465,6 +468,35 @@ export function CasesTable({
     sortKey,
     sortDir,
   ]);
+
+  // any change to search/filters reshuffles what "page 1" even means, so
+  // jump back there rather than leaving the user stranded on a page that
+  // may no longer exist (or shows unrelated rows) once the count changes.
+  // Adjusted during render (React's recommended pattern for this) rather
+  // than in an effect, to avoid an extra cascading render.
+  const filtersSignature = JSON.stringify([
+    search,
+    handlerFilter,
+    statusFilter,
+    natureFilter,
+    typeFilter,
+    flagFilter,
+    advancedFilters,
+    range,
+    calendarDate,
+  ]);
+  const [pageResetKey, setPageResetKey] = useState(filtersSignature);
+  if (filtersSignature !== pageResetKey) {
+    setPageResetKey(filtersSignature);
+    setPage(1);
+  }
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const paginated = useMemo(
+    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filtered, currentPage],
+  );
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) {
@@ -869,7 +901,10 @@ export function CasesTable({
         )}
 
         <span className="mr-auto">
-          <Badge tone="indigo">{filtered.length} תיקים</Badge>
+          <Badge tone="indigo">
+            {filtered.length} תיקים
+            {pageCount > 1 ? ` · עמוד ${currentPage} מתוך ${pageCount}` : ""}
+          </Badge>
         </span>
       </div>
 
@@ -964,7 +999,7 @@ export function CasesTable({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((c) => {
+            {paginated.map((c) => {
               const rowTone = c.status ? hashTone(c.status) : "gray";
               return (
                 <Fragment key={c.id}>
@@ -1036,6 +1071,38 @@ export function CasesTable({
           </tbody>
         </table>
       </div>
+
+      {pageCount > 1 && (
+        <div className="mt-3 flex items-center justify-center gap-1">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            הקודם
+          </button>
+          {Array.from({ length: pageCount }, (_, i) => i + 1).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPage(p)}
+              className={`rounded-md px-3 py-1.5 text-sm ${
+                p === currentPage
+                  ? "bg-indigo-600 text-white"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+          <button
+            onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+            disabled={currentPage === pageCount}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            הבא
+          </button>
+        </div>
+      )}
     </div>
   );
 }
