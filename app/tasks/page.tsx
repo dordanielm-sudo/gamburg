@@ -11,31 +11,55 @@ export default async function TasksPage() {
 
   const supabase = await createClient();
 
-  const { data: tasks, error } = await supabase
-    .from("tasks")
-    .select(
-      "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)",
-    )
-    .order("created_at", { ascending: false })
-    .returns<TaskWithNames[]>();
+  // PostgREST caps a single select at 1000 rows - with the עדכנית task sync
+  // filling the table by the thousands, everything past the newest 1000
+  // silently vanished from the board. Page through in batches (id as a
+  // tiebreaker so equal created_at values don't reshuffle between batches).
+  const BATCH = 1000;
+  let tasks: TaskWithNames[] = [];
+  let error: { message: string } | null = null;
+  for (let from = 0; ; from += BATCH) {
+    const { data, error: batchError } = await supabase
+      .from("tasks")
+      .select(
+        "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)",
+      )
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + BATCH - 1)
+      .returns<TaskWithNames[]>();
+    if (batchError) {
+      error = batchError;
+      break;
+    }
+    if (!data || data.length === 0) break;
+    tasks = tasks.concat(data);
+    if (data.length < BATCH) break;
+  }
 
   // only the manager creates tasks, so only the manager needs these lists
   let assignees: Pick<Profile, "id" | "full_name">[] = [];
   let cases: Pick<Case, "id" | "case_number" | "case_name">[] = [];
   if (profile.role === "manager") {
-    const [{ data: profilesData }, { data: casesData }] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("id, full_name")
-        .eq("is_active", true)
-        .order("full_name"),
-      supabase
+    const { data: profilesData } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .eq("is_active", true)
+      .order("full_name");
+    assignees = profilesData ?? [];
+    // same 1000-row cap here: the case picker was missing every case past
+    // the first 1000 by case_number
+    for (let from = 0; ; from += BATCH) {
+      const { data } = await supabase
         .from("cases")
         .select("id, case_number, case_name")
-        .order("case_number"),
-    ]);
-    assignees = profilesData ?? [];
-    cases = casesData ?? [];
+        .order("case_number")
+        .order("id", { ascending: true })
+        .range(from, from + BATCH - 1);
+      if (!data || data.length === 0) break;
+      cases = cases.concat(data);
+      if (data.length < BATCH) break;
+    }
   }
 
   return (
