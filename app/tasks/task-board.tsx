@@ -86,6 +86,9 @@ export function TaskBoard({
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [overdueOnly, setOverdueOnly] = useState(() => searchParams.get("overdue") === "1");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(100);
+  const [pageJumpInput, setPageJumpInput] = useState("");
 
   const caseOptions = useMemo(() => {
     const map = new Map<string, CaseOption>();
@@ -212,6 +215,50 @@ export function TaskBoard({
   }
 
   const sortedRows = [...filteredRows].sort(byDueDate);
+
+  // pagination, same shape as the cases table: filters changing resets to
+  // page 1 (adjusted during render rather than in an effect)
+  const filtersSignature = JSON.stringify([
+    caseFilter,
+    handlerFilter,
+    statusFilter,
+    range,
+    calendarDate,
+    overdueOnly,
+    pageSize,
+  ]);
+  const [pageResetKey, setPageResetKey] = useState(filtersSignature);
+  if (filtersSignature !== pageResetKey) {
+    setPageResetKey(filtersSignature);
+    setPage(1);
+  }
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const paginatedRows = sortedRows.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  const pageWindow = (() => {
+    const span = 2;
+    const nums = new Set<number>([
+      1,
+      pageCount,
+      ...Array.from(
+        { length: span * 2 + 1 },
+        (_, i) => currentPage - span + i,
+      ).filter((n) => n >= 1 && n <= pageCount),
+    ]);
+    return Array.from(nums).sort((a, b) => a - b);
+  })();
+
+  function jumpToPage() {
+    const n = Number(pageJumpInput);
+    if (Number.isInteger(n) && n >= 1 && n <= pageCount) {
+      setPage(n);
+    }
+    setPageJumpInput("");
+  }
+
   const hasActiveFilters =
     !!caseFilter ||
     !!handlerFilter ||
@@ -400,7 +447,10 @@ export function TaskBoard({
           </button>
         )}
         <span className="mr-auto">
-          <Badge tone="indigo">{sortedRows.length} משימות</Badge>
+          <Badge tone="indigo">
+            {sortedRows.length} משימות
+            {pageCount > 1 ? ` · עמוד ${currentPage} מתוך ${pageCount}` : ""}
+          </Badge>
         </span>
       </div>
 
@@ -425,7 +475,7 @@ export function TaskBoard({
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((t) => {
+              {paginatedRows.map((t) => {
                 const urgency =
                   t.due_date && t.status === "open"
                     ? deadlineUrgency(t.due_date, t.status)
@@ -514,6 +564,79 @@ export function TaskBoard({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {sortedRows.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <span>משימות בעמוד:</span>
+            {[25, 50, 100].map((size) => (
+              <button
+                key={size}
+                onClick={() => setPageSize(size)}
+                className={`rounded-md px-2.5 py-1 ${
+                  size === pageSize
+                    ? "bg-indigo-600 text-white"
+                    : "border border-gray-300 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+
+          {pageCount > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                הקודם
+              </button>
+              {pageWindow.map((p, i) => (
+                <span key={p} className="flex items-center">
+                  {i > 0 && pageWindow[i - 1] !== p - 1 && (
+                    <span className="px-1 text-gray-400">…</span>
+                  )}
+                  <button
+                    onClick={() => setPage(p)}
+                    className={`rounded-md px-3 py-1.5 text-sm ${
+                      p === currentPage
+                        ? "bg-indigo-600 text-white"
+                        : "text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                </span>
+              ))}
+              <button
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                disabled={currentPage === pageCount}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                הבא
+              </button>
+              <input
+                type="number"
+                min={1}
+                max={pageCount}
+                value={pageJumpInput}
+                onChange={(e) => setPageJumpInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && jumpToPage()}
+                placeholder="עמוד…"
+                className="mr-1 w-16 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
+              />
+              <button
+                onClick={jumpToPage}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+              >
+                עבור
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
