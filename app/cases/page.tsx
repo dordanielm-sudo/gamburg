@@ -10,6 +10,37 @@ import type {
   ViewTemplate,
 } from "@/types/database";
 
+const CASES_SELECT =
+  "*, handler:profiles!cases_handler_id_fkey(id, full_name), case_deadlines(id, due_date, status), tasks(id, due_date, status), case_fields(page_name, field_name, value_text, value_date, value_number)";
+
+// PostgREST caps any single select() at db.max_rows (1000 here) regardless
+// of how large a .range() is requested - past that count the list was
+// silently truncated. Loop in batches (ordered by last_touched_at with id
+// as a tiebreaker, so ties don't reshuffle between batches and cause
+// skipped/duplicated rows) until a batch comes back short of a full page.
+async function fetchAllCases(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+) {
+  const BATCH_SIZE = 1000;
+  const all: CaseWithRelations[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("cases")
+      .select(CASES_SELECT)
+      .order("last_touched_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + BATCH_SIZE - 1)
+      .returns<CaseWithRelations[]>();
+    if (error) return { data: null, error };
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < BATCH_SIZE) break;
+    from += BATCH_SIZE;
+  }
+  return { data: all, error: null };
+}
+
 export default async function CasesPage() {
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
@@ -21,13 +52,7 @@ export default async function CasesPage() {
     { data: columnOrder },
     { data: viewTemplates },
   ] = await Promise.all([
-      supabase
-        .from("cases")
-        .select(
-          "*, handler:profiles!cases_handler_id_fkey(id, full_name), case_deadlines(id, due_date, status), tasks(id, due_date, status), case_fields(page_name, field_name, value_text, value_date, value_number)",
-        )
-        .order("last_touched_at", { ascending: false })
-        .returns<CaseWithRelations[]>(),
+      fetchAllCases(supabase),
       supabase
         .from("case_type_column_presets")
         .select("*")

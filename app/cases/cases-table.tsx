@@ -40,7 +40,7 @@ const FLAG_DEFS = [
   { key: "flag_transferring_documents", label: "מעביר מסמכים" },
 ] as const;
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
 // סינון מתקדם: the fixed-column half of the field picker (the other half
 // is built dynamically from whatever חוצץ fields exist on the loaded cases)
@@ -211,6 +211,8 @@ export function CasesTable({
     new Set(),
   );
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(100);
+  const [pageJumpInput, setPageJumpInput] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("last_touched_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncStatus>>({});
@@ -484,6 +486,7 @@ export function CasesTable({
     advancedFilters,
     range,
     calendarDate,
+    pageSize,
   ]);
   const [pageResetKey, setPageResetKey] = useState(filtersSignature);
   if (filtersSignature !== pageResetKey) {
@@ -491,12 +494,35 @@ export function CasesTable({
     setPage(1);
   }
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const paginated = useMemo(
-    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [filtered, currentPage],
+    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filtered, currentPage, pageSize],
   );
+
+  function jumpToPage() {
+    const n = Number(pageJumpInput);
+    if (Number.isInteger(n) && n >= 1 && n <= pageCount) {
+      setPage(n);
+    }
+    setPageJumpInput("");
+  }
+
+  // windowed page numbers around the current page, plus first/last, so a
+  // large case list doesn't render hundreds of page buttons in a row
+  const pageWindow = useMemo(() => {
+    const span = 2;
+    const nums = new Set<number>([
+      1,
+      pageCount,
+      ...Array.from(
+        { length: span * 2 + 1 },
+        (_, i) => currentPage - span + i,
+      ).filter((n) => n >= 1 && n <= pageCount),
+    ]);
+    return Array.from(nums).sort((a, b) => a - b);
+  }, [currentPage, pageCount]);
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) {
@@ -1072,37 +1098,76 @@ export function CasesTable({
         </table>
       </div>
 
-      {pageCount > 1 && (
-        <div className="mt-3 flex items-center justify-center gap-1">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            הקודם
-          </button>
-          {Array.from({ length: pageCount }, (_, i) => i + 1).map((p) => (
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <span>תיקים בעמוד:</span>
+          {PAGE_SIZE_OPTIONS.map((size) => (
             <button
-              key={p}
-              onClick={() => setPage(p)}
-              className={`rounded-md px-3 py-1.5 text-sm ${
-                p === currentPage
+              key={size}
+              onClick={() => setPageSize(size)}
+              className={`rounded-md px-2.5 py-1 ${
+                size === pageSize
                   ? "bg-indigo-600 text-white"
-                  : "text-gray-600 hover:bg-gray-50"
+                  : "border border-gray-300 text-gray-600 hover:bg-gray-50"
               }`}
             >
-              {p}
+              {size}
             </button>
           ))}
-          <button
-            onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-            disabled={currentPage === pageCount}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            הבא
-          </button>
         </div>
-      )}
+
+        {pageCount > 1 && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              הקודם
+            </button>
+            {pageWindow.map((p, i) => (
+              <Fragment key={p}>
+                {i > 0 && pageWindow[i - 1] !== p - 1 && (
+                  <span className="px-1 text-gray-400">…</span>
+                )}
+                <button
+                  onClick={() => setPage(p)}
+                  className={`rounded-md px-3 py-1.5 text-sm ${
+                    p === currentPage
+                      ? "bg-indigo-600 text-white"
+                      : "text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  {p}
+                </button>
+              </Fragment>
+            ))}
+            <button
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              disabled={currentPage === pageCount}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              הבא
+            </button>
+            <input
+              type="number"
+              min={1}
+              max={pageCount}
+              value={pageJumpInput}
+              onChange={(e) => setPageJumpInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && jumpToPage()}
+              placeholder="עמוד…"
+              className="mr-1 w-16 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
+            />
+            <button
+              onClick={jumpToPage}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+            >
+              עבור
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
