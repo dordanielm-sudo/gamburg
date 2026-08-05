@@ -37,6 +37,7 @@ interface CaseSyncPayload {
   // { name, id_number, phone } - some cases have a spouse as a co-party
   spouse_details?: SpouseDetails | null;
   source_updated_at?: string | null;
+  status_changed_at?: string | null;
 }
 
 export async function POST(request: Request) {
@@ -91,6 +92,7 @@ export async function POST(request: Request) {
         client_address: body.client_address ?? null,
         spouse_details: body.spouse_details ?? null,
         source_updated_at: body.source_updated_at ?? new Date().toISOString(),
+        status_changed_at: body.status_changed_at ?? null,
       };
 
       const { data: updated, error: updateError } = await admin
