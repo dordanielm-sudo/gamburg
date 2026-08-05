@@ -30,6 +30,23 @@ const STATUS_MAP: Record<string, "open" | "done" | "cancelled"> = {
   בביצוע: "open",
 };
 
+// Make's HTTP modules deliver whatever the mapping produces - numeric codes
+// arrive as "2" or "" depending on how the body was built, and Postgres
+// rejects "" outright for integer/date columns. Coerce instead of failing
+// the whole task.
+function asNumber(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) {
+    return Number(v);
+  }
+  return null;
+}
+
+function asNonEmpty(v: string | null | undefined): string | null {
+  const t = v?.trim();
+  return t ? t : null;
+}
+
 async function resolveProfileId(
   admin: SupabaseClient,
   name: string,
@@ -118,13 +135,13 @@ export async function POST(request: Request) {
         assigned_to: assignedTo,
         created_by: createdBy,
         status,
-        start_date: body.start_date ?? null,
-        due_date: body.due_date ?? null,
-        priority_code: body.priority_code ?? null,
-        priority_name: body.priority_name?.trim() || null,
-        category_code: body.category_code ?? null,
-        category_name: body.category_name?.trim() || null,
-        informed_users_names: body.informed_users_names?.trim() || null,
+        start_date: asNonEmpty(body.start_date),
+        due_date: asNonEmpty(body.due_date),
+        priority_code: asNumber(body.priority_code),
+        priority_name: asNonEmpty(body.priority_name),
+        category_code: asNumber(body.category_code),
+        category_name: asNonEmpty(body.category_name),
+        informed_users_names: asNonEmpty(body.informed_users_names),
       };
 
       const { data: updated, error: updateError } = await admin
