@@ -141,9 +141,12 @@ export function TaskBoard({
         return new Date(t.due_date + "T00:00:00") < today;
       }
       if (start === null && end === null) return true;
-      if (!t.due_date) return true;
+      // strict windows: a range shows only tasks actually due inside it.
+      // No-date tasks and overdue carryover used to leak into every range,
+      // which made all the buttons look identical once the עדכנית sync
+      // filled the board with old open tasks - overdue lives under באיחור
+      if (!t.due_date) return false;
       const due = new Date(t.due_date + "T00:00:00");
-      if (!calendarDate && due < today && t.status === "open") return true;
       if (start && due < start) return false;
       if (end && due > end) return false;
       return true;
