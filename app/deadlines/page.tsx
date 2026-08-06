@@ -14,32 +14,54 @@ export default async function DeadlinesPage() {
 
   const supabase = await createClient();
 
-  const [{ data: deadlines, error }, { data: viewTemplates }] = await Promise.all([
-    supabase
+  // PostgREST caps a single select at 1000 rows - page through in batches
+  // (id as tiebreaker for stable order between batches), same as the
+  // cases/tasks screens
+  const BATCH = 1000;
+  let deadlines: CaseDeadlineWithCase[] = [];
+  let error: { message: string } | null = null;
+  for (let from = 0; ; from += BATCH) {
+    const { data, error: batchError } = await supabase
       .from("case_deadlines")
       .select(DEADLINE_SELECT)
       .order("due_date", { ascending: true })
-      .returns<CaseDeadlineWithCase[]>(),
-    supabase
-      .from("view_templates")
-      .select("*")
-      .eq("screen", "deadlines")
-      .order("display_order")
-      .returns<ViewTemplate[]>(),
-  ]);
+      .order("id", { ascending: true })
+      .range(from, from + BATCH - 1)
+      .returns<CaseDeadlineWithCase[]>();
+    if (batchError) {
+      error = batchError;
+      break;
+    }
+    if (!data || data.length === 0) break;
+    deadlines = deadlines.concat(data);
+    if (data.length < BATCH) break;
+  }
+
+  const { data: viewTemplates } = await supabase
+    .from("view_templates")
+    .select("*")
+    .eq("screen", "deadlines")
+    .order("display_order")
+    .returns<ViewTemplate[]>();
 
   // handlers can only add deadlines to cases they handle; manager to any case
   let cases: Pick<Case, "id" | "case_number" | "case_name">[] = [];
   if (profile.role !== "secretary") {
-    const query = supabase
-      .from("cases")
-      .select("id, case_number, case_name")
-      .order("case_number");
-    const { data: casesData } =
-      profile.role === "handler"
-        ? await query.eq("handler_id", profile.id)
-        : await query;
-    cases = casesData ?? [];
+    for (let from = 0; ; from += BATCH) {
+      const query = supabase
+        .from("cases")
+        .select("id, case_number, case_name")
+        .order("case_number")
+        .order("id", { ascending: true })
+        .range(from, from + BATCH - 1);
+      const { data } =
+        profile.role === "handler"
+          ? await query.eq("handler_id", profile.id)
+          : await query;
+      if (!data || data.length === 0) break;
+      cases = cases.concat(data);
+      if (data.length < BATCH) break;
+    }
   }
 
   return (

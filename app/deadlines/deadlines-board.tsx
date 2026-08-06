@@ -92,6 +92,10 @@ export function DeadlinesBoard({
     () => searchParams.get("date"),
   );
   const [showDone, setShowDone] = useState(false);
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(100);
+  const [pageJumpInput, setPageJumpInput] = useState("");
   const [caseFilter, setCaseFilter] = useState("");
   const [handlerFilter, setHandlerFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
@@ -141,6 +145,7 @@ export function DeadlinesBoard({
     !!handlerFilter ||
     !!labelFilter ||
     !!calendarDate ||
+    overdueOnly ||
     advancedFilters.length > 0;
 
   function applyTemplate(id: string) {
@@ -210,16 +215,64 @@ export function DeadlinesBoard({
         return false;
       }
       if (!showDone && d.status === "done") return false;
-      if (start === null && end === null) return true;
       const due = new Date(d.due_date + "T00:00:00");
-      // always surface overdue/open items regardless of range, so nothing
-      // gets buried once it's already late (unless a specific day is picked)
-      if (!calendarDate && due < today && d.status !== "done") return true;
+      if (overdueOnly) {
+        return due < today && d.status !== "done";
+      }
+      if (start === null && end === null) return true;
+      // strict windows: a range shows only deadlines actually due inside
+      // it - overdue used to leak into every range, which made the buttons
+      // all look the same; overdue now lives under its own באיחור button
       if (start && due < start) return false;
       if (end && due > end) return false;
       return true;
     });
-  }, [rows, range, calendarDate, showDone, caseFilter, handlerFilter, labelFilter, advancedFilters]);
+  }, [rows, range, calendarDate, showDone, overdueOnly, caseFilter, handlerFilter, labelFilter, advancedFilters]);
+
+  // pagination, same shape as the cases/tasks tables: any filter change
+  // resets to page 1 (adjusted during render rather than in an effect)
+  const filtersSignature = JSON.stringify([
+    caseFilter,
+    handlerFilter,
+    labelFilter,
+    range,
+    calendarDate,
+    showDone,
+    overdueOnly,
+    advancedFilters,
+    pageSize,
+  ]);
+  const [pageResetKey, setPageResetKey] = useState(filtersSignature);
+  if (filtersSignature !== pageResetKey) {
+    setPageResetKey(filtersSignature);
+    setPage(1);
+  }
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const paginated = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  const pageWindow = (() => {
+    const span = 2;
+    const nums = new Set<number>([
+      1,
+      pageCount,
+      ...Array.from(
+        { length: span * 2 + 1 },
+        (_, i) => currentPage - span + i,
+      ).filter((n) => n >= 1 && n <= pageCount),
+    ]);
+    return Array.from(nums).sort((a, b) => a - b);
+  })();
+
+  function jumpToPage() {
+    const n = Number(pageJumpInput);
+    if (Number.isInteger(n) && n >= 1 && n <= pageCount) {
+      setPage(n);
+    }
+    setPageJumpInput("");
+  }
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -419,15 +472,29 @@ export function DeadlinesBoard({
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1 rounded-full bg-gray-100 p-1">
+              <button
+                onClick={() => {
+                  setOverdueOnly((v) => !v);
+                  setCalendarDate(null);
+                }}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                  overdueOnly
+                    ? "bg-rose-600 text-white"
+                    : "text-rose-700 hover:bg-gray-200"
+                }`}
+              >
+                באיחור
+              </button>
               {(Object.keys(RANGE_LABELS) as RangeKey[]).map((key) => (
                 <button
                   key={key}
                   onClick={() => {
                     setRange(key);
                     setCalendarDate(null);
+                    setOverdueOnly(false);
                   }}
                   className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                    !calendarDate && range === key
+                    !calendarDate && !overdueOnly && range === key
                       ? "bg-blue-600 text-white"
                       : "text-gray-600 hover:bg-gray-200"
                   }`}
@@ -439,7 +506,10 @@ export function DeadlinesBoard({
             <CalendarPopup
               markedDates={markedDates}
               selectedDate={calendarDate}
-              onSelect={setCalendarDate}
+              onSelect={(date) => {
+                setCalendarDate(date);
+                setOverdueOnly(false);
+              }}
             />
             {calendarDate && (
               <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium whitespace-nowrap text-blue-700">
@@ -514,6 +584,7 @@ export function DeadlinesBoard({
                   setHandlerFilter("");
                   setLabelFilter("");
                   setCalendarDate(null);
+                  setOverdueOnly(false);
                   setAdvancedFilters([]);
                 }}
                 className="text-sm text-gray-500 underline hover:text-gray-900"
@@ -596,7 +667,7 @@ export function DeadlinesBoard({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((d) => {
+                {paginated.map((d) => {
                   const urgency = deadlineUrgency(d.due_date, d.status);
                   const showUrgency = urgency === "overdue" || urgency === "soon";
                   const primaryTone: Tone = showUrgency ? URGENCY_TONE[urgency] : STATUS_TONE[d.status];
@@ -718,6 +789,83 @@ export function DeadlinesBoard({
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {filtered.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <span>
+                {filtered.length} מועדים
+                {pageCount > 1 ? ` · עמוד ${currentPage} מתוך ${pageCount}` : ""}
+              </span>
+              <span className="mr-2">בעמוד:</span>
+              {[25, 50, 100].map((size) => (
+                <button
+                  key={size}
+                  onClick={() => setPageSize(size)}
+                  className={`rounded-md px-2.5 py-1 ${
+                    size === pageSize
+                      ? "bg-indigo-600 text-white"
+                      : "border border-gray-300 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+
+            {pageCount > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  הקודם
+                </button>
+                {pageWindow.map((p, i) => (
+                  <span key={p} className="flex items-center">
+                    {i > 0 && pageWindow[i - 1] !== p - 1 && (
+                      <span className="px-1 text-gray-400">…</span>
+                    )}
+                    <button
+                      onClick={() => setPage(p)}
+                      className={`rounded-md px-3 py-1.5 text-sm ${
+                        p === currentPage
+                          ? "bg-indigo-600 text-white"
+                          : "text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  </span>
+                ))}
+                <button
+                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                  disabled={currentPage === pageCount}
+                  className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  הבא
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  max={pageCount}
+                  value={pageJumpInput}
+                  onChange={(e) => setPageJumpInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && jumpToPage()}
+                  placeholder="עמוד…"
+                  className="mr-1 w-16 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
+                />
+                <button
+                  onClick={jumpToPage}
+                  className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+                >
+                  עבור
+                </button>
+              </div>
+            )}
           </div>
         )}
       </section>
