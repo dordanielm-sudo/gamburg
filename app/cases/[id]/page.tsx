@@ -9,7 +9,6 @@ import { DeadlinesPanel } from "./deadlines-panel";
 import { CaseTasksPanel } from "./case-tasks-panel";
 import { CaseApprovalsPanel } from "./case-approvals-panel";
 import {
-  formatCaseFieldValue,
   type CaseWithHandler,
   type CaseDocumentWithResponsible,
   type CaseDeadline,
@@ -21,11 +20,12 @@ import {
   type CaseTypeStageItem,
   type CaseStageChecklistEntry,
 } from "@/types/database";
-import { Badge, hashTone, TONE_HEX } from "@/components/ui/badge";
+import { Badge, TONE_HEX } from "@/components/ui/badge";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { type FieldValue } from "@/components/ui/field-group";
 import { StageStepperPanel } from "./stage-stepper-panel";
 import { CaseSummary } from "./case-summary";
+import { CaseFieldsTab } from "./case-fields-tab";
 
 function uniqueSorted(values: (string | null)[]) {
   return Array.from(new Set(values.filter((v): v is string => !!v))).sort(
@@ -202,7 +202,14 @@ export default async function CaseDetailPage({
     tabs.push({
       id: `fields-${pageName}`,
       label: pageName,
-      content: <CaseFieldsTab pageName={pageName} fields={fields} />,
+      content: (
+        <CaseFieldsTab
+          pageName={pageName}
+          fields={fields}
+          caseNumber={caseRow.case_number}
+          canEdit={canEdit}
+        />
+      ),
     });
   }
 
@@ -231,39 +238,6 @@ export default async function CaseDetailPage({
 // looks up a חוצץ field by name regardless of which page it's on - best
 // guess at the field names these highlights map to in עדכנית; shows "—"
 // harmlessly if the guess is wrong or the field hasn't synced yet
-function CaseFieldsTab({
-  pageName,
-  fields,
-}: {
-  pageName: string;
-  fields: CaseField[];
-}) {
-  const tone = hashTone(pageName);
-  return (
-    <section
-      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
-      style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[tone]}` }}
-    >
-      <div className="mb-4 flex items-center justify-between">
-        <Badge tone={tone} dot>
-          {pageName}
-        </Badge>
-        <p className="text-xs text-gray-400">נמשך אוטומטית מעדכנית - לתצוגה בלבד</p>
-      </div>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {fields.map((f) => (
-          <div key={f.id}>
-            <div className="text-xs text-gray-400">{f.field_name}</div>
-            <div className="mt-0.5 text-sm font-medium text-gray-900">
-              {formatCaseFieldValue(f)}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function SpouseSummary({ spouse }: { spouse: SpouseDetails }) {
   const fields: FieldValue[] = [
     { label: "שם", value: spouse.name ? <NamedAvatar name={spouse.name} /> : "—" },

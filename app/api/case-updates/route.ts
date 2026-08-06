@@ -13,6 +13,9 @@ interface CaseUpdatePayload {
   case_id?: string;
   case_number?: string;
   field_name?: string;
+  // set only for חוצץ (case_fields) edits - "מועד קבלת צו" exists on more
+  // than one PageName, so Make needs the page to write back to the right one
+  page_name?: string;
   old_value?: unknown;
   new_value?: unknown;
 }
@@ -38,7 +41,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const { case_id, case_number, field_name, old_value, new_value } = payload;
+  const { case_id, case_number, field_name, page_name, old_value, new_value } =
+    payload;
   if (!case_id || !field_name) {
     return NextResponse.json(
       { error: "case_id and field_name are required" },
@@ -53,6 +57,7 @@ export async function POST(request: Request) {
     .insert({
       case_id,
       field_name,
+      page_name: page_name ?? null,
       old_value: toLogValue(old_value),
       new_value: toLogValue(new_value),
       changed_by: user.id,
@@ -101,6 +106,7 @@ export async function POST(request: Request) {
     case_id,
     case_number,
     field_name,
+    page_name: page_name ?? null,
     old_value,
     new_value,
     changed_by: user.id,
