@@ -17,6 +17,7 @@ import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/da
 import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
+import { priorityTone } from "@/lib/task-priority";
 
 const TASK_SELECT =
   "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)";
@@ -43,29 +44,48 @@ const URGENCY_LABEL: Record<string, string> = {
   soon: "בקרוב",
 };
 
-// synced from עדכנית (PriorityCode/PriorityName). Only two codes have been
-// observed (2=רגילה, 3=גבוהה) but the source has no fixed enum, so anything
-// above רגילה is treated as "stands out" rather than hardcoding a list.
-const NORMAL_PRIORITY_CODE = 2;
-const HIGH_PRIORITY_CODE = 3;
-
-function priorityTone(code: number | null): Tone {
-  if (code === null) return "gray";
-  if (code >= HIGH_PRIORITY_CODE) return "amber";
-  if (code <= NORMAL_PRIORITY_CODE) return "gray";
-  return "blue";
-}
-
 function formatDate(value: string) {
   return new Date(value + "T00:00:00").toLocaleDateString("he-IL");
 }
 
-// earliest due date first; tasks without a due date sink to the bottom
-function byDueDate(a: TaskWithNames, b: TaskWithNames) {
-  if (!a.due_date && !b.due_date) return 0;
-  if (!a.due_date) return 1;
-  if (!b.due_date) return -1;
-  return a.due_date.localeCompare(b.due_date);
+type SortKey =
+  | "text"
+  | "case"
+  | "priority"
+  | "status"
+  | "assignee"
+  | "start_date"
+  | "due_date";
+
+const SORT_LABELS: Record<SortKey, string> = {
+  text: "משימה",
+  case: "תיק",
+  priority: "דחיפות",
+  status: "סטטוס",
+  assignee: "מטפל",
+  start_date: "תאריך התחלה",
+  due_date: "תאריך יעד",
+};
+
+// null/empty always sinks to the bottom regardless of direction, so an
+// undated or unassigned task never buries the rows that do have a value
+function sortValue(t: TaskWithNames, key: SortKey): string | number | null {
+  switch (key) {
+    case "text":
+      return t.text;
+    case "case":
+      return t.case?.case_number ?? null;
+    case "priority":
+      return t.priority_code ?? null;
+    case "status":
+      return t.status;
+    case "assignee":
+      return t.assigned_to_profile?.full_name ?? null;
+    case "start_date":
+      return t.start_date;
+    case "due_date":
+      return t.due_date;
+  }
 }
 
 export function TaskBoard({
@@ -92,6 +112,8 @@ export function TaskBoard({
   const [handlerFilter, setHandlerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("open");
   const [priorityFilter, setPriorityFilter] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("due_date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [range, setRange] = useState<RangeKey>("all");
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [overdueOnly, setOverdueOnly] = useState(() => searchParams.get("overdue") === "1");
@@ -243,7 +265,33 @@ export function TaskBoard({
     }
   }
 
-  const sortedRows = [...filteredRows].sort(byDueDate);
+  const sortedRows = useMemo(() => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...filteredRows].sort((a, b) => {
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
+      const aEmpty = av === null || av === "";
+      const bEmpty = bv === null || bv === "";
+      if (aEmpty || bEmpty) {
+        if (aEmpty && bEmpty) return 0;
+        return aEmpty ? 1 : -1;
+      }
+      if (typeof av === "number" && typeof bv === "number") {
+        return (av - bv) * dir;
+      }
+      return String(av).localeCompare(String(bv), "he") * dir;
+    });
+  }, [filteredRows, sortKey, sortDir]);
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      // dates read best oldest-first, priority highest-first
+      setSortDir(key === "priority" ? "desc" : "asc");
+    }
+  }
 
   // pagination, same shape as the cases table: filters changing resets to
   // page 1 (adjusted during render rather than in an effect)
@@ -510,12 +558,30 @@ export function TaskBoard({
             <thead className="border-b border-indigo-100 bg-indigo-50/60 text-right">
               <tr>
                 <th className="w-1 p-0" aria-hidden />
-                <th className="px-4 py-3 font-semibold text-indigo-900">משימה</th>
-                <th className="px-4 py-3 font-semibold text-indigo-900">תיק</th>
-                <th className="px-4 py-3 text-center font-semibold text-indigo-900">דחיפות</th>
-                <th className="px-4 py-3 text-center font-semibold text-indigo-900">סטטוס</th>
-                <th className="px-4 py-3 font-semibold text-indigo-900">מטפל</th>
-                <th className="px-4 py-3 font-semibold text-indigo-900">תאריך יעד</th>
+                {(
+                  [
+                    ["text", ""],
+                    ["case", ""],
+                    ["priority", "text-center"],
+                    ["status", "text-center"],
+                    ["assignee", ""],
+                    ["due_date", ""],
+                  ] as [SortKey, string][]
+                ).map(([key, align]) => (
+                  <th
+                    key={key}
+                    onClick={() => toggleSort(key)}
+                    title="לחיצה למיון"
+                    className={`cursor-pointer px-4 py-3 font-semibold whitespace-nowrap text-indigo-900 select-none hover:text-indigo-700 ${align}`}
+                  >
+                    {SORT_LABELS[key]}
+                    {sortKey === key && (
+                      <span className="mr-1 text-xs">
+                        {sortDir === "asc" ? "▲" : "▼"}
+                      </span>
+                    )}
+                  </th>
+                ))}
                 {canCreate && (
                   <th className="px-4 py-3 font-semibold text-indigo-900">פעולות</th>
                 )}

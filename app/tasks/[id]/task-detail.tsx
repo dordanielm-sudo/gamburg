@@ -12,6 +12,7 @@ import { Badge, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FieldGroup } from "@/components/ui/field-group";
+import { priorityLabel, priorityTone } from "@/lib/task-priority";
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: "open", label: "פתוחה" },
@@ -35,9 +36,6 @@ const URGENCY_LABEL: Record<string, string> = {
   soon: "בקרוב",
 };
 
-// synced from עדכנית (PriorityCode/PriorityName) - only code 3 (גבוהה) is
-// worth calling out with a badge, "רגילה" (2) is the default and not shown
-const HIGH_PRIORITY_CODE = 3;
 
 function formatDateTime(value: string | null) {
   if (!value) return "—";
@@ -97,8 +95,10 @@ export function TaskDetail({
           {current.text}
         </h1>
         <div className="flex shrink-0 items-center gap-1.5">
-          {current.priority_code === HIGH_PRIORITY_CODE && (
-            <Badge tone="amber">{current.priority_name || "עדיפות גבוהה"}</Badge>
+          {priorityLabel(current.priority_code, current.priority_name) && (
+            <Badge tone={priorityTone(current.priority_code)}>
+              {priorityLabel(current.priority_code, current.priority_name)}
+            </Badge>
           )}
           {showUrgency && <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>}
           <Badge tone={STATUS_TONE[current.status]}>
@@ -153,7 +153,21 @@ export function TaskDetail({
                 "ללא תיק"
               ),
             },
+            {
+              label: "דחיפות",
+              value: priorityLabel(
+                current.priority_code,
+                current.priority_name,
+              ) ? (
+                <Badge tone={priorityTone(current.priority_code)}>
+                  {priorityLabel(current.priority_code, current.priority_name)}
+                </Badge>
+              ) : (
+                "—"
+              ),
+            },
             { label: "קטגוריה", value: current.category_name ?? "—" },
+            { label: "משתמשים מעודכנים", value: current.informed_users_names ?? "—" },
             { label: "תאריך התחלה", value: formatDate(current.start_date) },
             { label: "תאריך יעד", value: formatDate(current.due_date) },
           ]}
