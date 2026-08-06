@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import type { CaseDocumentWithResponsible, DocumentStatus } from "@/types/database";
 import { Badge, TONE_BADGE, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { InlineEdit } from "@/components/ui/inline-edit";
+import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 import { NamedAvatar } from "@/components/ui/avatar";
 
 const PANEL_TONE: Tone = "blue";
@@ -29,13 +31,27 @@ function formatDate(value: string | null) {
 export function DocumentsPanel({
   documents,
   canEdit,
+  caseId,
+  caseNumber,
 }: {
   documents: CaseDocumentWithResponsible[];
   canEdit: boolean;
+  caseId: string;
+  caseNumber: string;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(documents);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+
+  function sync(docId: string) {
+    return {
+      entityType: "document" as const,
+      caseId,
+      caseNumber,
+      entityId: docId,
+    };
+  }
 
   async function updateStatus(doc: CaseDocumentWithResponsible, status: DocumentStatus) {
     setRows((prev) =>
@@ -57,13 +73,22 @@ export function DocumentsPanel({
       className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
       style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[PANEL_TONE]}` }}
     >
-      <div className="mb-3">
-        <Badge tone={PANEL_TONE} dot>
-          מסמכים ({rows.length})
-        </Badge>
-        <p className="mt-1.5 text-xs text-gray-400">
-          נמשך אוטומטית מעדכנית - ניתן לעדכן סטטוס, לא להוסיף ידנית.
-        </p>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <Badge tone={PANEL_TONE} dot>
+            מסמכים ({rows.length})
+          </Badge>
+          <p className="mt-1.5 text-xs text-gray-400">
+            נמשך אוטומטית מעדכנית - לא ניתן להוסיף מסמך ידנית.
+          </p>
+        </div>
+        {canEdit && (
+          <EditToggle
+            editing={editing}
+            onToggle={() => setEditing((v) => !v)}
+            hint={SYNC_HINT}
+          />
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -73,8 +98,15 @@ export function DocumentsPanel({
           {rows.map((d) => (
             <li key={d.id} className="py-2.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium text-gray-900">
-                  {d.title}
+                <span className="min-w-0 flex-1 text-sm font-medium text-gray-900">
+                  <InlineEdit
+                    table="documents"
+                    rowId={d.id}
+                    column="title"
+                    value={d.title}
+                    editing={editing}
+                    sync={sync(d.id)}
+                  />
                 </span>
                 {canEdit ? (
                   <div className="flex items-center gap-1.5">
@@ -99,7 +131,32 @@ export function DocumentsPanel({
                 )}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-                <span>{[d.doc_type, formatDate(d.doc_date)].filter(Boolean).join(" · ")}</span>
+                {editing ? (
+                  <>
+                    <InlineEdit
+                      table="documents"
+                      rowId={d.id}
+                      column="doc_type"
+                      value={d.doc_type}
+                      editing
+                      placeholder="סוג מסמך"
+                      sync={sync(d.id)}
+                    />
+                    <InlineEdit
+                      table="documents"
+                      rowId={d.id}
+                      column="doc_date"
+                      value={d.doc_date}
+                      editing
+                      kind="date"
+                      sync={sync(d.id)}
+                    />
+                  </>
+                ) : (
+                  <span>
+                    {[d.doc_type, formatDate(d.doc_date)].filter(Boolean).join(" · ")}
+                  </span>
+                )}
                 {d.responsible?.full_name && (
                   <NamedAvatar name={d.responsible.full_name} size="h-5 w-5 text-[9px]" />
                 )}

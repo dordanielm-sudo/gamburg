@@ -10,7 +10,8 @@ import { Badge, hashTone } from "@/components/ui/badge";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FieldGroup, type FieldValue } from "@/components/ui/field-group";
 import { StatusStageEditor } from "./status-stage-editor";
-import { EditableCaseField } from "./editable-case-field";
+import { InlineEdit } from "@/components/ui/inline-edit";
+import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 
 function lookupCaseField(fields: CaseField[], fieldName: string): string {
   const match = fields.find((f) => f.field_name === fieldName);
@@ -22,10 +23,13 @@ function statusOrDash(value: string | null | undefined) {
 }
 
 // The card defaults to a reading view; one toggle opens every editable field
-// at once. Only columns that exist on `cases` and are synced from עדכנית are
-// editable here - each save goes out through /api/case-updates so the change
-// reaches עדכנית too. חוצצים fields (case_fields) stay read-only: they have
-// no write path yet, in the DB or in Make.
+// at once. Each save goes out through /api/case-updates so the change reaches
+// עדכנית too.
+//
+// The חוצצים values shown here (חובות, עורך דין אחראי, ...) are read-only in
+// this card even though case_fields is editable since 0034: they are borrowed
+// onto the summary for convenience, and each is edited on its own חוצץ tab
+// where its PageName is unambiguous.
 export function CaseSummary({
   caseRow,
   caseFields,
@@ -42,18 +46,23 @@ export function CaseSummary({
   const [editing, setEditing] = useState(false);
 
   function editable(
-    fieldName: string,
+    column: string,
     value: string | null,
-    type: "text" | "tel" | "email" | "date" = "text",
+    kind: "text" | "tel" | "email" | "date" = "text",
   ) {
     return (
-      <EditableCaseField
-        caseId={caseRow.id}
-        caseNumber={caseRow.case_number}
-        fieldName={fieldName}
+      <InlineEdit
+        table="cases"
+        rowId={caseRow.id}
+        column={column}
         value={value}
         editing={editing}
-        type={type}
+        kind={kind}
+        sync={{
+          entityType: "case",
+          caseId: caseRow.id,
+          caseNumber: caseRow.case_number,
+        }}
       />
     );
   }
@@ -137,16 +146,11 @@ export function CaseSummary({
     <div className="space-y-3">
       <div className="flex items-center justify-end gap-2">
         {canEdit && (
-          <button
-            onClick={() => setEditing((v) => !v)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-              editing
-                ? "bg-blue-600 text-white hover:bg-blue-700"
-                : "border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            {editing ? "סיום עריכה" : "עריכת שדות"}
-          </button>
+          <EditToggle
+            editing={editing}
+            onToggle={() => setEditing((v) => !v)}
+            hint={SYNC_HINT}
+          />
         )}
         {caseRow.drive_url && (
           <a
@@ -159,12 +163,6 @@ export function CaseSummary({
           </a>
         )}
       </div>
-      {editing && (
-        <p className="rounded-lg bg-blue-50/60 px-3 py-2 text-xs text-blue-800">
-          שדות בעריכה נשמרים ביציאה מהשדה ונשלחים לעדכנית. שדות ללא מסגרת
-          נמשכים אוטומטית ואינם ניתנים לעריכה כאן.
-        </p>
-      )}
       <div className="grid gap-4 lg:grid-cols-2">
         <FieldGroup title="לקוח" tone="blue" fields={clientFields} />
         <FieldGroup title="נתונים כלכליים" tone="green" fields={financialFields} />

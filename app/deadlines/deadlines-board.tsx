@@ -17,6 +17,8 @@ import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
 import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { InlineEdit } from "@/components/ui/inline-edit";
+import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
 
@@ -87,6 +89,7 @@ export function DeadlinesBoard({
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(deadlines);
+  const [editing, setEditing] = useState(false);
   const [range, setRange] = useState<RangeKey>("week");
   const [calendarDate, setCalendarDate] = useState<string | null>(
     () => searchParams.get("date"),
@@ -372,6 +375,19 @@ export function DeadlinesBoard({
     }
   }
 
+  // a board row's deadline always belongs to a case, but the join is nullable
+  // in the type - without a case there is nothing to write back to, so the
+  // row stays read-only rather than logging an unroutable change
+  function syncFor(d: CaseDeadlineWithCase) {
+    if (!d.case) return undefined;
+    return {
+      entityType: "deadline" as const,
+      caseId: d.case.id,
+      caseNumber: d.case.case_number,
+      entityId: d.id,
+    };
+  }
+
   return (
     <div className="space-y-6">
       {canCreate && (
@@ -518,6 +534,13 @@ export function DeadlinesBoard({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            {canCreate && (
+              <EditToggle
+                editing={editing}
+                onToggle={() => setEditing((v) => !v)}
+                hint={SYNC_HINT}
+              />
+            )}
             <CaseCombobox
               key={caseFilter}
               cases={caseOptions}
@@ -699,32 +722,91 @@ export function DeadlinesBoard({
                         </span>
                       </td>
                       <td className="px-4 py-3.5">
-                        <Link
-                          href={d.case ? `/cases/${d.case.id}` : "#"}
-                          className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
-                        >
-                          {d.label}
-                        </Link>
-                        {(d.notes || d.address || d.external_date) && (
-                          <div className="mt-0.5 text-xs text-gray-400">
-                            {[
-                              d.notes,
-                              d.address,
-                              d.external_date && `תאריך חיצוני: ${formatDate(d.external_date)}`,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </div>
-                        )}
-                        {d.zoom_link && (
-                          <button
-                            onClick={() =>
-                              window.open(d.zoom_link!, "_blank", "noopener,noreferrer")
-                            }
-                            className="mt-0.5 block text-xs text-blue-600 hover:underline"
+                        {editing ? (
+                          <InlineEdit
+                            table="case_deadlines"
+                            rowId={d.id}
+                            column="label"
+                            value={d.label}
+                            editing
+                            sync={syncFor(d)}
+                          />
+                        ) : (
+                          <Link
+                            href={d.case ? `/cases/${d.case.id}` : "#"}
+                            className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
                           >
-                            פתיחת זום
-                          </button>
+                            {d.label}
+                          </Link>
+                        )}
+                        {editing ? (
+                          <div className="mt-1 grid gap-1 sm:grid-cols-2">
+                            <InlineEdit
+                              table="case_deadlines"
+                              rowId={d.id}
+                              column="notes"
+                              value={d.notes}
+                              editing
+                              placeholder="הערה"
+                              sync={syncFor(d)}
+                            />
+                            <InlineEdit
+                              table="case_deadlines"
+                              rowId={d.id}
+                              column="address"
+                              value={d.address}
+                              editing
+                              placeholder="כתובת"
+                              sync={syncFor(d)}
+                            />
+                            <InlineEdit
+                              table="case_deadlines"
+                              rowId={d.id}
+                              column="external_date"
+                              value={d.external_date}
+                              editing
+                              kind="date"
+                              sync={syncFor(d)}
+                            />
+                            <InlineEdit
+                              table="case_deadlines"
+                              rowId={d.id}
+                              column="zoom_link"
+                              value={d.zoom_link}
+                              editing
+                              placeholder="קישור זום"
+                              sync={syncFor(d)}
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            {(d.notes || d.address || d.external_date) && (
+                              <div className="mt-0.5 text-xs text-gray-400">
+                                {[
+                                  d.notes,
+                                  d.address,
+                                  d.external_date &&
+                                    `תאריך חיצוני: ${formatDate(d.external_date)}`,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </div>
+                            )}
+                            {d.zoom_link && (
+                              <button
+                                onClick={() =>
+                                  window.open(
+                                    d.zoom_link!,
+                                    "_blank",
+                                    "noopener,noreferrer",
+                                  )
+                                }
+                                className="mt-0.5 block text-xs text-blue-600 hover:underline"
+                              >
+                                פתיחת זום
+                              </button>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
@@ -752,7 +834,16 @@ export function DeadlinesBoard({
                         )}
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
-                        {formatDate(d.due_date)}
+                        <InlineEdit
+                          table="case_deadlines"
+                          rowId={d.id}
+                          column="due_date"
+                          value={d.due_date}
+                          editing={editing}
+                          kind="date"
+                          render={(v) => (v ? formatDate(v) : "—")}
+                          sync={syncFor(d)}
+                        />
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="flex flex-col gap-1 text-xs text-gray-500">

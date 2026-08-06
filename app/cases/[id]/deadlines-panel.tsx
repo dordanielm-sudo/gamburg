@@ -9,6 +9,8 @@ import {
 } from "@/types/database";
 import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { InlineEdit } from "@/components/ui/inline-edit";
+import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 
 const PANEL_TONE: Tone = "amber";
 
@@ -33,13 +35,27 @@ function formatDate(value: string) {
 export function DeadlinesPanel({
   deadlines,
   canEdit,
+  caseId,
+  caseNumber,
 }: {
   deadlines: CaseDeadline[];
   canEdit: boolean;
+  caseId: string;
+  caseNumber: string;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(deadlines);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+
+  function sync(deadlineId: string) {
+    return {
+      entityType: "deadline" as const,
+      caseId,
+      caseNumber,
+      entityId: deadlineId,
+    };
+  }
 
   async function toggleDone(deadline: CaseDeadline) {
     const status: TaskStatus = deadline.status === "open" ? "done" : "open";
@@ -64,13 +80,22 @@ export function DeadlinesPanel({
       className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
       style={{ boxShadow: `inset -3px 0 0 0 ${TONE_HEX[PANEL_TONE]}` }}
     >
-      <div className="mb-3">
-        <Badge tone={PANEL_TONE} dot>
-          מועדים ({rows.length})
-        </Badge>
-        <p className="mt-1.5 text-xs text-gray-400">
-          נמשך אוטומטית מעדכנית - ניתן לסמן כבוצע, לא להוסיף ידנית.
-        </p>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <Badge tone={PANEL_TONE} dot>
+            מועדים ({rows.length})
+          </Badge>
+          <p className="mt-1.5 text-xs text-gray-400">
+            נמשך אוטומטית מעדכנית - לא ניתן להוסיף מועד ידנית.
+          </p>
+        </div>
+        {canEdit && (
+          <EditToggle
+            editing={editing}
+            onToggle={() => setEditing((v) => !v)}
+            hint={SYNC_HINT}
+          />
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -95,21 +120,60 @@ export function DeadlinesPanel({
                     )}
                   </span>
                 )}
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <div
                     className={
-                      d.status === "done"
+                      d.status === "done" && !editing
                         ? "text-sm text-gray-400 line-through"
                         : "text-sm font-medium text-gray-900"
                     }
                   >
-                    {d.label}
+                    <InlineEdit
+                      table="case_deadlines"
+                      rowId={d.id}
+                      column="label"
+                      value={d.label}
+                      editing={editing}
+                      sync={sync(d.id)}
+                    />
                   </div>
-                  {d.notes && (
-                    <div className="text-xs text-gray-500">{d.notes}</div>
+                  {(editing || d.notes) && (
+                    <div className="mt-0.5 text-xs text-gray-500">
+                      <InlineEdit
+                        table="case_deadlines"
+                        rowId={d.id}
+                        column="notes"
+                        value={d.notes}
+                        editing={editing}
+                        placeholder="הערה"
+                        sync={sync(d.id)}
+                      />
+                    </div>
+                  )}
+                  {editing && (
+                    <div className="mt-1 grid gap-1 sm:grid-cols-2">
+                      <InlineEdit
+                        table="case_deadlines"
+                        rowId={d.id}
+                        column="zoom_link"
+                        value={d.zoom_link}
+                        editing
+                        placeholder="קישור זום"
+                        sync={sync(d.id)}
+                      />
+                      <InlineEdit
+                        table="case_deadlines"
+                        rowId={d.id}
+                        column="address"
+                        value={d.address}
+                        editing
+                        placeholder="כתובת"
+                        sync={sync(d.id)}
+                      />
+                    </div>
                   )}
                 </div>
-                {d.zoom_link && (
+                {!editing && d.zoom_link && (
                   <a
                     href={d.zoom_link}
                     target="_blank"
@@ -119,8 +183,17 @@ export function DeadlinesPanel({
                     זום
                   </a>
                 )}
-                <span className="text-sm text-gray-600 whitespace-nowrap">
-                  {formatDate(d.due_date)}
+                <span className="shrink-0 text-sm text-gray-600 whitespace-nowrap">
+                  <InlineEdit
+                    table="case_deadlines"
+                    rowId={d.id}
+                    column="due_date"
+                    value={d.due_date}
+                    editing={editing}
+                    kind="date"
+                    render={(v) => (v ? formatDate(v) : "—")}
+                    sync={sync(d.id)}
+                  />
                 </span>
                 <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>
               </li>

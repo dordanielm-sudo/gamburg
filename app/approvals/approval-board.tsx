@@ -13,6 +13,8 @@ import type {
 } from "@/types/database";
 import { formatCaseFieldValue } from "@/types/database";
 import { CaseCombobox } from "@/components/case-combobox";
+import { InlineEdit } from "@/components/ui/inline-edit";
+import { EditToggle, LOCAL_HINT } from "@/components/ui/edit-toggle";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { ApprovalFlow } from "@/components/ui/approval-flow";
@@ -169,6 +171,7 @@ export function ApprovalBoard({
   const [formError, setFormError] = useState<string | null>(null);
   const [createCaseId, setCreateCaseId] = useState("");
   const [createCaseText, setCreateCaseText] = useState("");
+  const [editing, setEditing] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
@@ -341,6 +344,11 @@ export function ApprovalBoard({
       )}
 
       <div className="flex flex-wrap items-center gap-3">
+        <EditToggle
+          editing={editing}
+          onToggle={() => setEditing((v) => !v)}
+          hint={LOCAL_HINT}
+        />
         <select
           value={statusFilter}
           onChange={(e) =>
@@ -453,7 +461,13 @@ export function ApprovalBoard({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <span className="font-medium text-gray-900">
-                    {r.request_type}
+                    <InlineEdit
+                      table="approval_requests"
+                      rowId={r.id}
+                      column="request_type"
+                      value={r.request_type}
+                      editing={editing}
+                    />
                   </span>
                   {r.case && (
                     <Link
@@ -474,8 +488,17 @@ export function ApprovalBoard({
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
                 <span>{formatDateTime(r.created_at)}</span>
               </div>
-              {r.notes && (
-                <div className="mt-1 text-xs text-gray-500">{r.notes}</div>
+              {(editing || r.notes) && (
+                <div className="mt-1 text-xs text-gray-500">
+                  <InlineEdit
+                    table="approval_requests"
+                    rowId={r.id}
+                    column="notes"
+                    value={r.notes}
+                    editing={editing}
+                    placeholder="הערה"
+                  />
+                </div>
               )}
               {(r.status === "pending_review" || r.status === "pending_approval") && (
                 <div className="mt-3 flex items-center gap-2">

@@ -15,6 +15,8 @@ import {
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
+import { InlineEdit } from "@/components/ui/inline-edit";
+import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 import { Badge, hashTone, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
@@ -215,6 +217,7 @@ export function CasesTable({
   const [pageJumpInput, setPageJumpInput] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("last_touched_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [editing, setEditing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncStatus>>({});
 
   // סינון מתקדם + תבניות שמורות (migration 0031) - conditions on either a
@@ -646,6 +649,35 @@ export function CasesTable({
     setSelectedFieldNames(new Set());
   }
 
+  // Text/date cells become inputs in edit mode. They go through InlineEdit
+  // rather than updateCase because updateCase drives the per-row sync badge,
+  // which is built around one change at a time - a row full of open inputs
+  // would fight over it.
+  function cellEdit(
+    c: CaseWithRelations,
+    column: string,
+    value: string | null,
+    kind: "text" | "date" = "text",
+    render?: (v: string) => React.ReactNode,
+  ) {
+    return (
+      <InlineEdit
+        table="cases"
+        rowId={c.id}
+        column={column}
+        value={value}
+        editing={editing}
+        kind={kind}
+        render={render}
+        sync={{
+          entityType: "case",
+          caseId: c.id,
+          caseNumber: c.case_number,
+        }}
+      />
+    );
+  }
+
   function renderCell(key: ColumnKey, c: CaseWithRelations, rowTone: Tone) {
     switch (key) {
       case "case_number":
@@ -655,6 +687,7 @@ export function CasesTable({
           </Link>
         );
       case "case_name":
+        if (editing) return cellEdit(c, "case_name", c.case_name);
         return (
           <>
             <Link href={`/cases/${c.id}`} className="hover:text-blue-700 hover:underline">
@@ -673,12 +706,29 @@ export function CasesTable({
           </>
         );
       case "case_type":
-        return c.case_type ?? "—";
+        return cellEdit(c, "case_type", c.case_type);
       case "handler":
         return c.handler?.full_name ? <NamedAvatar name={c.handler.full_name} /> : "—";
       case "team":
-        return c.team ?? "—";
+        return cellEdit(c, "team", c.team);
       case "status":
+        if (editing)
+          return (
+            <InlineEdit
+              table="cases"
+              rowId={c.id}
+              column="status"
+              value={c.status}
+              editing
+              kind="select"
+              options={statusOptions}
+              sync={{
+                entityType: "case",
+                caseId: c.id,
+                caseNumber: c.case_number,
+              }}
+            />
+          );
         return c.status ? (
           <Badge tone={rowTone} dot>
             {c.status}
@@ -687,7 +737,9 @@ export function CasesTable({
           <span className="text-gray-400">—</span>
         );
       case "opened_date":
-        return formatDate(c.opened_date);
+        return cellEdit(c, "opened_date", c.opened_date, "date", (v) =>
+          formatDate(v || null),
+        );
       case "flags":
         return (
           <div className="flex flex-wrap gap-1.5">
@@ -760,6 +812,13 @@ export function CasesTable({
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
+        {canEdit && (
+          <EditToggle
+            editing={editing}
+            onToggle={() => setEditing((v) => !v)}
+            hint={SYNC_HINT}
+          />
+        )}
         <span className="text-xs text-gray-400">
           תיקים עם מועד/משימה פתוחים ב:
         </span>
