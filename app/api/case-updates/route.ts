@@ -16,9 +16,23 @@ interface CaseUpdatePayload {
   // set only for חוצץ (case_fields) edits - "מועד קבלת צו" exists on more
   // than one PageName, so Make needs the page to write back to the right one
   page_name?: string;
+  // which table the edit landed in, and the row inside it. Defaults to the
+  // case itself, which is how every caller behaved before other screens
+  // became editable - so existing callers keep working unchanged.
+  entity_type?: EntityType;
+  entity_id?: string;
   old_value?: unknown;
   new_value?: unknown;
 }
+
+const ENTITY_TYPES = [
+  "case",
+  "case_field",
+  "task",
+  "deadline",
+  "document",
+] as const;
+type EntityType = (typeof ENTITY_TYPES)[number];
 
 function toLogValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
@@ -41,11 +55,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const { case_id, case_number, field_name, page_name, old_value, new_value } =
-    payload;
+  const {
+    case_id,
+    case_number,
+    field_name,
+    page_name,
+    entity_id,
+    old_value,
+    new_value,
+  } = payload;
   if (!case_id || !field_name) {
     return NextResponse.json(
       { error: "case_id and field_name are required" },
+      { status: 400 },
+    );
+  }
+
+  const entity_type: EntityType = payload.entity_type ?? "case";
+  if (!ENTITY_TYPES.includes(entity_type)) {
+    return NextResponse.json(
+      { error: `unknown entity_type: ${entity_type}` },
+      { status: 400 },
+    );
+  }
+  // the check constraint on case_sync_log rejects these too, but failing here
+  // keeps the error readable instead of surfacing a Postgres violation
+  if (entity_type !== "case" && !entity_id) {
+    return NextResponse.json(
+      { error: `entity_id is required for entity_type=${entity_type}` },
       { status: 400 },
     );
   }
@@ -58,6 +95,8 @@ export async function POST(request: Request) {
       case_id,
       field_name,
       page_name: page_name ?? null,
+      entity_type,
+      entity_id: entity_id ?? null,
       old_value: toLogValue(old_value),
       new_value: toLogValue(new_value),
       changed_by: user.id,
@@ -107,6 +146,8 @@ export async function POST(request: Request) {
     case_number,
     field_name,
     page_name: page_name ?? null,
+    entity_type,
+    entity_id: entity_id ?? null,
     old_value,
     new_value,
     changed_by: user.id,
