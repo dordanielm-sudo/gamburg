@@ -40,6 +40,29 @@ interface CaseSyncPayload {
   status_changed_at?: string | null;
 }
 
+// מהות תיק (synced) is coarser than שלב (CRM-native, driven by the stepper):
+// several שלב values collapse into one מהות. When a case first arrives we
+// seed its שלב from its מהות so the stepper isn't blank on 1,600+ cases -
+// picking the EARLIEST stage the מהות could mean, since claiming a later one
+// would assert progress nothing has evidenced. Applied on INSERT only: once
+// a case exists, its שלב belongs to whoever moved it, and a resync must
+// never walk that back (same rule as the flags/manager_note columns).
+const NATURE_TO_STAGE: [needle: string, stage: string][] = [
+  ["לא הוגש טופס 5", "קליטה"],
+  ["מחכים לצו", "ממתין לצו"],
+  ["צו פתיחת הליכים", "לאחר צו"],
+  ["שיקום", "שיקום"],
+  ["הפטר", "הסתיים"],
+];
+
+function openingStage(caseNature: string | null | undefined): string | null {
+  if (!caseNature) return null;
+  for (const [needle, stage] of NATURE_TO_STAGE) {
+    if (caseNature.includes(needle)) return stage;
+  }
+  return null;
+}
+
 export async function POST(request: Request) {
   return runIncomingWebhook(
     "case_sync",
@@ -114,7 +137,11 @@ export async function POST(request: Request) {
 
       const { data: inserted, error: insertError } = await admin
         .from("cases")
-        .insert({ case_number: caseNumber, ...sourceFields })
+        .insert({
+          case_number: caseNumber,
+          ...sourceFields,
+          case_stage: openingStage(sourceFields.case_nature),
+        })
         .select("id")
         .single();
 
