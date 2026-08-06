@@ -43,9 +43,18 @@ const URGENCY_LABEL: Record<string, string> = {
   soon: "בקרוב",
 };
 
-// synced from עדכנית (PriorityCode/PriorityName) - only code 3 (גבוהה) is
-// worth calling out with a badge, "רגילה" (2) is the default and not shown
+// synced from עדכנית (PriorityCode/PriorityName). Only two codes have been
+// observed (2=רגילה, 3=גבוהה) but the source has no fixed enum, so anything
+// above רגילה is treated as "stands out" rather than hardcoding a list.
+const NORMAL_PRIORITY_CODE = 2;
 const HIGH_PRIORITY_CODE = 3;
+
+function priorityTone(code: number | null): Tone {
+  if (code === null) return "gray";
+  if (code >= HIGH_PRIORITY_CODE) return "amber";
+  if (code <= NORMAL_PRIORITY_CODE) return "gray";
+  return "blue";
+}
 
 function formatDate(value: string) {
   return new Date(value + "T00:00:00").toLocaleDateString("he-IL");
@@ -82,6 +91,7 @@ export function TaskBoard({
   const [caseFilter, setCaseFilter] = useState("");
   const [handlerFilter, setHandlerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("open");
+  const [priorityFilter, setPriorityFilter] = useState("");
   const [range, setRange] = useState<RangeKey>("all");
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [overdueOnly, setOverdueOnly] = useState(() => searchParams.get("overdue") === "1");
@@ -111,6 +121,20 @@ export function TaskBoard({
     );
   }, [rows]);
 
+  // built from the data rather than a fixed list - עדכנית has no enum for
+  // priority and more codes than the two seen so far may show up
+  const priorityOptions = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const t of rows) {
+      if (t.priority_code !== null && t.priority_code !== undefined) {
+        map.set(t.priority_code, t.priority_name || String(t.priority_code));
+      }
+    }
+    return Array.from(map, ([code, label]) => ({ code, label })).sort(
+      (a, b) => b.code - a.code,
+    );
+  }, [rows]);
+
   const caseFilterOption = caseOptions.find((c) => c.id === caseFilter);
   const caseFilterText = caseFilterOption
     ? `${caseFilterOption.case_number} - ${caseFilterOption.case_name}`
@@ -136,6 +160,8 @@ export function TaskBoard({
       if (caseFilter && t.case?.id !== caseFilter) return false;
       if (handlerFilter && t.assigned_to !== handlerFilter) return false;
       if (statusFilter && t.status !== statusFilter) return false;
+      if (priorityFilter && String(t.priority_code ?? "") !== priorityFilter)
+        return false;
       if (overdueOnly) {
         if (!t.due_date || t.status !== "open") return false;
         return new Date(t.due_date + "T00:00:00") < today;
@@ -151,7 +177,7 @@ export function TaskBoard({
       if (end && due > end) return false;
       return true;
     });
-  }, [rows, caseFilter, handlerFilter, statusFilter, range, calendarDate, overdueOnly]);
+  }, [rows, caseFilter, handlerFilter, statusFilter, priorityFilter, range, calendarDate, overdueOnly]);
 
   async function handleCreate(formData: FormData) {
     setFormError(null);
@@ -225,6 +251,7 @@ export function TaskBoard({
     caseFilter,
     handlerFilter,
     statusFilter,
+    priorityFilter,
     range,
     calendarDate,
     overdueOnly,
@@ -266,6 +293,7 @@ export function TaskBoard({
     !!caseFilter ||
     !!handlerFilter ||
     statusFilter !== "open" ||
+    !!priorityFilter ||
     !!calendarDate ||
     overdueOnly;
 
@@ -435,12 +463,27 @@ export function TaskBoard({
           <option value="done">בוצעו</option>
           <option value="cancelled">בוטלו</option>
         </select>
+        {priorityOptions.length > 0 && (
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="">דחיפות: הכל</option>
+            {priorityOptions.map((p) => (
+              <option key={p.code} value={String(p.code)}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        )}
         {hasActiveFilters && (
           <button
             onClick={() => {
               setCaseFilter("");
               setHandlerFilter("");
               setStatusFilter("open");
+              setPriorityFilter("");
               setCalendarDate(null);
               setOverdueOnly(false);
             }}
@@ -469,6 +512,7 @@ export function TaskBoard({
                 <th className="w-1 p-0" aria-hidden />
                 <th className="px-4 py-3 font-semibold text-indigo-900">משימה</th>
                 <th className="px-4 py-3 font-semibold text-indigo-900">תיק</th>
+                <th className="px-4 py-3 text-center font-semibold text-indigo-900">דחיפות</th>
                 <th className="px-4 py-3 text-center font-semibold text-indigo-900">סטטוס</th>
                 <th className="px-4 py-3 font-semibold text-indigo-900">מטפל</th>
                 <th className="px-4 py-3 font-semibold text-indigo-900">תאריך יעד</th>
@@ -504,17 +548,12 @@ export function TaskBoard({
                   >
                     <td className="w-1 p-0" aria-hidden />
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <Link
-                          href={`/tasks/${t.id}`}
-                          className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
-                        >
-                          {t.text}
-                        </Link>
-                        {t.priority_code === HIGH_PRIORITY_CODE && (
-                          <Badge tone="amber">{t.priority_name || "עדיפות גבוהה"}</Badge>
-                        )}
-                      </div>
+                      <Link
+                        href={`/tasks/${t.id}`}
+                        className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
+                      >
+                        {t.text}
+                      </Link>
                       {(t.notes || t.category_name) && (
                         <div className="mt-0.5 text-xs text-gray-400">
                           {[t.category_name, t.notes].filter(Boolean).join(" · ")}
@@ -531,6 +570,15 @@ export function TaskBoard({
                         </Link>
                       ) : (
                         "—"
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                      {t.priority_name || t.priority_code !== null ? (
+                        <Badge tone={priorityTone(t.priority_code)}>
+                          {t.priority_name || String(t.priority_code)}
+                        </Badge>
+                      ) : (
+                        <span className="text-gray-300">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3.5 text-center">
