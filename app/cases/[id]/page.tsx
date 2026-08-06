@@ -23,9 +23,9 @@ import {
 } from "@/types/database";
 import { Badge, hashTone, TONE_HEX } from "@/components/ui/badge";
 import { NamedAvatar } from "@/components/ui/avatar";
-import { FieldGroup, type FieldValue } from "@/components/ui/field-group";
-import { StatusStageEditor } from "./status-stage-editor";
+import { type FieldValue } from "@/components/ui/field-group";
 import { StageStepperPanel } from "./stage-stepper-panel";
+import { CaseSummary } from "./case-summary";
 
 function uniqueSorted(values: (string | null)[]) {
   return Array.from(new Set(values.filter((v): v is string => !!v))).sort(
@@ -231,133 +231,6 @@ export default async function CaseDetailPage({
 // looks up a חוצץ field by name regardless of which page it's on - best
 // guess at the field names these highlights map to in עדכנית; shows "—"
 // harmlessly if the guess is wrong or the field hasn't synced yet
-function lookupCaseField(fields: CaseField[], fieldName: string): string {
-  const match = fields.find((f) => f.field_name === fieldName);
-  return match ? formatCaseFieldValue(match) : "—";
-}
-
-function statusOrDash(value: string | null | undefined) {
-  return value ? <Badge tone={hashTone(value)}>{value}</Badge> : "—";
-}
-
-function CaseSummary({
-  caseRow,
-  caseFields,
-  canEdit,
-  statusOptions,
-  stageOptions,
-}: {
-  caseRow: CaseWithHandler;
-  caseFields: CaseField[];
-  canEdit: boolean;
-  statusOptions: string[];
-  stageOptions: string[];
-}) {
-  const clientFields: FieldValue[] = [
-    { label: "ת.ז", value: caseRow.client_id_number ?? "—" },
-    { label: "טלפון", value: caseRow.client_phone ?? "—" },
-    { label: "מייל", value: caseRow.client_email ?? "—" },
-    { label: "כתובת", value: caseRow.client_address ?? "—" },
-  ];
-
-  const financialFields: FieldValue[] = [
-    { label: "חובות", value: lookupCaseField(caseFields, "חובות") },
-    {
-      label: "מספר נושים",
-      value: lookupCaseField(caseFields, "מספר נושים"),
-    },
-    {
-      label: "תשלום חודשי",
-      value: lookupCaseField(caseFields, "תשלום חודשי לממונה"),
-    },
-  ];
-
-  const caseInfoFields: FieldValue[] = [
-    {
-      label: "מהות תיק",
-      value: canEdit ? (
-        <StatusStageEditor
-          caseId={caseRow.id}
-          caseNumber={caseRow.case_number}
-          fieldName="case_nature"
-          value={caseRow.case_nature}
-          options={stageOptions}
-        />
-      ) : (
-        statusOrDash(caseRow.case_nature)
-      ),
-    },
-    {
-      label: "סטטוס",
-      value: canEdit ? (
-        <StatusStageEditor
-          caseId={caseRow.id}
-          caseNumber={caseRow.case_number}
-          fieldName="status"
-          value={caseRow.status}
-          options={statusOptions}
-        />
-      ) : (
-        statusOrDash(caseRow.status)
-      ),
-    },
-    {
-      label: "מטפל",
-      value: caseRow.handler?.full_name ? (
-        <NamedAvatar name={caseRow.handler.full_name} />
-      ) : (
-        "—"
-      ),
-    },
-    { label: "צוות", value: caseRow.team ?? "—" },
-    {
-      label: "עו״ד אחראי",
-      value: lookupCaseField(caseFields, "עורך דין אחראי"),
-    },
-    {
-      label: "מועד פתיחת תיק",
-      value: caseRow.opened_date
-        ? new Date(caseRow.opened_date).toLocaleDateString("he-IL")
-        : "—",
-    },
-  ];
-
-  const dateFields: FieldValue[] = [
-    { label: "תאריך צו", value: lookupCaseField(caseFields, "מועד קבלת צו") },
-    { label: "מועד דיון", value: lookupCaseField(caseFields, "תאריך דיון.") },
-    { label: "ממונה", value: lookupCaseField(caseFields, "תיק ממונה") },
-    { label: "נאמן", value: lookupCaseField(caseFields, "שם הנאמן") },
-  ];
-
-  return (
-    <div className="space-y-3">
-      {caseRow.drive_url && (
-        <div className="flex justify-end">
-          <a
-            href={caseRow.drive_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
-          >
-            פתיחת תיקיית הדרייב
-          </a>
-        </div>
-      )}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <FieldGroup title="לקוח" tone="blue" fields={clientFields} />
-        <FieldGroup title="נתונים כלכליים" tone="green" fields={financialFields} />
-        <FieldGroup title="פרטי תיק" tone="indigo" fields={caseInfoFields} />
-        <FieldGroup title="תאריכים" tone="purple" fields={dateFields} />
-      </div>
-      {caseRow.external_ref && (
-        <div className="text-xs text-gray-400">
-          זיהוי נוסף: {caseRow.external_ref}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function CaseFieldsTab({
   pageName,
   fields,
