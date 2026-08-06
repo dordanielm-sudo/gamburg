@@ -173,8 +173,18 @@ export default async function CaseDetailPage({
             />
           )}
           <div className="grid gap-6 lg:grid-cols-2">
-            <DeadlinesPanel deadlines={deadlines ?? []} canEdit={canEdit} />
-            <DocumentsPanel documents={documents ?? []} canEdit={canEdit} />
+            <DeadlinesPanel
+              deadlines={deadlines ?? []}
+              canEdit={canEdit}
+              caseId={caseRow.id}
+              caseNumber={caseRow.case_number}
+            />
+            <DocumentsPanel
+              documents={documents ?? []}
+              canEdit={canEdit}
+              caseId={caseRow.id}
+              caseNumber={caseRow.case_number}
+            />
             <CaseTasksPanel tasks={caseTasks ?? []} />
             <CaseApprovalsPanel requests={approvalRequests ?? []} />
           </div>

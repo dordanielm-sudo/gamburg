@@ -12,6 +12,8 @@ import { Badge, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FieldGroup } from "@/components/ui/field-group";
+import { InlineEdit } from "@/components/ui/inline-edit";
+import { EditToggle, SYNC_HINT, LOCAL_HINT } from "@/components/ui/edit-toggle";
 import { priorityLabel, priorityTone } from "@/lib/task-priority";
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -60,6 +62,38 @@ export function TaskDetail({
   const supabase = useMemo(() => createClient(), []);
   const [current, setCurrent] = useState(task);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  // case_id is nullable on tasks - a task with no case has no write-back
+  // target, so it saves locally and skips the webhook
+  const sync = current.case
+    ? {
+        entityType: "task" as const,
+        caseId: current.case.id,
+        caseNumber: current.case.case_number,
+        entityId: current.id,
+      }
+    : undefined;
+
+  function field(
+    column: string,
+    value: string | number | null,
+    kind: "text" | "textarea" | "date" | "number" = "text",
+    render?: (v: string) => React.ReactNode,
+  ) {
+    return (
+      <InlineEdit
+        table="tasks"
+        rowId={current.id}
+        column={column}
+        value={value}
+        editing={editing}
+        kind={kind}
+        render={render}
+        sync={sync}
+      />
+    );
+  }
 
   const urgency = current.due_date
     ? deadlineUrgency(current.due_date, current.status)
@@ -91,8 +125,8 @@ export function TaskDetail({
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
       <div className="flex items-start justify-between gap-4">
-        <h1 className="text-lg font-semibold text-gray-900">
-          {current.text}
+        <h1 className="min-w-0 flex-1 text-lg font-semibold text-gray-900">
+          {field("text", current.text)}
         </h1>
         <div className="flex shrink-0 items-center gap-1.5">
           {priorityLabel(current.priority_code, current.priority_name) && (
@@ -124,6 +158,13 @@ export function TaskDetail({
             </button>
           ))}
           {saving && <Spinner className="h-4 w-4 text-gray-400" />}
+          <div className="ms-auto">
+            <EditToggle
+              editing={editing}
+              onToggle={() => setEditing((v) => !v)}
+              hint={sync ? SYNC_HINT : LOCAL_HINT}
+            />
+          </div>
         </div>
       )}
 
@@ -168,8 +209,18 @@ export function TaskDetail({
             },
             { label: "קטגוריה", value: current.category_name ?? "—" },
             { label: "משתמשים מעודכנים", value: current.informed_users_names ?? "—" },
-            { label: "תאריך התחלה", value: formatDate(current.start_date) },
-            { label: "תאריך יעד", value: formatDate(current.due_date) },
+            {
+              label: "תאריך התחלה",
+              value: field("start_date", current.start_date, "date", (v) =>
+                formatDate(v || null),
+              ),
+            },
+            {
+              label: "תאריך יעד",
+              value: field("due_date", current.due_date, "date", (v) =>
+                formatDate(v || null),
+              ),
+            },
           ]}
         />
         <FieldGroup
@@ -189,10 +240,12 @@ export function TaskDetail({
           ]}
         />
       </div>
-      {current.notes && (
+      {(editing || current.notes) && (
         <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
           <div className="text-xs text-gray-400">הערות</div>
-          <div className="mt-0.5 text-sm text-gray-700">{current.notes}</div>
+          <div className="mt-0.5 text-sm text-gray-700">
+            {field("notes", current.notes, "textarea")}
+          </div>
         </div>
       )}
     </section>

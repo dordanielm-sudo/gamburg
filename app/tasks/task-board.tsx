@@ -16,6 +16,8 @@ import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
 import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/date-ranges";
 import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { InlineEdit } from "@/components/ui/inline-edit";
+import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { priorityTone } from "@/lib/task-priority";
 
@@ -103,6 +105,7 @@ export function TaskBoard({
 }) {
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
+  const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState(tasks);
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -345,6 +348,19 @@ export function TaskBoard({
     !!calendarDate ||
     overdueOnly;
 
+  // a task can stand alone with no case (case_id is nullable), and the
+  // write-back is keyed on the case - so a case-less task is editable
+  // locally but has nothing to push to עדכנית
+  function syncFor(t: TaskWithNames) {
+    if (!t.case) return undefined;
+    return {
+      entityType: "task" as const,
+      caseId: t.case.id,
+      caseNumber: t.case.case_number,
+      entityId: t.id,
+    };
+  }
+
   return (
     <div className="space-y-6">
       {canCreate && (
@@ -433,6 +449,13 @@ export function TaskBoard({
       )}
 
       <div className="flex flex-wrap items-center gap-3">
+        {canCreate && (
+          <EditToggle
+            editing={editing}
+            onToggle={() => setEditing((v) => !v)}
+            hint={SYNC_HINT}
+          />
+        )}
         <div className="flex items-center gap-1 rounded-full bg-gray-100 p-1">
           <button
             onClick={() => {
@@ -614,16 +637,41 @@ export function TaskBoard({
                   >
                     <td className="w-1 p-0" aria-hidden />
                     <td className="px-4 py-3.5">
-                      <Link
-                        href={`/tasks/${t.id}`}
-                        className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
-                      >
-                        {t.text}
-                      </Link>
-                      {(t.notes || t.category_name) && (
-                        <div className="mt-0.5 text-xs text-gray-400">
-                          {[t.category_name, t.notes].filter(Boolean).join(" · ")}
+                      {editing ? (
+                        <InlineEdit
+                          table="tasks"
+                          rowId={t.id}
+                          column="text"
+                          value={t.text}
+                          editing
+                          sync={syncFor(t)}
+                        />
+                      ) : (
+                        <Link
+                          href={`/tasks/${t.id}`}
+                          className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
+                        >
+                          {t.text}
+                        </Link>
+                      )}
+                      {editing ? (
+                        <div className="mt-1">
+                          <InlineEdit
+                            table="tasks"
+                            rowId={t.id}
+                            column="notes"
+                            value={t.notes}
+                            editing
+                            placeholder="הערה"
+                            sync={syncFor(t)}
+                          />
                         </div>
+                      ) : (
+                        (t.notes || t.category_name) && (
+                          <div className="mt-0.5 text-xs text-gray-400">
+                            {[t.category_name, t.notes].filter(Boolean).join(" · ")}
+                          </div>
+                        )
                       )}
                     </td>
                     <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
@@ -660,7 +708,16 @@ export function TaskBoard({
                       )}
                     </td>
                     <td className="px-4 py-3.5 whitespace-nowrap text-gray-600">
-                      {t.due_date ? formatDate(t.due_date) : "—"}
+                      <InlineEdit
+                        table="tasks"
+                        rowId={t.id}
+                        column="due_date"
+                        value={t.due_date}
+                        editing={editing}
+                        kind="date"
+                        render={(v) => (v ? formatDate(v) : "—")}
+                        sync={syncFor(t)}
+                      />
                     </td>
                     {canCreate && (
                       <td className="px-4 py-3.5 whitespace-nowrap">
