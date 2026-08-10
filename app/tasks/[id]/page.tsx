@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { TaskDetail } from "./task-detail";
-import { collectPriorityOptions } from "../task-priority-editor";
+import { collectPriorityOptions } from "@/lib/task-priority";
 import type { TaskWithNames } from "@/types/database";
 
 const TASK_SELECT =
