@@ -7,20 +7,33 @@ import { StatTile } from "@/components/ui/stat-tile";
 import { CaseChartsPanel, type ChartCaseRow } from "./case-charts-panel";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { isCaseStuck, type ViewTemplate } from "@/types/database";
+import { isCaseStuck, type CaseField, type ViewTemplate } from "@/types/database";
+import { fetchAllRows } from "@/lib/fetch-all-rows";
 
 interface DashboardCaseRow {
   id: string;
   status: string | null;
   case_type: string | null;
   case_nature: string | null;
+  case_stage: string | null;
+  team: string | null;
   handler_id: string | null;
   last_touched_at: string;
   flag_problematic_client: boolean;
   flag_non_paying: boolean;
   flag_transferring_documents: boolean;
   handler: { full_name: string } | null;
+  case_fields: Pick<
+    CaseField,
+    "page_name" | "field_name" | "value_text" | "value_date" | "value_number"
+  >[];
 }
+
+const DASHBOARD_CASE_SELECT =
+  "id, status, case_type, case_nature, case_stage, team, handler_id, last_touched_at, " +
+  "flag_problematic_client, flag_non_paying, flag_transferring_documents, " +
+  "handler:profiles!cases_handler_id_fkey(full_name), " +
+  "case_fields(page_name, field_name, value_text, value_date, value_number)";
 
 interface UpcomingItem {
   id: string;
@@ -52,12 +65,17 @@ export default async function DashboardPage() {
     { data: upcomingDeadlines },
     { data: chartTemplates },
   ] = await Promise.all([
-    supabase
-      .from("cases")
-      .select(
-        "id, status, case_type, case_nature, handler_id, last_touched_at, flag_problematic_client, flag_non_paying, flag_transferring_documents, handler:profiles!cases_handler_id_fkey(full_name)",
-      )
-      .returns<DashboardCaseRow[]>(),
+    // batched: an unpaged select stops at 1000 rows without erroring, which
+    // had every tile and chart on this page reporting on a slice of the data
+    fetchAllRows<DashboardCaseRow>((from, to) =>
+      supabase
+        .from("cases")
+        .select(DASHBOARD_CASE_SELECT)
+        .order("last_touched_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to)
+        .returns<DashboardCaseRow[]>(),
+    ),
     supabase
       .from("tasks")
       .select("id", { count: "exact", head: true })
@@ -106,12 +124,10 @@ export default async function DashboardPage() {
       c.flag_transferring_documents,
   ).length;
 
-  const chartRows: ChartCaseRow[] = rows.map((c) => ({
-    status: c.status,
-    case_type: c.case_type,
-    case_nature: c.case_nature,
-    handler_name: c.handler?.full_name ?? null,
-  }));
+  // ChartCaseRow is the shared FilterableCase shape, so the rows go straight
+  // through - including case_fields and case_stage, which is what lets the
+  // dashboard filter and group by חוצצים ושלבים like the cases screen does
+  const chartRows: ChartCaseRow[] = rows;
 
   const byHandler = new Map<
     string,

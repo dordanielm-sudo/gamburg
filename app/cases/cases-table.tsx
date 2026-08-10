@@ -21,6 +21,11 @@ import { Badge, hashTone, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
+import {
+  collectCaseFieldKeys,
+  caseFilterFieldOptions,
+  caseFilterValue,
+} from "@/lib/case-filter-fields";
 
 type SortKey = "case_number" | "case_name" | "opened_date" | "last_touched_at";
 
@@ -46,18 +51,6 @@ const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
 // סינון מתקדם: the fixed-column half of the field picker (the other half
 // is built dynamically from whatever חוצץ fields exist on the loaded cases)
-const FIXED_FIELD_DEFS: {
-  key: string;
-  label: string;
-  getValue: (c: CaseWithRelations) => string | null;
-}[] = [
-  { key: "status", label: "סטטוס", getValue: (c) => c.status },
-  { key: "case_type", label: "סוג תיק", getValue: (c) => c.case_type },
-  { key: "case_nature", label: "מהות תיק", getValue: (c) => c.case_nature },
-  { key: "team", label: "צוות", getValue: (c) => c.team },
-  { key: "handler", label: "מטפל", getValue: (c) => c.handler?.full_name ?? null },
-];
-
 // the fixed columns are drag-reorderable (per-user, persisted); the leading
 // accent strip and the per-case-type dynamic columns are not part of this -
 // they stay pinned at the start/end respectively
@@ -289,40 +282,17 @@ export function CasesTable({
     });
   }
 
-  const caseFieldKeys = useMemo(() => {
-    const set = new Set<string>();
-    for (const c of rows) {
-      for (const f of c.case_fields) set.add(`${f.page_name}::${f.field_name}`);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "he"));
-  }, [rows]);
+  const caseFieldKeys = useMemo(() => collectCaseFieldKeys(rows), [rows]);
 
   const advancedFieldOptions = useMemo(
-    () => [
-      ...FIXED_FIELD_DEFS.map((d) => ({ key: `fixed:${d.key}`, label: d.label })),
-      ...caseFieldKeys.map((k) => {
-        const [pageName, fieldName] = k.split("::");
-        return { key: `case_field:${k}`, label: `${pageName} / ${fieldName}` };
-      }),
-    ],
+    () => caseFilterFieldOptions(caseFieldKeys),
     [caseFieldKeys],
   );
 
-  const valueForKey = useCallback((c: CaseWithRelations, pickerKey: string): string | null => {
-    if (pickerKey.startsWith("fixed:")) {
-      const key = pickerKey.slice("fixed:".length);
-      const def = FIXED_FIELD_DEFS.find((d) => d.key === key);
-      return def ? def.getValue(c) : null;
-    }
-    if (pickerKey.startsWith("case_field:")) {
-      const [pageName, fieldName] = pickerKey.slice("case_field:".length).split("::");
-      const match = c.case_fields.find(
-        (f) => f.page_name === pageName && f.field_name === fieldName,
-      );
-      return match ? formatCaseFieldValue(match) : null;
-    }
-    return null;
-  }, []);
+  const valueForKey = useCallback(
+    (c: CaseWithRelations, pickerKey: string) => caseFilterValue(c, pickerKey),
+    [],
+  );
 
   function applyTemplate(id: string) {
     const template = templates.find((t) => t.id === id);

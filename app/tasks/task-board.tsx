@@ -17,9 +17,12 @@ import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/da
 import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { InlineEdit } from "@/components/ui/inline-edit";
+import {
+  TaskPriorityEditor,
+  collectPriorityOptions,
+} from "./task-priority-editor";
 import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 import { NamedAvatar } from "@/components/ui/avatar";
-import { priorityTone } from "@/lib/task-priority";
 
 const TASK_SELECT =
   "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)";
@@ -147,18 +150,15 @@ export function TaskBoard({
   }, [rows]);
 
   // built from the data rather than a fixed list - עדכנית has no enum for
-  // priority and more codes than the two seen so far may show up
-  const priorityOptions = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const t of rows) {
-      if (t.priority_code !== null && t.priority_code !== undefined) {
-        map.set(t.priority_code, t.priority_name || String(t.priority_code));
-      }
-    }
-    return Array.from(map, ([code, label]) => ({ code, label })).sort(
-      (a, b) => b.code - a.code,
-    );
-  }, [rows]);
+  // priority and more codes than the two seen so far may show up. Shared by
+  // the filter dropdown and the inline editor, so both always offer the same
+  // set; collectPriorityOptions sorts ascending, and the filter shows the
+  // highest first.
+  const priorityOptions = useMemo(() => collectPriorityOptions(rows), [rows]);
+  const priorityFilterOptions = useMemo(
+    () => [...priorityOptions].reverse(),
+    [priorityOptions],
+  );
 
   const caseFilterOption = caseOptions.find((c) => c.id === caseFilter);
   const caseFilterText = caseFilterOption
@@ -545,9 +545,9 @@ export function TaskBoard({
             className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
           >
             <option value="">דחיפות: הכל</option>
-            {priorityOptions.map((p) => (
+            {priorityFilterOptions.map((p) => (
               <option key={p.code} value={String(p.code)}>
-                {p.label}
+                {p.name}
               </option>
             ))}
           </select>
@@ -691,13 +691,11 @@ export function TaskBoard({
                       )}
                     </td>
                     <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                      {t.priority_name || t.priority_code !== null ? (
-                        <Badge tone={priorityTone(t.priority_code)}>
-                          {t.priority_name || String(t.priority_code)}
-                        </Badge>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
+                      <TaskPriorityEditor
+                        task={t}
+                        options={priorityOptions}
+                        editing={editing}
+                      />
                     </td>
                     <td className="px-4 py-3.5 text-center">
                       <Badge tone={primaryTone} size="md">

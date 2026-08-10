@@ -13,6 +13,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FieldGroup } from "@/components/ui/field-group";
 import { InlineEdit } from "@/components/ui/inline-edit";
+import {
+  TaskPriorityEditor,
+  type PriorityOption,
+} from "../task-priority-editor";
 import { EditToggle, SYNC_HINT, LOCAL_HINT } from "@/components/ui/edit-toggle";
 import { priorityLabel, priorityTone } from "@/lib/task-priority";
 
@@ -55,9 +59,11 @@ function formatDate(value: string | null) {
 export function TaskDetail({
   task,
   canEdit,
+  priorityOptions,
 }: {
   task: TaskWithNames;
   canEdit: boolean;
+  priorityOptions: PriorityOption[];
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [current, setCurrent] = useState(task);
@@ -199,15 +205,12 @@ export function TaskDetail({
             },
             {
               label: "דחיפות",
-              value: priorityLabel(
-                current.priority_code,
-                current.priority_name,
-              ) ? (
-                <Badge tone={priorityTone(current.priority_code)}>
-                  {priorityLabel(current.priority_code, current.priority_name)}
-                </Badge>
-              ) : (
-                "—"
+              value: (
+                <TaskPriorityEditor
+                  task={current}
+                  options={priorityOptions}
+                  editing={editing}
+                />
               ),
             },
             { label: "קטגוריה", value: current.category_name ?? "—" },

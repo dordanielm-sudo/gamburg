@@ -5,8 +5,13 @@ import { AppHeader } from "@/components/app-header";
 import { DeadlinesBoard } from "./deadlines-board";
 import type { CaseDeadlineWithCase, Case, ViewTemplate } from "@/types/database";
 
+// the case is joined with everything the shared filter field set reads, so
+// the board can filter on case status/stage/חוצצים and not just its own columns
 const DEADLINE_SELECT =
-  "*, case:cases!case_deadlines_case_id_fkey(id, case_number, case_name, handler:profiles!cases_handler_id_fkey(id, full_name))";
+  "*, case:cases!case_deadlines_case_id_fkey(" +
+  "id, case_number, case_name, status, case_type, case_nature, case_stage, team, " +
+  "handler:profiles!cases_handler_id_fkey(id, full_name), " +
+  "case_fields(page_name, field_name, value_text, value_date, value_number))";
 
 export default async function DeadlinesPage() {
   const profile = await getCurrentProfile();

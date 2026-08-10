@@ -134,8 +134,29 @@ export interface CaseDeadline {
   updated_at: string;
 }
 
+// The joined case carries the same fields the cases screen filters on, so the
+// deadlines board can offer סינון מתקדם at the same depth - including חוצצים
+// and שלב בתיק - instead of only the deadline's own columns.
 export interface CaseDeadlineWithCase extends CaseDeadline {
-  case: Pick<CaseWithHandler, "id" | "case_number" | "case_name" | "handler"> | null;
+  case:
+    | (Pick<
+        CaseWithHandler,
+        | "id"
+        | "case_number"
+        | "case_name"
+        | "handler"
+        | "status"
+        | "case_type"
+        | "case_nature"
+        | "case_stage"
+        | "team"
+      > & {
+        case_fields: Pick<
+          CaseField,
+          "page_name" | "field_name" | "value_text" | "value_date" | "value_number"
+        >[];
+      })
+    | null;
 }
 
 // a deadline is "urgent" once it's due within this many days (or already overdue)
