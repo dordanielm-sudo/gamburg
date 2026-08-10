@@ -20,11 +20,15 @@
   against the local test harness: adds `notifications` to the
   `supabase_realtime` publication (the notification bell subscribes to
   INSERT on it) and schedules `check_stuck_cases()` daily via `pg_cron`.
-- `tests/` — a local-only Postgres shim (fake `auth` schema/roles) plus seed
-  data and RLS assertions, so the policies above can be exercised without a
-  live Supabase project. Never apply `tests/00_local_shim.sql` or
-  `tests/00b_default_grants.sql` to a real project — it already has that
-  infrastructure.
+- `tests/` — a local-only Postgres shim (fake `auth` schema/roles, a pg_cron
+  stub) plus seed data and assertions, so the policies above can be exercised
+  without a live Supabase project. Two assertion files: `02_rls_assertions.sql`
+  covers read/write access on `cases`, `tasks` and `notifications`;
+  `04_write_access.sql` covers the tables that editing opened up in
+  0034–0036 (`case_fields`, `case_deadlines`, `documents`,
+  `approval_requests`, plus the write-back trail in `case_sync_log`). Never
+  apply `tests/00_local_shim.sql` or `tests/00b_default_grants.sql` to a real
+  project — it already has that infrastructure.
 
 ## Applying to a real Supabase project
 
@@ -50,19 +54,41 @@ user") or the Admin API, setting `user_metadata`:
 
 ## Running the RLS tests locally
 
-Requires Docker only (no Supabase project needed):
+No Supabase project needed:
 
 ```
 ./scripts/test-rls.sh
 ```
 
-Spins up a throwaway `postgres:16-alpine` container, applies migrations
-0001-0005 plus the local shim/seed data, and runs 18 assertions covering all
-3 roles (row visibility, column-level write restrictions, task/notification
-automation, deactivation, stuck-case notifications). Prints
-`ALL RLS CHECKS PASSED` on success, or the first failing assertion
-otherwise. `0006_realtime_and_cron.sql` is Supabase-only and is not part of
-this local run - apply it directly on the real project.
+Uses a throwaway `postgres:16-alpine` container when Docker is available,
+and otherwise falls back to a local `postgres` binary in a temp directory —
+CI sandboxes often have the binary but no usable Docker daemon, and these
+tests are worth running in both.
+
+It applies every migration except `0006_realtime_and_cron.sql`, plus the
+local shim and seed data, then runs 44 assertions across all 3 roles: row
+visibility, column-level write restrictions, task/notification automation,
+deactivation, stuck-case notifications, and write access on every table
+that editing opened up. Prints `All RLS checks passed.` on success, or stops
+at the first failing assertion.
+
+`0006` is the only Supabase-only migration and is skipped — it needs the
+`supabase_realtime` publication and the `pg_cron` extension. Apply it
+directly on the real project. Later migrations that merely *call*
+`cron.schedule()` do run: the shim stubs the `cron` schema so those files
+reach their RLS statements instead of aborting.
+
+Two things the suite is deliberately careful about, because they fail in
+opposite ways:
+
+- **RLS decides rows.** A blocked write is silent — it matches nothing and
+  reports success with zero rows affected. Those assertions check the row
+  count, never an exception.
+- **GRANTs decide columns.** A blocked column raises. Column grants are
+  table-wide and independent of RLS, so a `grant update (…)` on a table that
+  never had its table-wide UPDATE revoked does nothing at all. 0034/0035
+  shipped exactly that mistake and 0036 fixed it; the suite now pins each
+  ungranted column down.
 
 ## Confirmed role permissions (stage 1-2)
 
