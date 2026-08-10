@@ -41,7 +41,17 @@ export default async function TaskDetailPage({
   // (0002) scopes a task to its assignee and its creator, so a task that was
   // reassigned in עדכנית stops being visible to whoever it belonged to
   // before - including from an older notification still linking to it.
-  if (!task) notFound();
+  //
+  // Logged because the two are indistinguishable from the browser - both are
+  // a bare 404 - and the row id alone is not enough to tell them apart after
+  // the fact. Knowing which user asked, and under which role, turns a support
+  // question into a one-line answer.
+  if (!task) {
+    console.warn(
+      `[task-detail] 404 taskId=${id} profileId=${profile.id} role=${profile.role}`,
+    );
+    notFound();
+  }
 
   // The priority picker offers the codes עדכנית actually uses. There is no
   // enum on the source side, so the set is read from existing rows rather
