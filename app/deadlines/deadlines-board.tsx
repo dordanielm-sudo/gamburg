@@ -375,16 +375,19 @@ export function DeadlinesBoard({
     }
   }
 
-  // a board row's deadline always belongs to a case, but the join is nullable
-  // in the type - without a case there is nothing to write back to, so the
-  // row stays read-only rather than logging an unroutable change
+  // without a write-back target the field still saves locally; it just does
+  // not log a change Make could never route
   function syncFor(d: CaseDeadlineWithCase) {
-    if (!d.case) return undefined;
+    // a deadline is a field on the case in עדכנית, named by
+    // source_field_name; without a case or that name there is nothing to
+    // write back to
+    if (!d.case || !d.source_field_name) return undefined;
     return {
       entityType: "deadline" as const,
       caseId: d.case.id,
       caseNumber: d.case.case_number,
       entityId: d.id,
+      sourceRef: d.source_field_name,
     };
   }
 

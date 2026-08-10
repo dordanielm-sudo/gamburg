@@ -179,12 +179,7 @@ export default async function CaseDetailPage({
               caseId={caseRow.id}
               caseNumber={caseRow.case_number}
             />
-            <DocumentsPanel
-              documents={documents ?? []}
-              canEdit={canEdit}
-              caseId={caseRow.id}
-              caseNumber={caseRow.case_number}
-            />
+            <DocumentsPanel documents={documents ?? []} canEdit={canEdit} />
             <CaseTasksPanel tasks={caseTasks ?? []} />
             <CaseApprovalsPanel requests={approvalRequests ?? []} />
           </div>

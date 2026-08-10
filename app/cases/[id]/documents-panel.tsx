@@ -6,7 +6,7 @@ import type { CaseDocumentWithResponsible, DocumentStatus } from "@/types/databa
 import { Badge, TONE_BADGE, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { InlineEdit } from "@/components/ui/inline-edit";
-import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
+import { EditToggle, LOCAL_HINT } from "@/components/ui/edit-toggle";
 import { NamedAvatar } from "@/components/ui/avatar";
 
 const PANEL_TONE: Tone = "blue";
@@ -31,27 +31,21 @@ function formatDate(value: string | null) {
 export function DocumentsPanel({
   documents,
   canEdit,
-  caseId,
-  caseNumber,
 }: {
   documents: CaseDocumentWithResponsible[];
   canEdit: boolean;
-  caseId: string;
-  caseNumber: string;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(documents);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
-  function sync(docId: string) {
-    return {
-      entityType: "document" as const,
-      caseId,
-      caseNumber,
-      entityId: docId,
-    };
-  }
+  // Documents are the one editable table with no way back to עדכנית. They
+  // arrive through the incoming-document webhook and the schema keeps no
+  // identifier from the source, so Make would have nothing to match on -
+  // matching on the title is no good either, since the title is one of the
+  // fields being edited. Edits here stay in the CRM until documents carry a
+  // source id, and the panel says so rather than implying a sync.
 
   async function updateStatus(doc: CaseDocumentWithResponsible, status: DocumentStatus) {
     setRows((prev) =>
@@ -86,7 +80,7 @@ export function DocumentsPanel({
           <EditToggle
             editing={editing}
             onToggle={() => setEditing((v) => !v)}
-            hint={SYNC_HINT}
+            hint={LOCAL_HINT}
           />
         )}
       </div>
@@ -105,7 +99,6 @@ export function DocumentsPanel({
                     column="title"
                     value={d.title}
                     editing={editing}
-                    sync={sync(d.id)}
                   />
                 </span>
                 {canEdit ? (
@@ -140,7 +133,6 @@ export function DocumentsPanel({
                       value={d.doc_type}
                       editing
                       placeholder="סוג מסמך"
-                      sync={sync(d.id)}
                     />
                     <InlineEdit
                       table="documents"
@@ -149,7 +141,6 @@ export function DocumentsPanel({
                       value={d.doc_date}
                       editing
                       kind="date"
-                      sync={sync(d.id)}
                     />
                   </>
                 ) : (

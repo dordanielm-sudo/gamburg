@@ -48,12 +48,16 @@ export function DeadlinesPanel({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
-  function sync(deadlineId: string) {
+  // a deadline is a field on the case in עדכנית, named by source_field_name -
+  // without it there is no field over there to write to
+  function sync(d: CaseDeadline) {
+    if (!d.source_field_name) return undefined;
     return {
       entityType: "deadline" as const,
       caseId,
       caseNumber,
-      entityId: deadlineId,
+      entityId: d.id,
+      sourceRef: d.source_field_name,
     };
   }
 
@@ -134,7 +138,7 @@ export function DeadlinesPanel({
                       column="label"
                       value={d.label}
                       editing={editing}
-                      sync={sync(d.id)}
+                      sync={sync(d)}
                     />
                   </div>
                   {(editing || d.notes) && (
@@ -146,7 +150,7 @@ export function DeadlinesPanel({
                         value={d.notes}
                         editing={editing}
                         placeholder="הערה"
-                        sync={sync(d.id)}
+                        sync={sync(d)}
                       />
                     </div>
                   )}
@@ -159,7 +163,7 @@ export function DeadlinesPanel({
                         value={d.zoom_link}
                         editing
                         placeholder="קישור זום"
-                        sync={sync(d.id)}
+                        sync={sync(d)}
                       />
                       <InlineEdit
                         table="case_deadlines"
@@ -168,7 +172,7 @@ export function DeadlinesPanel({
                         value={d.address}
                         editing
                         placeholder="כתובת"
-                        sync={sync(d.id)}
+                        sync={sync(d)}
                       />
                     </div>
                   )}
@@ -192,7 +196,7 @@ export function DeadlinesPanel({
                     editing={editing}
                     kind="date"
                     render={(v) => (v ? formatDate(v) : "—")}
-                    sync={sync(d.id)}
+                    sync={sync(d)}
                   />
                 </span>
                 <Badge tone={URGENCY_TONE[urgency]}>{URGENCY_LABEL[urgency]}</Badge>

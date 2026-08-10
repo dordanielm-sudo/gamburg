@@ -21,6 +21,12 @@ interface CaseUpdatePayload {
   // became editable - so existing callers keep working unchanged.
   entity_type?: EntityType;
   entity_id?: string;
+  // How עדכנית identifies this record. entity_id is our own uuid, which
+  // עדכנית has never seen, so Make needs this to locate what to write:
+  // tasks.source_task_id for a task, case_deadlines.source_field_name for a
+  // deadline. Null for a case or a חוצץ field, where case_number (plus
+  // page_name/field_name) already identifies the record.
+  source_ref?: string | null;
   old_value?: unknown;
   new_value?: unknown;
 }
@@ -61,6 +67,7 @@ export async function POST(request: Request) {
     field_name,
     page_name,
     entity_id,
+    source_ref,
     old_value,
     new_value,
   } = payload;
@@ -148,6 +155,7 @@ export async function POST(request: Request) {
     page_name: page_name ?? null,
     entity_type,
     entity_id: entity_id ?? null,
+    source_ref: source_ref ?? null,
     old_value,
     new_value,
     changed_by: user.id,

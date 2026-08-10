@@ -352,12 +352,16 @@ export function TaskBoard({
   // write-back is keyed on the case - so a case-less task is editable
   // locally but has nothing to push to עדכנית
   function syncFor(t: TaskWithNames) {
-    if (!t.case) return undefined;
+    // no case, or no source_task_id, means nothing to write back to: the
+    // first has no case to hang the change on, the second is a task that
+    // only ever existed in the CRM, so עדכנית has no record to update.
+    if (!t.case || !t.source_task_id) return undefined;
     return {
       entityType: "task" as const,
       caseId: t.case.id,
       caseNumber: t.case.case_number,
       entityId: t.id,
+      sourceRef: t.source_task_id,
     };
   }
 
