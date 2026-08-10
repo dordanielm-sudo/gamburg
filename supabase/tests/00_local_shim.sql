@@ -39,3 +39,42 @@ create role service_role nologin bypassrls;
 
 grant usage on schema auth to anon, authenticated, service_role;
 grant usage on schema public to anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- pg_cron stub.
+--
+-- Migrations 0012 and 0018 schedule jobs with cron.schedule(), and 0012 first
+-- probes cron.job to make itself re-runnable. pg_cron is a Supabase extension
+-- that plain Postgres does not have, and without it those migrations abort -
+-- which would stop the harness before it ever reached the tables added later.
+--
+-- The stub records the call and does nothing else. Scheduling itself is not
+-- what these tests are about; the RLS policies in the same migrations are, and
+-- those need the file to run to completion.
+create schema if not exists cron;
+
+create table if not exists cron.job (
+  jobid   bigserial primary key,
+  jobname text unique,
+  schedule text,
+  command text
+);
+
+create or replace function cron.schedule(
+  job_name text,
+  schedule text,
+  command text
+) returns bigint
+language sql as $$
+  insert into cron.job (jobname, schedule, command)
+  values (job_name, schedule, command)
+  on conflict (jobname) do update
+    set schedule = excluded.schedule, command = excluded.command
+  returning jobid;
+$$;
+
+create or replace function cron.unschedule(job_name text)
+returns boolean
+language sql as $$
+  delete from cron.job where jobname = job_name returning true;
+$$;
