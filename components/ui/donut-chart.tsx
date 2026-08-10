@@ -88,24 +88,39 @@ export function DonutChart({
           <span className="text-[11px] text-gray-400">{totalLabel}</span>
         </div>
       </div>
-      <ul className="min-w-[160px] space-y-1.5 text-sm">
+      <ul className="min-w-[170px] space-y-0.5 text-sm">
         {segments.map((seg) => {
           const href = hrefForSegment?.(seg.label);
           const content = (
             <>
               <Dot tone={seg.tone} />
-              <span className="text-gray-600">{seg.label}</span>
+              <span className="flex-1 text-gray-600">{seg.label}</span>
               <span className="font-semibold text-gray-900">{seg.value}</span>
             </>
           );
           return (
-            <li key={seg.label} className="flex items-center gap-2">
+            <li key={seg.label}>
               {href ? (
-                <Link href={href} className="flex items-center gap-2 hover:text-blue-700">
+                // The whole row is the target, with a hover background and an
+                // arrow, because the previous version only coloured the text
+                // on hover and read as static - the client reported not
+                // realising the chart could be clicked at all.
+                <Link
+                  href={href}
+                  className="group -mx-2 flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-blue-50"
+                >
                   {content}
+                  <span
+                    aria-hidden
+                    className="text-gray-300 transition-colors group-hover:text-blue-600"
+                  >
+                    ←
+                  </span>
                 </Link>
               ) : (
-                content
+                <span className="-mx-2 flex items-center gap-2 px-2 py-1">
+                  {content}
+                </span>
               )}
             </li>
           );

@@ -217,8 +217,32 @@ export function CasesTable({
   // fixed column or a specific חוצץ field, each allowing multiple values
   // (OR within a condition, AND across conditions)
   const [templates, setTemplates] = useState(viewTemplates);
-  const [advancedFilters, setAdvancedFilters] = useState<ViewFilterCondition[]>([]);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  // A dashboard chart segment links here carrying its own condition, e.g.
+  //   /cases?filter=[{"key":"fixed:case_stage","values":["בקשה הוגשה"]}]
+  // That covers every field the shared picker knows - including חוצצים and
+  // שלב בתיק - instead of needing a dedicated query param per field. A
+  // malformed value is ignored rather than throwing: the URL is user-facing
+  // and can be edited or truncated by a mail client.
+  const filterFromUrl = useMemo<ViewFilterCondition[]>(() => {
+    const raw = searchParams.get("filter");
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(
+        (c): c is ViewFilterCondition =>
+          typeof c?.key === "string" && Array.isArray(c?.values),
+      );
+    } catch {
+      return [];
+    }
+  }, [searchParams]);
+
+  const [advancedFilters, setAdvancedFilters] =
+    useState<ViewFilterCondition[]>(filterFromUrl);
+  // open the panel when arriving with a filter, so the condition is visible
+  // and removable rather than silently narrowing the list
+  const [showAdvanced, setShowAdvanced] = useState(filterFromUrl.length > 0);
   const [templateName, setTemplateName] = useState("");
   const [templateError, setTemplateError] = useState<string | null>(null);
 
