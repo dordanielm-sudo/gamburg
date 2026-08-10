@@ -132,22 +132,38 @@ Make חייב להחזיר **סינכרונית**, בגוף JSON:
 
 התפקיד היחיד: **לכתוב לעדכנית**, ולהחזיר תשובה.
 
-## לפני שמתחילים — לברר מול הספק של עדכנית
+## מפת הסכימה של עדכנית
 
-הסנכרון הנכנס קורא מ-`vwExportToOuterSystems_Files` ו-
-`vwExportToOuterSystems_UserData`. אלה **תצוגות ייצוא**, לקריאה בלבד —
-`UPDATE` על תצוגה שמצרפת טבלאות נכשל ב-SQL Server.
+נגזרה מהגדרת `vwExportToOuterSystems_Files` ואומתה בכתיבה בפועל.
 
-צריך אחד משניים:
+**מפתח ההתאמה:** `case_number` ב-CRM הוא `vwMainTik.VisualID`. הוא הולך
+ל-`WHERE` בכל שאילתה.
 
-1. **שמות טבלאות הבסיס** + אישור שמותר לכתוב אליהן ישירות, או
-2. **Stored Procedure / API** לעדכון.
+**הקישור ללקוח:** `vwMainTik.SideCounter = vwClients.Counter`.
 
-אם קיימת פרוצדורה — היא עדיפה. כתיבה ישירה לטבלאות בסיס של מערכת צד-שלישי
-עוקפת את הוולידציות והטריגרים שלה, ועלולה להשאיר את עדכנית במצב לא עקבי.
+**ארבעה שדות הם קודים, לא טקסט.** התצוגה מצרפת טבלת קודים כדי להחזיר שם
+קריא, אז ה-CRM מקבל שם — אבל בטבלה יושב מספר. כתיבת השם היישר לעמודה
+תיכשל או תשתבש:
 
-**כל שמות הטבלאות והעמודות בהמשך הם מצייני מקום.** החליפו אותם במה שהספק
-יאשר.
+| שדה ב-CRM | עמודת הקוד | טבלת השמות | עמודת השם |
+|---|---|---|---|
+| `status` | `vwMainTik.Status` | `vwTikStatuses` | `StatusName` |
+| `case_nature` | `vwMainTik.MautCode` | `vwTikMaut` | `MautName` |
+| `team` | `vwMainTik.TeamCounter` | `vwTeams` | `TeamName` |
+| `case_type` | `vwMainTik.UserDataType` | `vwTikTypes` | `TypeName` |
+
+`case_type` יושב על `UserDataType`, לא על `HALICH` — `HALICH` הוא שדה נפרד
+שה-CRM אינו מסנכרן.
+
+**פרטי הלקוח אינם בתצוגת הייצוא.** ממנה נלקחים מ-`vwClients` רק `VisualID`
+ו-`clcFullName`. הטלפון/מייל/כתובת נמשכים בשאילתה נפרדת בסנריו הנכנס,
+ו-`vwClients` מחזיקה **שלוש** עמודות טלפון: `Phone1`, `Phone2`, `Mobile`.
+
+יש לכתוב לאותה עמודה שהסנכרון הנכנס קורא ממנה. אחרת העריכה תצליח, Make
+יחזיר `success`, והסנכרון הבא ידרוס אותה — המשתמש יראה את הערך הישן חוזר
+בלי שום הודעת שגיאה.
+
+`vwClients` ניתנת לכתיבה ישירה (נבדק).
 
 ## מבנה הסנריו
 
@@ -179,16 +195,44 @@ Webhook (Custom webhook)
 
 ## ה-SQL לכל ענף
 
-### `entity_type = "case"` — שדה על התיק
+### `entity_type = "case"` — שדה טקסט על התיק
 
 ```sql
-update <טבלת_התיקים>
-   set <עמודה> = ?
- where FileNumber = ?
+update vwMainTik set TikName = ? where VisualID = ?;
+select @@ROWCOUNT as affected;
 ```
 Parameters: `{{new_value}}`, `{{case_number}}`
 
-את `<עמודה>` גוזרים מ-`field_name` דרך מיפוי (ראו למטה).
+### `entity_type = "case"` — שדה קוד (סטטוס, מהות, צוות, סוג)
+
+```sql
+update mt
+   set mt.Status = ts.Counter
+  from vwMainTik mt
+  join vwTikStatuses ts on ts.StatusName = ?
+ where mt.VisualID = ?;
+select @@ROWCOUNT as affected;
+```
+
+הדפוס הזה בטוח: אם שם הסטטוס אינו קיים בטבלת הקודים, ה-`join` לא מתאים
+כלום, `affected` יוצא `0`, ובדיקת ה-ROWCOUNT מחזירה `failure`. לא נכתב קוד
+שגוי ולא נמחק ערך קיים — מה שהיה קורה עם תת-שאילתה שמחזירה `NULL`.
+
+לשלושת האחרים אותו מבנה, עם העמודה וטבלת השמות מהטבלה למעלה.
+
+### `entity_type = "case"` — פרטי לקוח
+
+```sql
+update vwClients
+   set Phone1 = ?
+ where Counter = (select SideCounter from vwMainTik where VisualID = ?);
+select @@ROWCOUNT as affected;
+```
+Parameters: `{{new_value}}`, `{{case_number}}`
+
+**הטלפון יושב על הלקוח, לא על התיק.** ללקוח עם כמה תיקים, עדכון באחד מהם
+משנה את כולם. זו כנראה ההתנהגות הרצויה — לאדם יש טלפון אחד — אבל כדאי
+שהלקוחה תדע, כי עורכת דין שמשנה טלפון בתיק אחד לא בהכרח מצפה לכך.
 
 ### `entity_type = "case_field"` — שדה בחוצץ
 
