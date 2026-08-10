@@ -51,17 +51,10 @@ as $$
     );
 $$;
 
-create policy case_deadlines_update_editors
-  on public.case_deadlines for update
-  to authenticated
-  using (public.can_edit_case(case_id))
-  with check (public.can_edit_case(case_id));
-
-create policy documents_update_editors
-  on public.documents for update
-  to authenticated
-  using (public.can_edit_case(case_id))
-  with check (public.can_edit_case(case_id));
+-- case_deadlines and documents already carry exactly this rule from 0007 and
+-- 0008 (case_deadlines_update / documents_update), so they need no new policy
+-- here - only the column grants further down, which is what actually blocked
+-- editing anything beyond status.
 
 create policy tasks_update_editors
   on public.tasks for update
@@ -89,7 +82,21 @@ grant update (
   title, doc_type, status, doc_date, notes, responsible_id, file_url
 ) on public.documents to authenticated;
 
+-- Tasks need care that the other two don't. Column grants are table-wide and
+-- independent of RLS, so a grant here widens what EVERY update policy on
+-- tasks may write - including tasks_update_assignee_status from 0002, whose
+-- whole point is "the assignee may only flip status". 0002 enforced that with
+-- a narrow grant (status, completed_at), not with the policy.
+--
+-- Opening the task text/dates/notes for editing means that narrow grant has
+-- to widen, and the assignee gains the same reach. That is the intended
+-- trade: a task is personal work and its assignee may correct it.
+--
+-- assigned_to stays out. It is the one column where the widening would be
+-- more than an edit - an assignee could hand their task to someone else, or
+-- take one from them - and no screen offers it, so granting it would buy
+-- nothing and only remove a guard.
 grant update (
-  text, status, assigned_to, start_date, due_date, notes,
+  text, status, start_date, due_date, notes,
   priority_code, priority_name, category_code, category_name
 ) on public.tasks to authenticated;
