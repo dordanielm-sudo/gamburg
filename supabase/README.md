@@ -92,18 +92,38 @@ opposite ways:
 
 ## Confirmed role permissions (stage 1-2)
 
-- **manager** — sees and (within the CRM-only fields) edits every case,
-  creates tasks for any handler, and is the only role that can call
-  `admin_set_user_status()` to change someone's role or deactivate them.
-- **handler** — sees only cases where `handler_id` is them; can edit the
-  CRM-only fields (flags/note/follow-up) on those cases; can only change the
-  `status`/`completed_at` of tasks assigned to them.
-- **secretary** — read-only across all cases; cannot edit flags/notes/
-  follow-up and cannot create tasks.
+- **manager** — sees and edits every case, creates tasks for any handler,
+  and is the only role that can call `admin_set_user_status()` to change
+  someone's role or deactivate them.
+- **handler** — sees only cases where `handler_id` is them, and edits those:
+  the CRM-only fields, and the synced fields listed below. On tasks, they
+  edit the ones assigned to or created by them.
+- **secretary** — read-only across all cases; cannot edit anything and
+  cannot create tasks.
 
-No role can edit the עדכנית-sourced fields (`case_number`, `case_name`,
-`status`, client details, ...) from the CRM — those are only ever written by
-the Make sync job via the `service_role` key, which bypasses RLS.
+Editing synced fields was originally forbidden outright: a local change had
+nowhere to go and the next sync would overwrite it. That changed once the
+write-back existed — 0027 opened status/case_nature/case_stage, 0034 the
+חוצצים, 0035 deadlines and tasks, 0037 the client details and case
+name/type/open date. Each save leaves through `/api/case-updates` so the
+change reaches עדכנית instead of waiting to be overwritten.
+
+Two kinds of column stay locked, for different reasons:
+
+- **`cases.case_number`** — the key Make matches on. Renaming it would break
+  the match for every later write-back on that case, including the one
+  carrying the rename.
+- **`case_fields.page_name`/`field_name`, `case_deadlines.source_field_name`,
+  `tasks.source_task_id`** — each ties a row to the record it was synced
+  from. Rewriting one orphans the row, and the next sync inserts a duplicate
+  instead of updating it.
+
+`tasks.assigned_to` is also ungranted: reassigning a task is not an edit, and
+no screen offers it.
+
+Enforced by `grant update (…)` after a `revoke update` on the table — a grant
+alone adds nothing where a table-wide UPDATE is already in place (see 0036).
+`supabase/tests/04_write_access.sql` asserts both halves.
 
 ## User management (in-app panel, built in stage 3)
 

@@ -34,12 +34,19 @@ SSL, redeploy script) is documented step by step in [`DEPLOY.md`](./DEPLOY.md).
 ## Webhooks (stage 4, section 4.2 / 4.3b)
 
 - `POST /api/case-updates` - called by the browser right after an
-  optimistic write to `cases` (flags/note/follow-up). Logs the change to
+  optimistic write, from every editable field on every screen (the case
+  card, the cases list, the חוצצים tabs, deadlines and tasks - not only the
+  CRM-only flags/note/follow-up it started with). Logs the change to
   `case_sync_log`, forwards it to `MAKE_OUTGOING_WEBHOOK_URL`, and relays
   Make's synchronous `{status, message, record_id}` response; on `failure`
   the client undoes its optimistic write. If the env var isn't set, it
   responds `warning` ("saved in the CRM only") instead of erroring - useful
   before the Make scenario exists yet.
+
+  The payload identifies what changed with `entity_type` + `source_ref`
+  (the id עדכנית knows the record by - our own uuid means nothing there).
+  Full contract, routing table and the Make build guide:
+  [`docs/make-write-back.md`](./docs/make-write-back.md).
 - `POST /api/webhooks/incoming-document` - Make calls this (not a CRM user
   session) whenever a new relevant document arrives. Authenticated by a
   shared secret header, not Supabase Auth: `x-webhook-secret` must match
