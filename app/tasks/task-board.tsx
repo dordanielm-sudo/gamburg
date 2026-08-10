@@ -17,10 +17,8 @@ import { RANGE_LABELS, rangeBounds, startOfToday, type RangeKey } from "@/lib/da
 import { Badge, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { InlineEdit } from "@/components/ui/inline-edit";
-import {
-  TaskPriorityEditor,
-  collectPriorityOptions,
-} from "./task-priority-editor";
+import { TaskPriorityEditor } from "./task-priority-editor";
+import { collectPriorityOptions } from "@/lib/task-priority";
 import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 import { NamedAvatar } from "@/components/ui/avatar";
 

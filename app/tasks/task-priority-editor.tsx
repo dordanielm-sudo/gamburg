@@ -4,35 +4,17 @@ import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { priorityLabel, priorityTone } from "@/lib/task-priority";
+import {
+  priorityLabel,
+  priorityTone,
+  type PriorityOption,
+} from "@/lib/task-priority";
+
 import type { TaskWithNames } from "@/types/database";
 
-export interface PriorityOption {
-  code: number;
-  name: string;
-}
-
-// Priority is a pair of columns - priority_code drives the colour, priority_name
-// is what people read - and they have to move together, so this cannot be an
-// InlineEdit (which writes one column).
-//
-// The options are collected from the tasks actually loaded rather than a fixed
-// list: עדכנית has no enum behind PriorityCode, only two values have ever been
-// observed, and more may appear. A hardcoded list would silently stop offering
-// a priority the moment the firm adds one.
-export function collectPriorityOptions(tasks: TaskWithNames[]): PriorityOption[] {
-  const byCode = new Map<number, string>();
-  for (const t of tasks) {
-    if (t.priority_code === null) continue;
-    const name = t.priority_name ?? String(t.priority_code);
-    // first name wins; a later blank must not overwrite a real one
-    if (!byCode.has(t.priority_code)) byCode.set(t.priority_code, name);
-  }
-  return [...byCode.entries()]
-    .map(([code, name]) => ({ code, name }))
-    .sort((a, b) => a.code - b.code);
-}
-
+// Priority is a pair of columns - priority_code drives the colour,
+// priority_name is what people read - and they have to move together, so this
+// cannot be an InlineEdit (which writes one column).
 export function TaskPriorityEditor({
   task,
   options,

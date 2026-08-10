@@ -13,10 +13,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FieldGroup } from "@/components/ui/field-group";
 import { InlineEdit } from "@/components/ui/inline-edit";
-import {
-  TaskPriorityEditor,
-  type PriorityOption,
-} from "../task-priority-editor";
+import { TaskPriorityEditor } from "../task-priority-editor";
+import type { PriorityOption } from "@/lib/task-priority";
 import { EditToggle, SYNC_HINT, LOCAL_HINT } from "@/components/ui/edit-toggle";
 import { priorityLabel, priorityTone } from "@/lib/task-priority";
 
