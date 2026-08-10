@@ -417,4 +417,62 @@ begin
   end;
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- cases - every column the edit screens write must actually be granted.
+--
+-- This one is a list, not a scenario, because the failure it catches is a
+-- mismatch between the UI and the grant: a field is offered for editing and
+-- the database refuses it. 0034-0036 shipped exactly that for the client
+-- details, and nothing failed until someone tried to save a phone number.
+-- Keep this list in step with the `editable(...)` calls in case-summary.tsx
+-- and the `cellEdit(...)` calls in cases-table.tsx.
+-- ---------------------------------------------------------------------------
+
+-- 23. manager can write every case column the screens expose
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000001","role":"authenticated"}';
+set role authenticated;
+do $$
+declare
+  col text;
+  cols text[] := array[
+    -- CaseSummary
+    'client_id_number', 'client_phone', 'client_email', 'client_address',
+    'team', 'opened_date',
+    -- cases-table
+    'case_name', 'case_type', 'status',
+    -- CRM-only, from 0002/0027
+    'manager_note', 'manager_follow_up', 'case_nature', 'case_stage'
+  ];
+begin
+  foreach col in array cols loop
+    if not exists (
+      select 1 from information_schema.column_privileges
+      where grantee = 'authenticated' and table_schema = 'public'
+        and table_name = 'cases' and column_name = col
+        and privilege_type = 'UPDATE'
+    ) then
+      raise exception 'TEST FAILED: cases.% is edited in the UI but not granted', col;
+    end if;
+  end loop;
+  raise notice 'PASS: every case column the screens edit is writable';
+end $$;
+reset role;
+
+-- 24. ...but case_number is not. Make matches on it, so a rename would break
+--     the match for every later write-back on that case - including the one
+--     carrying the rename itself.
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000001","role":"authenticated"}';
+set role authenticated;
+do $$
+begin
+  begin
+    update public.cases set case_number = 'C-999'
+    where id = '10000000-0000-0000-0000-000000000001';
+    raise exception 'TEST FAILED: case_number should not be writable by authenticated';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cases.case_number is not writable (write-back match key)';
+  end;
+end $$;
+reset role;
+
 select 'ALL WRITE-ACCESS CHECKS PASSED' as result;
