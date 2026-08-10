@@ -26,6 +26,7 @@
   "entity_type":  "case | case_field | task | deadline | document",
   "entity_id":    "uuid של השורה ב-CRM, או null",
   "source_ref":   "המזהה שעדכנית מכירה, או null",
+  "value_type":   "text | date | number — לשדה חוצץ בלבד, אחרת null",
   "old_value":    "הערך לפני",
   "new_value":    "הערך אחרי",
   "changed_by":   "uuid של המשתמש",
@@ -201,10 +202,16 @@ Parameters: `{{new_value}}`, `{{case_number}}`, `{{page_name}}`, `{{field_name}}
 **`page_name` הכרחי בתנאי.** אותו שם שדה קיים ביותר מחוצץ אחד — `מועד קבלת צו`
 נמצא גם בחדל"פ וגם בצו שיקום כלכלי. בלעדיו תעדכנו את השדה הלא נכון.
 
-עמודת היעד תלויה בסוג: `strData` לטקסט, `dateData` לתאריך, `numData` למספר.
-ה-CRM כבר יודע את הסוג — הוא כותב לעמודה המקבילה אצלו — אבל לא שולח אותו
-בגוף הבקשה. אפשר לגזור אותו ב-Make מהצורה של `new_value`, או להוסיף אותו
-לוובהוק אם יתברר שצריך.
+עמודת היעד תלויה בסוג, וה-CRM שולח אותו ב-`value_type`:
+
+| `value_type` | העמודה בעדכנית |
+|---|---|
+| `text` | `strData` |
+| `date` | `dateData` |
+| `number` | `numData` |
+
+נתבו לפיו ואל תנחשו מצורת הערך — שדה טקסט שמכיל `2026-01-15` ייראה כמו
+תאריך וייכתב לעמודה הלא נכונה.
 
 ### `entity_type = "task"` — משימה
 

@@ -90,6 +90,7 @@ export function CaseFieldsTab({
                   entityId: f.id,
                   fieldName: f.field_name,
                   pageName: f.page_name,
+                  valueType: columnFor(f).kind,
                 }}
               />
             </div>

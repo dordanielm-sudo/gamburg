@@ -22,6 +22,12 @@ export type SyncTarget = {
   // entityId is our own uuid and means nothing on the other side, so a row
   // that needs one and has none cannot be written back - see the callers.
   sourceRef?: string | null;
+  // For חוצץ fields: which typed column עדכנית keeps this value in
+  // (strData / dateData / numData). The CRM already knows - it writes the
+  // matching column locally - so it says so rather than leaving Make to
+  // guess from the shape of the value, which misroutes a text field that
+  // happens to hold something date-like.
+  valueType?: "text" | "date" | "number";
 };
 
 export type InlineEditProps = {
@@ -115,6 +121,7 @@ export function InlineEdit({
             entity_type: sync.entityType,
             entity_id: sync.entityId ?? null,
             source_ref: sync.sourceRef ?? null,
+            value_type: sync.valueType ?? null,
             old_value: oldValue,
             new_value: newValue,
           }),

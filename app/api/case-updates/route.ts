@@ -27,6 +27,8 @@ interface CaseUpdatePayload {
   // deadline. Null for a case or a חוצץ field, where case_number (plus
   // page_name/field_name) already identifies the record.
   source_ref?: string | null;
+  // for entity_type=case_field: which typed column in עדכנית holds the value
+  value_type?: "text" | "date" | "number" | null;
   old_value?: unknown;
   new_value?: unknown;
 }
@@ -68,6 +70,7 @@ export async function POST(request: Request) {
     page_name,
     entity_id,
     source_ref,
+    value_type,
     old_value,
     new_value,
   } = payload;
@@ -156,6 +159,7 @@ export async function POST(request: Request) {
     entity_type,
     entity_id: entity_id ?? null,
     source_ref: source_ref ?? null,
+    value_type: value_type ?? null,
     old_value,
     new_value,
     changed_by: user.id,
