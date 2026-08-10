@@ -28,7 +28,11 @@ export default async function UserDetailPage({
   if (profile.role !== "manager") redirect("/cases");
 
   const supabase = await createClient();
-  const [{ data: targetUser }, { data: permissions }, { data: fieldRows }] =
+  const [
+    { data: targetUser, error: userError },
+    { data: permissions },
+    { data: fieldRows },
+  ] =
     await Promise.all([
       supabase
         .from("profiles")
@@ -43,6 +47,12 @@ export default async function UserDetailPage({
         .returns<ProfileTabPermission[]>(),
       supabase.from("case_fields").select("page_name"),
     ]);
+
+  // see the note in app/tasks/[id]/page.tsx - an error and a missing row both
+  // land here as null, and collapsing them hides real faults behind a 404
+  if (userError) {
+    throw new Error(`טעינת המשתמש נכשלה: ${userError.message}`);
+  }
 
   if (!targetUser) notFound();
 
