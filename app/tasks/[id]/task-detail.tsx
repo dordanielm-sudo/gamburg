@@ -64,16 +64,19 @@ export function TaskDetail({
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
 
-  // case_id is nullable on tasks - a task with no case has no write-back
-  // target, so it saves locally and skips the webhook
-  const sync = current.case
-    ? {
-        entityType: "task" as const,
-        caseId: current.case.id,
-        caseNumber: current.case.case_number,
-        entityId: current.id,
-      }
-    : undefined;
+  // A task written back to עדכנית needs both a case and a source_task_id -
+  // the id עדכנית knows it by. A CRM-only task has neither counterpart, so it
+  // saves locally and skips the webhook.
+  const sync =
+    current.case && current.source_task_id
+      ? {
+          entityType: "task" as const,
+          caseId: current.case.id,
+          caseNumber: current.case.case_number,
+          entityId: current.id,
+          sourceRef: current.source_task_id,
+        }
+      : undefined;
 
   function field(
     column: string,

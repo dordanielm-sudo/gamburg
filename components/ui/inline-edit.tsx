@@ -18,6 +18,10 @@ export type SyncTarget = {
   // the name עדכנית knows the field by, when it differs from the DB column
   fieldName?: string;
   pageName?: string;
+  // How עדכנית identifies this record, when case_number alone is not enough.
+  // entityId is our own uuid and means nothing on the other side, so a row
+  // that needs one and has none cannot be written back - see the callers.
+  sourceRef?: string | null;
 };
 
 export type InlineEditProps = {
@@ -110,6 +114,7 @@ export function InlineEdit({
             page_name: sync.pageName ?? null,
             entity_type: sync.entityType,
             entity_id: sync.entityId ?? null,
+            source_ref: sync.sourceRef ?? null,
             old_value: oldValue,
             new_value: newValue,
           }),
