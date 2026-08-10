@@ -50,11 +50,17 @@ export default async function CaseDetailPage({
 
   const supabase = await createClient();
 
-  const { data: caseRow } = await supabase
+  const { data: caseRow, error: caseError } = await supabase
     .from("cases")
     .select("*, handler:profiles!cases_handler_id_fkey(id, full_name)")
     .eq("id", id)
     .maybeSingle<CaseWithHandler>();
+
+  // see the note in app/tasks/[id]/page.tsx - a swallowed error here reads as
+  // "not found" and hides whatever actually went wrong
+  if (caseError) {
+    throw new Error(`טעינת התיק נכשלה: ${caseError.message}`);
+  }
 
   if (!caseRow) notFound();
 

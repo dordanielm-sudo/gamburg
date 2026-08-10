@@ -21,12 +21,26 @@ export default async function TaskDetailPage({
 
   const supabase = await createClient();
 
-  const { data: task } = await supabase
+  const { data: task, error } = await supabase
     .from("tasks")
     .select(TASK_SELECT)
     .eq("id", id)
     .maybeSingle<TaskWithNames>();
 
+  // A failed query and a missing row both arrive here as a null `task`, and
+  // treating them alike turned every fault on this page - a bad join, a
+  // dropped connection, an RLS change - into a bare "not found" with nothing
+  // to go on. Let the error surface instead: Next renders the error page and
+  // logs it, which is the difference between "this task does not exist" and
+  // "something is broken".
+  if (error) {
+    throw new Error(`טעינת המשימה נכשלה: ${error.message}`);
+  }
+
+  // A genuinely absent row, or one this user may not see: tasks_select_own
+  // (0002) scopes a task to its assignee and its creator, so a task that was
+  // reassigned in עדכנית stops being visible to whoever it belonged to
+  // before - including from an older notification still linking to it.
   if (!task) notFound();
 
   // The priority picker offers the codes עדכנית actually uses. There is no
