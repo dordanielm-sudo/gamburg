@@ -47,8 +47,24 @@ export default async function TaskDetailPage({
   // the fact. Knowing which user asked, and under which role, turns a support
   // question into a one-line answer.
   if (!task) {
+    // Two things can produce an empty result for a row that demonstrably
+    // exists and that RLS allows: the id we filter on is not the string it
+    // appears to be (an invisible character survives the URL and prints
+    // identically), or one of the embedded relations in TASK_SELECT drops
+    // the row. The probe below settles which, by asking for the same row
+    // with no embeds at all - and the id is logged encoded, so a stray
+    // character shows up instead of hiding.
+    const { data: probe, error: probeError } = await supabase
+      .from("tasks")
+      .select("id")
+      .eq("id", id)
+      .maybeSingle<{ id: string }>();
+
     console.warn(
-      `[task-detail] 404 taskId=${id} profileId=${profile.id} role=${profile.role}`,
+      `[task-detail] 404 taskId=${JSON.stringify(id)} len=${id.length} ` +
+        `profileId=${profile.id} role=${profile.role} ` +
+        `plainSelectFound=${probe ? "yes" : "no"} ` +
+        `probeError=${probeError?.message ?? "none"}`,
     );
     notFound();
   }
