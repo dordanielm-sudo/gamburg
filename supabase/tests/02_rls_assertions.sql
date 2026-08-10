@@ -88,18 +88,28 @@ end $$;
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 6. handler A cannot edit a source-owned field (column-level grant blocks it)
+-- 6. handler A cannot edit case_number (column-level grant blocks it)
+--
+-- This used to assert the same about case_name. Back then no field sourced
+-- from עדכנית was editable at all, because a local change had nowhere to go
+-- and the next sync would simply overwrite it. That is no longer true: the
+-- edit screens write those fields and /api/case-updates carries the change
+-- back, so 0027 and 0037 granted them.
+--
+-- case_number is the one that stays locked, and for a different reason than
+-- the old rule - it is the key Make matches on, so renaming it would break
+-- the match for every later write-back on that case.
 -- ---------------------------------------------------------------------------
 set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000002","role":"authenticated"}';
 set role authenticated;
 do $$
 begin
-  update public.cases set case_name = 'hacked'
+  update public.cases set case_number = 'hacked'
     where id = '10000000-0000-0000-0000-000000000001';
-  raise exception 'TEST FAILED: handler A should not be able to edit case_name';
+  raise exception 'TEST FAILED: handler A should not be able to edit case_number';
 exception
   when insufficient_privilege then
-    raise notice 'PASS: handler A blocked from editing case_name (column privilege)';
+    raise notice 'PASS: handler A blocked from editing case_number (column privilege)';
 end $$;
 reset role;
 
