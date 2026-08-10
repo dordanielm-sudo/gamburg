@@ -10,6 +10,7 @@ import type {
   Case,
   ViewFilterCondition,
   ViewTemplate,
+  CasesViewConfig,
 } from "@/types/database";
 import { formatCaseFieldValue } from "@/types/database";
 import { CaseCombobox } from "@/components/case-combobox";
@@ -130,7 +131,10 @@ export function ApprovalBoard({
 
   function applyTemplate(id: string) {
     const template = templates.find((t) => t.id === id);
-    if (template) setAdvancedFilters(template.config.filters ?? []);
+    // config is a union across screens; on this one it is always the
+    // filters-carrying shape
+    if (template)
+      setAdvancedFilters((template.config as CasesViewConfig).filters ?? []);
   }
 
   async function saveTemplate() {

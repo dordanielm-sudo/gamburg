@@ -11,6 +11,7 @@ import {
   type TaskStatus,
   type ViewFilterCondition,
   type ViewTemplate,
+  type CasesViewConfig,
 } from "@/types/database";
 import { CalendarPopup, formatCalendarDate } from "@/components/calendar-popup";
 import { CaseCombobox, type CaseOption } from "@/components/case-combobox";
@@ -166,7 +167,10 @@ export function DeadlinesBoard({
 
   function applyTemplate(id: string) {
     const template = templates.find((t) => t.id === id);
-    if (template) setAdvancedFilters(template.config.filters ?? []);
+    // config is a union across screens; on this one it is always the
+    // filters-carrying shape
+    if (template)
+      setAdvancedFilters((template.config as CasesViewConfig).filters ?? []);
   }
 
   async function saveTemplate() {

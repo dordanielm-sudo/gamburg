@@ -262,11 +262,25 @@ export interface ChartViewConfig {
   groupBy: string;
 }
 
+// The dashboard's chart layout: which charts exist, in what order, and what
+// each one shows. Kept as a single view_templates row (screen =
+// "dashboard_layout") rather than a row per chart - add/remove/reorder is
+// then one atomic write, with no display_order to keep consistent.
+export interface DashboardChartConfig {
+  title: string;
+  groupBy: string;
+  filters: ViewFilterCondition[];
+}
+
+export interface DashboardLayoutConfig {
+  charts: DashboardChartConfig[];
+}
+
 export interface ViewTemplate {
   id: string;
   screen: string;
   name: string;
-  config: CasesViewConfig | ChartViewConfig;
+  config: CasesViewConfig | ChartViewConfig | DashboardLayoutConfig;
   display_order: number;
   created_by: string | null;
   created_at: string;

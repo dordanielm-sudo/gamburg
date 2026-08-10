@@ -4,7 +4,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { StatTile } from "@/components/ui/stat-tile";
-import { CaseChartsPanel, type ChartCaseRow } from "./case-charts-panel";
+import {
+  CaseChartsPanel,
+  DASHBOARD_LAYOUT_SCREEN,
+  type ChartCaseRow,
+} from "./case-charts-panel";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { isCaseStuck, type CaseField, type ViewTemplate } from "@/types/database";
@@ -64,6 +68,7 @@ export default async function DashboardPage() {
     { data: upcomingTasks },
     { data: upcomingDeadlines },
     { data: chartTemplates },
+    { data: chartLayout },
   ] = await Promise.all([
     // batched: an unpaged select stops at 1000 rows without erroring, which
     // had every tile and chart on this page reporting on a slice of the data
@@ -113,6 +118,14 @@ export default async function DashboardPage() {
       .eq("screen", "dashboard")
       .order("display_order")
       .returns<ViewTemplate[]>(),
+    // which charts the dashboard shows, as arranged by the manager. Absent
+    // until someone changes the layout, in which case the panel falls back
+    // to its defaults.
+    supabase
+      .from("view_templates")
+      .select("*")
+      .eq("screen", DASHBOARD_LAYOUT_SCREEN)
+      .maybeSingle<ViewTemplate>(),
   ]);
 
   const rows = cases ?? [];
@@ -224,6 +237,7 @@ export default async function DashboardPage() {
 
             <CaseChartsPanel
               cases={chartRows}
+              layout={chartLayout ?? null}
               viewTemplates={chartTemplates ?? []}
               isManager={profile.role === "manager"}
               currentUserId={profile.id}

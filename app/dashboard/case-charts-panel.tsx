@@ -5,7 +5,13 @@ import { createClient } from "@/lib/supabase/client";
 import { DonutChart } from "@/components/ui/donut-chart";
 import { hashTone } from "@/components/ui/badge";
 import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
-import type { ChartViewConfig, ViewFilterCondition, ViewTemplate } from "@/types/database";
+import type {
+  ChartViewConfig,
+  DashboardChartConfig,
+  DashboardLayoutConfig,
+  ViewFilterCondition,
+  ViewTemplate,
+} from "@/types/database";
 import {
   collectCaseFieldKeys,
   caseFilterFieldOptions,
@@ -20,21 +26,15 @@ import {
 // dashboard could not see שלבים or חוצצים at all.
 export type ChartCaseRow = FilterableCase;
 
-// Only fixed fields have a matching filter on /cases, so only they get a
-// clickable segment. A חוצץ segment still renders and counts - it just does
-// not link anywhere, rather than linking to a query the cases screen ignores.
-const SEGMENT_LINK_PARAM: Record<string, string> = {
-  [`${FIXED_KEY_PREFIX}status`]: "status",
-  [`${FIXED_KEY_PREFIX}case_type`]: "case_type",
-  [`${FIXED_KEY_PREFIX}case_nature`]: "case_nature",
-  [`${FIXED_KEY_PREFIX}handler`]: "handler",
-};
-
 const NO_VALUE_LABEL = "ללא ערך";
 
+// The slot is controlled by the panel: its group-by and filters live in the
+// layout the panel persists, so a change here survives a reload instead of
+// resetting to a default the next time the page loads.
 function ChartSlot({
-  title,
-  defaultField,
+  chart,
+  onChange,
+  onRemove,
   fieldOptions,
   cases,
   templates,
@@ -42,8 +42,9 @@ function ChartSlot({
   onSaveTemplate,
   onDeleteTemplate,
 }: {
-  title: string;
-  defaultField: string;
+  chart: DashboardChartConfig;
+  onChange: (next: DashboardChartConfig) => void;
+  onRemove: () => void;
   fieldOptions: { key: string; label: string }[];
   cases: ChartCaseRow[];
   templates: ViewTemplate[];
@@ -51,8 +52,21 @@ function ChartSlot({
   onSaveTemplate: (name: string, config: ChartViewConfig) => Promise<string | null>;
   onDeleteTemplate: (id: string) => void;
 }) {
-  const [field, setField] = useState<string>(defaultField);
-  const [filters, setFilters] = useState<ViewFilterCondition[]>([]);
+  const field = chart.groupBy;
+  const filters = chart.filters;
+  const setField = (groupBy: string) => {
+    // the title tracks the grouping unless it was renamed by hand, so a chart
+    // does not keep saying "לפי סטטוס" after being switched to something else
+    const auto = fieldOptions.find((o) => o.key === groupBy);
+    const wasAuto = fieldOptions.some((o) => `תיקים לפי ${o.label}` === chart.title);
+    onChange({
+      ...chart,
+      groupBy,
+      title: wasAuto && auto ? `תיקים לפי ${auto.label}` : chart.title,
+    });
+  };
+  const setFilters = (next: ViewFilterCondition[]) =>
+    onChange({ ...chart, filters: next });
   const [showFilters, setShowFilters] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [templateError, setTemplateError] = useState<string | null>(null);
@@ -75,19 +89,25 @@ function ChartSlot({
       .map(([label, value]) => ({ label, value, tone: hashTone(label) }));
   }, [filteredCases, field]);
 
+  // Every segment links through, whatever it is grouped by: the cases screen
+  // reads the same condition shape the filter builder produces, so a חוצץ or
+  // a שלב segment lands on a filtered list just like a status one. Only "no
+  // value" has nothing to point at - there is no condition for "field empty".
   function hrefForSegment(label: string) {
     if (label === NO_VALUE_LABEL) return null;
-    const param = SEGMENT_LINK_PARAM[field];
-    if (!param) return null;
-    return `/cases?${param}=${encodeURIComponent(label)}`;
+    const condition = JSON.stringify([{ key: field, values: [label] }]);
+    return `/cases?filter=${encodeURIComponent(condition)}`;
   }
 
   function applyTemplate(id: string) {
     const template = templates.find((t) => t.id === id);
     if (!template) return;
     const config = template.config as ChartViewConfig;
-    setFilters(config.filters ?? []);
-    if (config.groupBy) setField(config.groupBy);
+    onChange({
+      ...chart,
+      filters: config.filters ?? [],
+      groupBy: config.groupBy || chart.groupBy,
+    });
   }
 
   async function saveTemplate() {
@@ -106,9 +126,14 @@ function ChartSlot({
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <h2 className="font-semibold text-gray-900">{title}</h2>
-        <div className="flex items-center gap-2">
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <input
+          value={chart.title}
+          onChange={(e) => onChange({ ...chart, title: e.target.value })}
+          aria-label="שם התרשים"
+          className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 font-semibold text-gray-900 hover:border-gray-200 focus:border-blue-400 focus:bg-white focus:outline-none"
+        />
+        <div className="flex shrink-0 items-center gap-2">
           <button
             onClick={() => setShowFilters((v) => !v)}
             className={`rounded-md border px-2 py-1 text-xs font-medium ${
@@ -130,6 +155,14 @@ function ChartSlot({
               </option>
             ))}
           </select>
+          <button
+            onClick={onRemove}
+            title="הסרת התרשים"
+            aria-label="הסרת התרשים"
+            className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-400 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+          >
+            ✕
+          </button>
         </div>
       </div>
 
@@ -200,19 +233,39 @@ function ChartSlot({
   );
 }
 
+const DEFAULT_CHARTS: DashboardChartConfig[] = [
+  { title: "תיקים לפי סטטוס", groupBy: `${FIXED_KEY_PREFIX}status`, filters: [] },
+  { title: "תיקים לפי סוג", groupBy: `${FIXED_KEY_PREFIX}case_type`, filters: [] },
+  { title: "תיקים לפי מטפל", groupBy: `${FIXED_KEY_PREFIX}handler`, filters: [] },
+];
+
+// The layout is one view_templates row, so add/remove/rename is a single
+// atomic write. `screen` is free text on that table, so no migration was
+// needed to carve out a namespace for it.
+export const DASHBOARD_LAYOUT_SCREEN = "dashboard_layout";
+
 export function CaseChartsPanel({
   cases,
   viewTemplates,
+  layout,
   isManager,
   currentUserId,
 }: {
   cases: ChartCaseRow[];
   viewTemplates: ViewTemplate[];
+  layout: ViewTemplate | null;
   isManager: boolean;
   currentUserId: string;
 }) {
   const [templates, setTemplates] = useState(viewTemplates);
   const supabase = useMemo(() => createClient(), []);
+
+  const [charts, setCharts] = useState<DashboardChartConfig[]>(() => {
+    const saved = (layout?.config as DashboardLayoutConfig | undefined)?.charts;
+    return saved && saved.length > 0 ? saved : DEFAULT_CHARTS;
+  });
+  const [layoutId, setLayoutId] = useState<string | null>(layout?.id ?? null);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
 
   // חוצצים are discovered from the cases actually loaded, so the picker only
   // ever offers tabs this dataset has values for
@@ -220,6 +273,51 @@ export function CaseChartsPanel({
     () => caseFilterFieldOptions(collectCaseFieldKeys(cases)),
     [cases],
   );
+
+  // Persisting is fire-and-forget on top of local state: the charts are a
+  // view preference, so a failed write should not throw away what the manager
+  // just arranged on screen - it says so and leaves the layout alone.
+  async function persist(next: DashboardChartConfig[]) {
+    setCharts(next);
+    setLayoutError(null);
+    if (!isManager) return;
+
+    const config: DashboardLayoutConfig = { charts: next };
+    if (layoutId) {
+      const { error } = await supabase
+        .from("view_templates")
+        .update({ config })
+        .eq("id", layoutId);
+      if (error) setLayoutError("סידור התרשימים לא נשמר");
+      return;
+    }
+    const { data, error } = await supabase
+      .from("view_templates")
+      .insert({
+        screen: DASHBOARD_LAYOUT_SCREEN,
+        name: "סידור תרשימים",
+        config,
+        display_order: 0,
+        created_by: currentUserId,
+      })
+      .select()
+      .single<ViewTemplate>();
+    if (error || !data) {
+      setLayoutError("סידור התרשימים לא נשמר");
+      return;
+    }
+    setLayoutId(data.id);
+  }
+
+  function addChart() {
+    const used = new Set(charts.map((c) => c.groupBy));
+    const next = fieldOptions.find((o) => !used.has(o.key)) ?? fieldOptions[0];
+    if (!next) return;
+    persist([
+      ...charts,
+      { title: `תיקים לפי ${next.label}`, groupBy: next.key, filters: [] },
+    ]);
+  }
 
   async function handleSaveTemplate(name: string, config: ChartViewConfig): Promise<string | null> {
     const nextOrder =
@@ -246,37 +344,48 @@ export function CaseChartsPanel({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <ChartSlot
-        title="תיקים לפי סטטוס"
-        defaultField={`${FIXED_KEY_PREFIX}status`}
-        fieldOptions={fieldOptions}
-        cases={cases}
-        templates={templates}
-        isManager={isManager}
-        onSaveTemplate={handleSaveTemplate}
-        onDeleteTemplate={handleDeleteTemplate}
-      />
-      <ChartSlot
-        title="תיקים לפי סוג"
-        defaultField={`${FIXED_KEY_PREFIX}case_type`}
-        fieldOptions={fieldOptions}
-        cases={cases}
-        templates={templates}
-        isManager={isManager}
-        onSaveTemplate={handleSaveTemplate}
-        onDeleteTemplate={handleDeleteTemplate}
-      />
-      <ChartSlot
-        title="תיקים לפי מטפל"
-        defaultField={`${FIXED_KEY_PREFIX}handler`}
-        fieldOptions={fieldOptions}
-        cases={cases}
-        templates={templates}
-        isManager={isManager}
-        onSaveTemplate={handleSaveTemplate}
-        onDeleteTemplate={handleDeleteTemplate}
-      />
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-semibold text-gray-900">תרשימים</h2>
+        <div className="flex items-center gap-3">
+          {layoutError && (
+            <span className="text-xs text-rose-600">{layoutError}</span>
+          )}
+          {isManager && (
+            <button
+              onClick={addChart}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
+            >
+              + הוספת תרשים
+            </button>
+          )}
+        </div>
+      </div>
+
+      {charts.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400">
+          אין תרשימים. לחצו על &quot;הוספת תרשים&quot; כדי להתחיל.
+        </p>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
+          {charts.map((chart, i) => (
+            <ChartSlot
+              key={i}
+              chart={chart}
+              onChange={(next) =>
+                persist(charts.map((c, j) => (j === i ? next : c)))
+              }
+              onRemove={() => persist(charts.filter((_, j) => j !== i))}
+              fieldOptions={fieldOptions}
+              cases={cases}
+              templates={templates}
+              isManager={isManager}
+              onSaveTemplate={handleSaveTemplate}
+              onDeleteTemplate={handleDeleteTemplate}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
