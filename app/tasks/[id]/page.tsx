@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { TaskDetail } from "./task-detail";
+import { collectPriorityOptions } from "../task-priority-editor";
 import type { TaskWithNames } from "@/types/database";
 
 const TASK_SELECT =
@@ -28,6 +29,19 @@ export default async function TaskDetailPage({
 
   if (!task) notFound();
 
+  // The priority picker offers the codes עדכנית actually uses. There is no
+  // enum on the source side, so the set is read from existing rows rather
+  // than hardcoded - a distinct-ish sample is enough, since every code in use
+  // appears on plenty of tasks.
+  const { data: prioritySample } = await supabase
+    .from("tasks")
+    .select("priority_code, priority_name")
+    .not("priority_code", "is", null)
+    .limit(500);
+  const priorityOptions = collectPriorityOptions(
+    (prioritySample ?? []) as TaskWithNames[],
+  );
+
   const canEdit = profile.role === "manager" || task.assigned_to === profile.id;
 
   return (
@@ -46,7 +60,11 @@ export default async function TaskDetailPage({
           ← חזרה למשימות
         </Link>
 
-        <TaskDetail task={task} canEdit={canEdit} />
+        <TaskDetail
+          task={task}
+          canEdit={canEdit}
+          priorityOptions={priorityOptions}
+        />
       </main>
     </div>
   );

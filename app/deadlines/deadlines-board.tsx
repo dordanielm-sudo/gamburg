@@ -21,8 +21,18 @@ import { InlineEdit } from "@/components/ui/inline-edit";
 import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
+import {
+  collectCaseFieldKeys,
+  caseFilterFieldOptions,
+  caseFilterValue,
+} from "@/lib/case-filter-fields";
 
-const DEADLINE_FIELD_OPTIONS = [
+// The deadline's own columns. Their keys are deliberately left unprefixed:
+// saved view templates from before the case fields were added still reference
+// them by these names, and renaming would silently break every stored filter.
+// The case field keys carry their own prefixes (fixed: / case_field:), so the
+// two sets cannot collide.
+const DEADLINE_OWN_FIELD_OPTIONS = [
   { key: "label", label: "נושא" },
   { key: "status", label: "סטטוס" },
   { key: "handler", label: "מטפל" },
@@ -43,7 +53,10 @@ function getDeadlineValue(d: CaseDeadlineWithCase, key: string): string | null {
     case "preparation_done":
       return d.preparation_done ? "כן" : "לא";
     default:
-      return null;
+      // anything else is a field on the joined case. A deadline with no case
+      // matches nothing rather than erroring - the join is nullable in the
+      // type even though the sync always fills it.
+      return d.case ? caseFilterValue(d.case, key) : null;
   }
 }
 
@@ -377,6 +390,16 @@ export function DeadlinesBoard({
 
   // without a write-back target the field still saves locally; it just does
   // not log a change Make could never route
+  // חוצצים are discovered from the cases these deadlines belong to, so the
+  // picker offers exactly the tabs present in the loaded data
+  const filterFieldOptions = useMemo(() => {
+    const cases = rows.map((d) => d.case).filter((c) => c !== null);
+    return [
+      ...DEADLINE_OWN_FIELD_OPTIONS,
+      ...caseFilterFieldOptions(collectCaseFieldKeys(cases)),
+    ];
+  }, [rows]);
+
   function syncFor(d: CaseDeadlineWithCase) {
     // a deadline is a field on the case in עדכנית, named by
     // source_field_name; without a case or that name there is nothing to
@@ -634,7 +657,7 @@ export function DeadlinesBoard({
           <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
             <FilterBuilder
               items={rows}
-              fieldOptions={DEADLINE_FIELD_OPTIONS}
+              fieldOptions={filterFieldOptions}
               getValue={getDeadlineValue}
               conditions={advancedFilters}
               onConditionsChange={setAdvancedFilters}
