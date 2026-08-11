@@ -475,4 +475,96 @@ begin
 end $$;
 reset role;
 
+-- ---------------------------------------------------------------------------
+-- profile_tab_permissions - per-user חוצץ visibility (0023).
+--
+-- The rule is opt-in: a profile with no rows here is unrestricted, and one
+-- with any rows sees only the tabs listed for it. That default matters -
+-- adding the feature must not silently hide tabs from everyone - so both
+-- halves are pinned down here.
+--
+-- Enforced in the case_fields SELECT policy rather than in page code, which
+-- is why it also covers the cases-list field picker and anything else that
+-- reads the table. Worth testing precisely because nothing in the app calls
+-- it: a regression would be invisible until someone saw a tab they should not.
+-- ---------------------------------------------------------------------------
+
+-- 25. with no rows configured, a handler sees every חוצץ on their case
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000002","role":"authenticated"}';
+set role authenticated;
+do $$
+declare n int;
+begin
+  select count(*) into n from public.case_fields
+   where case_id = '10000000-0000-0000-0000-000000000001';
+  if n <> 4 then
+    raise exception 'TEST FAILED: unrestricted handler should see all 4 חוצץ fields, saw %', n;
+  end if;
+  raise notice 'PASS: a handler with no tab rows is unrestricted';
+end $$;
+reset role;
+
+-- 26. restricting them to one חוצץ hides the other
+insert into public.profile_tab_permissions (profile_id, page_name)
+values ('00000000-0000-0000-0000-000000000002', 'חדל"פ');
+
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000002","role":"authenticated"}';
+set role authenticated;
+do $$
+declare allowed int; withheld int;
+begin
+  select count(*) into allowed from public.case_fields
+   where case_id = '10000000-0000-0000-0000-000000000001' and page_name = 'חדל"פ';
+  select count(*) into withheld from public.case_fields
+   where case_id = '10000000-0000-0000-0000-000000000001' and page_name = 'לקוח חדש';
+
+  if allowed <> 3 then
+    raise exception 'TEST FAILED: the permitted חוצץ should still be visible, saw % fields', allowed;
+  end if;
+  if withheld <> 0 then
+    raise exception 'TEST FAILED: the withheld חוצץ leaked % fields', withheld;
+  end if;
+  raise notice 'PASS: a restricted handler sees only their permitted חוצץ';
+end $$;
+reset role;
+
+-- 27. a restricted handler cannot edit a חוצץ they may not see either.
+--     The update policies from 0034 carry no tab check of their own - this
+--     holds because Postgres applies the SELECT policy when an UPDATE looks
+--     for its rows, so a hidden row is also an unreachable one. Pinned down
+--     because that is a property of how the two policies combine, not
+--     something either states on its own.
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000002","role":"authenticated"}';
+set role authenticated;
+do $$
+declare n int;
+begin
+  update public.case_fields set value_text = 'נגיעה אסורה'
+  where id = '20000000-0000-0000-0000-000000000005';
+  get diagnostics n = row_count;
+  if n <> 0 then
+    raise exception 'TEST FAILED: restricted handler edited a hidden חוצץ (% rows)', n;
+  end if;
+  raise notice 'PASS: a restricted handler cannot edit a חוצץ they cannot see';
+end $$;
+reset role;
+
+-- 28. the manager is exempt - they are the one configuring the restrictions
+insert into public.profile_tab_permissions (profile_id, page_name)
+values ('00000000-0000-0000-0000-000000000001', 'חדל"פ');
+
+set request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000001","role":"authenticated"}';
+set role authenticated;
+do $$
+declare n int;
+begin
+  select count(*) into n from public.case_fields
+   where case_id = '10000000-0000-0000-0000-000000000001' and page_name = 'לקוח חדש';
+  if n <> 1 then
+    raise exception 'TEST FAILED: manager should be exempt from tab restrictions, saw % fields', n;
+  end if;
+  raise notice 'PASS: the manager is exempt from tab restrictions';
+end $$;
+reset role;
+
 select 'ALL WRITE-ACCESS CHECKS PASSED' as result;

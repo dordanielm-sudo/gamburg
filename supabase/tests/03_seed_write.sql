@@ -51,3 +51,11 @@ insert into public.tasks (id, text, created_by, assigned_to, case_id) values
    '00000000-0000-0000-0000-000000000001',
    '00000000-0000-0000-0000-000000000003',
    '10000000-0000-0000-0000-000000000001');
+
+-- A second חוצץ on handler A's case, so tab restrictions have something to
+-- allow and something to withhold. "לקוח חדש" stands in for the intake tab:
+-- the case for restricting a tab at all is that some of them hold material
+-- not everyone on the case should read.
+insert into public.case_fields (id, case_id, page_name, field_name, value_text) values
+  ('20000000-0000-0000-0000-000000000005',
+   '10000000-0000-0000-0000-000000000001', 'לקוח חדש', 'מקור הפניה', 'המלצה');
