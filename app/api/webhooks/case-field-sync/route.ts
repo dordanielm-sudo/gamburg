@@ -73,8 +73,42 @@ export async function POST(request: Request) {
     process.env.MAKE_CASE_FIELD_SYNC_WEBHOOK_SECRET,
     async (rawBody, admin) => {
       const body = rawBody as CaseFieldSyncPayload;
-      const batched = Array.isArray(body.batches);
-      const groups: CaseFieldGroup[] = batched ? body.batches! : [body];
+      const warnings: string[] = [];
+
+      // Make sends a mapped SQL column as a JSON *string* when the token is
+      // wrapped in quotes in the raw body - {"batches":"[{...}]"} instead of
+      // {"batches":[{...}]}. That is valid JSON of the wrong shape, so it
+      // parses fine and then matches nothing, which used to surface as an
+      // empty-looking rejection with no hint at the cause. Parsing it here
+      // costs nothing and turns a dead end into a warning.
+      let batchesInput: unknown = body.batches;
+      if (typeof batchesInput === "string") {
+        try {
+          batchesInput = JSON.parse(batchesInput);
+        } catch {
+          return {
+            status: 400,
+            json: { error: "batches arrived as a string that is not valid JSON" },
+          };
+        }
+        warnings.push(
+          "batches arrived as a JSON string rather than an array - the mapped field is wrapped in quotes in the request body",
+        );
+      }
+
+      const batched = batchesInput !== undefined && batchesInput !== null;
+      if (batched && !Array.isArray(batchesInput)) {
+        return {
+          status: 400,
+          json: {
+            error: `batches must be an array, received ${typeof batchesInput}`,
+          },
+        };
+      }
+
+      const groups: CaseFieldGroup[] = batched
+        ? (batchesInput as CaseFieldGroup[])
+        : [body];
 
       if (groups.length === 0) {
         return { status: 400, json: { error: "batches array is empty" } };
@@ -104,7 +138,19 @@ export async function POST(request: Request) {
       if (valid.length === 0) {
         return {
           status: 400,
-          json: { error: "no valid entries in request", skipped },
+          json: {
+            error: "no valid entries in request",
+            // What actually arrived. Without it a malformed body looks
+            // identical to an empty one, and the scenario has to be
+            // reverse-engineered from a rejection that names nothing.
+            received: {
+              top_level_keys: Object.keys((rawBody ?? {}) as object),
+              batched,
+              groups: groups.length,
+            },
+            skipped,
+            warnings,
+          },
         };
       }
 
@@ -192,6 +238,7 @@ export async function POST(request: Request) {
           cases: matchedCases,
           synced: rows.length,
           skipped,
+          warnings,
         },
         // The batch body is the whole payload - up to megabytes of field
         // values - and webhook_logs keeps every call. Logging it verbatim on
