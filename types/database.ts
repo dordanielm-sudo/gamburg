@@ -278,10 +278,20 @@ export interface CasesViewConfig {
 // field's values sum to the case count on their own, so the total is a
 // multiple of it. That is inherent to putting several breakdowns side by
 // side, which is what was asked for.
+// `values` narrows a field to the values worth showing, keyed by field. A
+// חוצץ field is mostly empty, so grouping by one puts a "ללא ערך" slice of
+// 1481 next to the 20/17/6 that are the actual answer, and the donut becomes
+// unreadable. Absent for a field means every value, which is what every chart
+// saved before this says.
+//
+// Deliberately not the same thing as `filters`: a filter narrows which cases
+// the whole chart counts, so using one here would also shrink every other
+// field on the chart. This narrows only what one field draws.
 export interface ChartViewConfig {
   filters: ViewFilterCondition[];
   groupBy: string;
   fields?: string[];
+  values?: Record<string, string[]>;
 }
 
 // The dashboard's chart layout: which charts exist, in what order, and what
@@ -293,6 +303,7 @@ export interface DashboardChartConfig {
   groupBy: string;
   filters: ViewFilterCondition[];
   fields?: string[];
+  values?: Record<string, string[]>;
 }
 
 export interface DashboardLayoutConfig {

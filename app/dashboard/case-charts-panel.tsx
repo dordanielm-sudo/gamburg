@@ -4,7 +4,12 @@ import { useCallback, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { DonutChart } from "@/components/ui/donut-chart";
 import { hashTone } from "@/components/ui/badge";
-import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
+import {
+  FilterBuilder,
+  ValuePicker,
+  matchesConditions,
+  type ValueCount,
+} from "@/components/filter-builder";
 import { TemplateBar } from "@/components/template-bar";
 import type {
   ChartViewConfig,
@@ -99,9 +104,16 @@ function ChartSlot({
   // nothing to draw, and the empty state would look like a bug
   const removeField = (key: string) => {
     if (selectedFields.length <= 1) return;
+    // drop the field's value selection with it, so re-adding it later starts
+    // from the default rather than from a choice made long ago
+    const rest = { ...(chart.values ?? {}) };
+    delete rest[key];
+    onChange({ ...chart, values: rest });
     setFields(selectedFields.filter((k) => k !== key));
   };
   const [showFilters, setShowFilters] = useState(false);
+  // which field's value list is open, or null
+  const [openFieldKey, setOpenFieldKey] = useState<string | null>(null);
   // which saved template the chart is currently showing, so its name can sit
   // at the top and so "עדכון" knows what to overwrite
   const [appliedTemplateId, setAppliedTemplateId] = useState<string>("");
@@ -114,6 +126,43 @@ function ChartSlot({
         ? cases.filter((c) => matchesConditions(c, filters, caseFilterValue))
         : cases,
     [cases, filters],
+  );
+
+  // Every value each chosen field takes, counted, whether or not the chart
+  // currently shows it - the value picker has to offer what is being left out
+  // as much as what is in.
+  const countsByField = useMemo(() => {
+    const out = new Map<string, ValueCount[]>();
+    for (const key of selectedFields) {
+      const counts = new Map<string, number>();
+      for (const c of filteredCases) {
+        const value = caseFilterValue(c, key) ?? NO_VALUE_LABEL;
+        counts.set(value, (counts.get(value) ?? 0) + 1);
+      }
+      out.set(
+        key,
+        [...counts.entries()]
+          .map(([value, count]) => ({ value, count }))
+          .sort((a, b) => b.count - a.count),
+      );
+    }
+    return out;
+  }, [filteredCases, selectedFields]);
+
+  // Which values of a field the chart draws. No stored selection means the
+  // default, which is what every chart saved before this had: every real
+  // value, and "ללא ערך" only on a single-field chart - across several fields
+  // it dominates, since most cases hold no value in most חוצץ fields.
+  const shownValues = useCallback(
+    (key: string): string[] => {
+      const stored = chart.values?.[key];
+      if (stored) return stored;
+      const all = (countsByField.get(key) ?? []).map((o) => o.value);
+      return selectedFields.length > 1
+        ? all.filter((v) => v !== NO_VALUE_LABEL)
+        : all;
+    },
+    [chart.values, countsByField, selectedFields.length],
   );
 
   // Every chosen field contributes its own values as slices: picking צוות
@@ -129,19 +178,9 @@ function ChartSlot({
     const map = new Map<string, { key: string; value: string }>();
 
     for (const key of selectedFields) {
-      const counts = new Map<string, number>();
-      for (const c of filteredCases) {
-        const value = caseFilterValue(c, key);
-        // "ללא ערך" only makes sense on a single-field chart. Across several
-        // fields it would dominate - most cases hold no value in most חוצץ
-        // fields - and bury the comparison the chart is for.
-        if (value === null) {
-          if (!multi) counts.set(NO_VALUE_LABEL, (counts.get(NO_VALUE_LABEL) ?? 0) + 1);
-          continue;
-        }
-        counts.set(value, (counts.get(value) ?? 0) + 1);
-      }
-      for (const [value, count] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
+      const shown = new Set(shownValues(key));
+      for (const { value, count } of countsByField.get(key) ?? []) {
+        if (!shown.has(value)) continue;
         // the field name has to ride along once more than one is charted, or
         // two fields sharing a value ("כן") collapse into one indistinguishable
         // pair of slices
@@ -151,7 +190,7 @@ function ChartSlot({
       }
     }
     return { segments: out, sources: map };
-  }, [filteredCases, selectedFields, fieldLabel]);
+  }, [countsByField, selectedFields, shownValues, fieldLabel]);
 
   // Every segment links through, whatever it is grouped by: the cases screen
   // reads the same condition shape the filter builder produces, so a חוצץ or
@@ -160,6 +199,23 @@ function ChartSlot({
   //
   // The chart's own filters ride along, or the list would be wider than the
   // slice that was clicked.
+  function setShownValues(key: string, values: string[]) {
+    // a field showing nothing is a field that may as well not be on the chart,
+    // and the empty result reads as a bug rather than as a choice
+    if (values.length === 0) return;
+    onChange({ ...chart, values: { ...(chart.values ?? {}), [key]: values } });
+  }
+
+  function toggleShownValue(key: string, value: string) {
+    const current = shownValues(key);
+    setShownValues(
+      key,
+      current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value],
+    );
+  }
+
   function hrefForSegment(label: string) {
     const source = sources.get(label);
     if (!source) return null;
@@ -187,6 +243,9 @@ function ChartSlot({
       fields: config.fields?.length
         ? config.fields
         : [config.groupBy || chart.groupBy],
+      // absent in an older template, which then falls back to the default
+      // selection - not to whatever the chart happened to be showing before
+      values: config.values ?? {},
       // the chart takes the template's name, which is what makes the heading
       // say what is on screen rather than a title left over from before
       title: template.name,
@@ -197,7 +256,12 @@ function ChartSlot({
   // chosen fields are the chart, so leaving them out would save a template
   // that restores an empty donut.
   function currentConfig(): ChartViewConfig {
-    return { filters, groupBy: selectedFields[0], fields: selectedFields };
+    return {
+      filters,
+      groupBy: selectedFields[0],
+      fields: selectedFields,
+      values: chart.values,
+    };
   }
 
   async function saveTemplate(name: string) {
@@ -300,24 +364,71 @@ function ChartSlot({
 
       <ul className="mb-3 flex flex-wrap items-center gap-2">
         <li className="text-xs text-gray-400">מקובץ לפי</li>
-        {selectedFields.map((key) => (
-          <li
-            key={key}
-            className="flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
-          >
-            {fieldLabel(key)}
-            {selectedFields.length > 1 && (
+        {selectedFields.map((key) => {
+          const all = countsByField.get(key) ?? [];
+          const shown = shownValues(key);
+          const partial = shown.length < all.length;
+          return (
+            <li
+              key={key}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                openFieldKey === key
+                  ? "bg-indigo-600 text-white"
+                  : "bg-gray-100 text-gray-700"
+              }`}
+            >
               <button
-                onClick={() => removeField(key)}
-                title="הסרת השדה מהתרשים"
-                className="text-gray-400 hover:text-rose-600"
+                onClick={() => setOpenFieldKey(openFieldKey === key ? null : key)}
+                title="בחירת הערכים שיוצגו מהשדה הזה"
+                className="hover:underline"
               >
-                ✕
+                {fieldLabel(key)}
+                {partial && ` (${shown.length}/${all.length})`}
               </button>
-            )}
-          </li>
-        ))}
+              {selectedFields.length > 1 && (
+                <button
+                  onClick={() => removeField(key)}
+                  title="הסרת השדה מהתרשים"
+                  className={
+                    openFieldKey === key
+                      ? "text-indigo-200 hover:text-white"
+                      : "text-gray-400 hover:text-rose-600"
+                  }
+                >
+                  ✕
+                </button>
+              )}
+            </li>
+          );
+        })}
       </ul>
+
+      {openFieldKey && (
+        <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-indigo-800">
+              ערכים שיוצגו מתוך {fieldLabel(openFieldKey)}
+            </span>
+            <button
+              onClick={() => setOpenFieldKey(null)}
+              className="text-xs text-indigo-600 hover:underline"
+            >
+              סיום
+            </button>
+          </div>
+          <ValuePicker
+            options={countsByField.get(openFieldKey) ?? []}
+            selected={new Set(shownValues(openFieldKey))}
+            onToggle={(v) => toggleShownValue(openFieldKey, v)}
+            onSelectAll={() =>
+              setShownValues(
+                openFieldKey,
+                (countsByField.get(openFieldKey) ?? []).map((o) => o.value),
+              )
+            }
+          />
+        </div>
+      )}
 
       {showFilters && (
         <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/40 p-3">

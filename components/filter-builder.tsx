@@ -13,12 +13,12 @@ export interface FilterFieldOption {
 // value exists and that picking it is worth doing, and a value that would
 // empty the screen shows up as (0) instead of only revealing itself after the
 // click.
-interface ValueCount {
+export interface ValueCount {
   value: string;
   count: number;
 }
 
-function countValues<T>(
+export function countValues<T>(
   items: T[],
   key: string,
   getValue: (item: T, key: string) => string | null,
@@ -41,7 +41,7 @@ function countValues<T>(
 //
 // The search box earns its place on the חוצץ fields, where a value list can
 // run long; it is hidden below ten values, where it would only be noise.
-function ValuePicker({
+export function ValuePicker({
   options,
   selected,
   onToggle,
