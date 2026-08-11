@@ -80,8 +80,13 @@ export function FilterBuilder<T>({
   );
 
   // A stale index (the list was replaced by a template while a chip was open)
-  // resolves to null, which closes the editor instead of throwing.
-  const editing = editingIndex === null ? null : (conditions[editingIndex] ?? null);
+  // resolves to null, which closes the editor instead of throwing. A
+  // "not_empty" condition has no values to edit, so it never opens either -
+  // it arrives from a per-field chart's click-through, and all you can do
+  // with it is keep it or drop it.
+  const openCondition =
+    editingIndex === null ? null : (conditions[editingIndex] ?? null);
+  const editing = openCondition?.op === "not_empty" ? null : openCondition;
   // Keyed on the field, not on the condition object: toggling a value makes a
   // new object every time, and rescanning every case on each click is work
   // that produces the same list.
@@ -152,13 +157,17 @@ export function FilterBuilder<T>({
                   : "bg-white text-gray-700"
               }`}
             >
-              <button
-                onClick={() => setEditingIndex(editingIndex === i ? null : i)}
-                title="עריכת הערכים בתנאי"
-                className="hover:underline"
-              >
-                {fieldLabel(cond.key)}: {cond.values.join(" / ")}
-              </button>
+              {cond.op === "not_empty" ? (
+                <span>{fieldLabel(cond.key)}: יש ערך</span>
+              ) : (
+                <button
+                  onClick={() => setEditingIndex(editingIndex === i ? null : i)}
+                  title="עריכת הערכים בתנאי"
+                  className="hover:underline"
+                >
+                  {fieldLabel(cond.key)}: {cond.values.join(" / ")}
+                </button>
+              )}
               <button
                 onClick={() => removeCondition(i)}
                 title="הסרת התנאי"
@@ -248,6 +257,7 @@ export function matchesConditions<T>(
 ): boolean {
   return conditions.every((cond) => {
     const value = getValue(item, cond.key);
+    if (cond.op === "not_empty") return value !== null && value !== "";
     return value !== null && cond.values.includes(value);
   });
 }
