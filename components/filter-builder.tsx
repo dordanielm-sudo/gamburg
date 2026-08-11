@@ -8,41 +8,117 @@ export interface FilterFieldOption {
   label: string;
 }
 
-function uniqueSortedValues(values: (string | null)[]) {
-  return Array.from(new Set(values.filter((v): v is string => !!v))).sort(
-    (a, b) => a.localeCompare(b, "he"),
-  );
+// A value and how many of the items in scope have it. The count is what makes
+// the list answerable rather than just a list: "פעיל (312)" says both that the
+// value exists and that picking it is worth doing, and a value that would
+// empty the screen shows up as (0) instead of only revealing itself after the
+// click.
+interface ValueCount {
+  value: string;
+  count: number;
 }
 
-// A checkbox list of every value the field actually takes across the items.
-// Shared by the "add a condition" picker and by editing one already in the
-// list, so both offer the same choices in the same order.
-function ValueChecklist({
+function countValues<T>(
+  items: T[],
+  key: string,
+  getValue: (item: T, key: string) => string | null,
+): ValueCount[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const value = getValue(item, key);
+    if (!value) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => a.value.localeCompare(b.value, "he"));
+}
+
+// The value picker: a roomy panel rather than the cramped scroll box this
+// used to be. A field like מהות תיק has a couple of dozen values, and reading
+// them through a 128px window meant scrolling to find out what was even on
+// offer.
+//
+// The search box earns its place on the חוצץ fields, where a value list can
+// run long; it is hidden below ten values, where it would only be noise.
+function ValuePicker({
   options,
   selected,
   onToggle,
+  onSelectAll,
+  onClear,
 }: {
-  options: string[];
+  options: ValueCount[];
   selected: Set<string>;
   onToggle: (value: string) => void;
+  onSelectAll?: () => void;
+  onClear?: () => void;
 }) {
+  const [search, setSearch] = useState("");
+  const shown = search.trim()
+    ? options.filter((o) => o.value.includes(search.trim()))
+    : options;
+
   return (
-    <div className="flex max-h-32 flex-wrap gap-x-3 gap-y-1 overflow-y-auto rounded-md border border-gray-300 bg-white p-2">
-      {options.length === 0 ? (
-        <span className="text-xs text-gray-400">אין ערכים</span>
-      ) : (
-        options.map((v) => (
-          <label key={v} className="flex items-center gap-1.5 text-xs text-gray-700">
+    <div className="rounded-md border border-gray-300 bg-white">
+      {(options.length > 10 || onSelectAll || onClear) && (
+        <div className="flex items-center gap-2 border-b border-gray-100 p-2">
+          {options.length > 10 && (
             <input
-              type="checkbox"
-              checked={selected.has(v)}
-              onChange={() => onToggle(v)}
-              className="h-3.5 w-3.5"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="חיפוש ערך..."
+              className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
             />
-            {v}
-          </label>
-        ))
+          )}
+          <span className="mr-auto flex shrink-0 gap-2 text-xs">
+            {onSelectAll && (
+              <button
+                onClick={onSelectAll}
+                className="text-blue-600 hover:underline"
+              >
+                בחר הכל
+              </button>
+            )}
+            {onClear && selected.size > 0 && (
+              <button onClick={onClear} className="text-gray-500 hover:underline">
+                נקה
+              </button>
+            )}
+          </span>
+        </div>
       )}
+      <div className="max-h-64 overflow-y-auto p-2">
+        {shown.length === 0 ? (
+          <span className="text-xs text-gray-400">
+            {options.length === 0 ? "אין ערכים בשדה הזה" : "אין התאמה לחיפוש"}
+          </span>
+        ) : (
+          <div className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+            {shown.map((o) => (
+              <label
+                key={o.value}
+                className={`flex items-center gap-1.5 rounded px-1 py-0.5 text-xs hover:bg-gray-50 ${
+                  o.count === 0 ? "text-gray-400" : "text-gray-700"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(o.value)}
+                  onChange={() => onToggle(o.value)}
+                  className="h-3.5 w-3.5 shrink-0"
+                />
+                <span className="flex-1 truncate" title={o.value}>
+                  {o.value}
+                </span>
+                <span className="shrink-0 tabular-nums text-gray-400">
+                  {o.count}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -71,12 +147,22 @@ export function FilterBuilder<T>({
   // screen - a template applied while one is open swaps the list underneath.
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
-  const valueOptions = useMemo(
+  // The items a new condition would be choosing among: what the conditions
+  // already in the list leave behind. Without this the picker offers values
+  // that cannot co-occur with what is already selected, and picking one
+  // empties the screen with no explanation - filter to סוג תיק = חדל"פ and
+  // the שלב list still offered stages only הסדר נושים cases ever reach.
+  const itemsForNew = useMemo(
     () =>
-      pickerKey
-        ? uniqueSortedValues(items.map((item) => getValue(item, pickerKey)))
-        : [],
-    [items, pickerKey, getValue],
+      conditions.length > 0
+        ? items.filter((item) => matchesConditions(item, conditions, getValue))
+        : items,
+    [items, conditions, getValue],
+  );
+
+  const valueOptions = useMemo(
+    () => (pickerKey ? countValues(itemsForNew, pickerKey, getValue) : []),
+    [itemsForNew, pickerKey, getValue],
   );
 
   // A stale index (the list was replaced by a template while a chip was open)
@@ -91,13 +177,31 @@ export function FilterBuilder<T>({
   // new object every time, and rescanning every case on each click is work
   // that produces the same list.
   const editingKey = editing?.key ?? "";
-  const editingOptions = useMemo(
-    () =>
-      editingKey
-        ? uniqueSortedValues(items.map((item) => getValue(item, editingKey)))
-        : [],
-    [items, editingKey, getValue],
-  );
+  const editingOptions = useMemo(() => {
+    if (!editingKey || editingIndex === null) return [];
+    // Narrowed by the *other* conditions, never by the one being edited.
+    // Including it would mean only its already-chosen values have a nonzero
+    // count, so a value could be removed and then never put back.
+    const others = conditions.filter((_, i) => i !== editingIndex);
+    const scope =
+      others.length > 0
+        ? items.filter((item) => matchesConditions(item, others, getValue))
+        : items;
+    const counted = countValues(scope, editingKey, getValue);
+    // A value the condition holds but no item currently has - a template
+    // written before the data changed, say - would otherwise be missing from
+    // the list, leaving it checked in the chip with no checkbox to uncheck.
+    // It appears at 0 instead, greyed, and can be removed like any other.
+    const present = new Set(counted.map((o) => o.value));
+    const orphans = (openCondition?.values ?? [])
+      .filter((v) => !present.has(v))
+      .map((value) => ({ value, count: 0 }));
+    return orphans.length === 0
+      ? counted
+      : [...counted, ...orphans].sort((a, b) =>
+          a.value.localeCompare(b.value, "he"),
+        );
+  }, [items, conditions, editingIndex, editingKey, openCondition, getValue]);
 
   function fieldLabel(key: string) {
     return fieldOptions.find((f) => f.key === key)?.label ?? key;
@@ -120,6 +224,17 @@ export function FilterBuilder<T>({
     const values = editing.values.includes(v)
       ? editing.values.filter((x) => x !== v)
       : [...editing.values, v];
+    if (values.length === 0) {
+      removeCondition(editingIndex);
+      return;
+    }
+    onConditionsChange(
+      conditions.map((c, i) => (i === editingIndex ? { ...c, values } : c)),
+    );
+  }
+
+  function setEditingValues(values: string[]) {
+    if (editingIndex === null) return;
     if (values.length === 0) {
       removeCondition(editingIndex);
       return;
@@ -186,7 +301,7 @@ export function FilterBuilder<T>({
 
       {editing && (
         <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3">
-          <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
             <span className="text-xs font-medium text-indigo-800">
               עריכת {fieldLabel(editing.key)}
             </span>
@@ -197,54 +312,63 @@ export function FilterBuilder<T>({
               סיום
             </button>
           </div>
-          <ValueChecklist
+          <ValuePicker
             options={editingOptions}
             selected={new Set(editing.values)}
             onToggle={toggleEditingValue}
+            onSelectAll={() => setEditingValues(editingOptions.map((o) => o.value))}
           />
         </div>
       )}
 
-      <div className="flex flex-wrap items-start gap-2">
-        <div className="min-w-[180px]">
-          <label className="mb-1 block text-xs text-gray-500">שדה</label>
-          <select
-            value={pickerKey}
-            onChange={(e) => {
-              setPickerKey(e.target.value);
-              setPickerValues(new Set());
-            }}
-            className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-          >
-            <option value="">בחר שדה...</option>
-            {fieldOptions.map((f) => (
-              <option key={f.key} value={f.key}>
-                {f.label}
-              </option>
-            ))}
-          </select>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-[220px]">
+            <label className="mb-1 block text-xs text-gray-500">שדה</label>
+            <select
+              value={pickerKey}
+              onChange={(e) => {
+                setPickerKey(e.target.value);
+                setPickerValues(new Set());
+              }}
+              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">בחר שדה...</option>
+              {fieldOptions.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {pickerKey && (
+            <button
+              onClick={addCondition}
+              disabled={pickerValues.size === 0}
+              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              הוספת תנאי
+              {pickerValues.size > 0 ? ` (${pickerValues.size})` : ""}
+            </button>
+          )}
         </div>
 
         {pickerKey && (
-          <div className="min-w-[200px]">
+          <div>
             <label className="mb-1 block text-xs text-gray-500">
-              ערך (אפשר לבחור כמה)
+              ערך - אפשר לסמן כמה, והמספר לצד כל ערך הוא כמה תואמים לו כרגע
             </label>
-            <ValueChecklist
+            <ValuePicker
               options={valueOptions}
               selected={pickerValues}
               onToggle={toggleValue}
+              onSelectAll={() =>
+                setPickerValues(new Set(valueOptions.map((o) => o.value)))
+              }
+              onClear={() => setPickerValues(new Set())}
             />
           </div>
         )}
-
-        <button
-          onClick={addCondition}
-          disabled={!pickerKey || pickerValues.size === 0}
-          className="mt-5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          הוספת תנאי
-        </button>
       </div>
     </div>
   );
