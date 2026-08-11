@@ -47,6 +47,12 @@ SSL, redeploy script) is documented step by step in [`DEPLOY.md`](./DEPLOY.md).
   (the id עדכנית knows the record by - our own uuid means nothing there).
   Full contract, routing table and the Make build guide:
   [`docs/make-write-back.md`](./docs/make-write-back.md).
+- `POST /api/webhooks/case-field-sync` - Make calls this on a schedule with
+  every חוצץ of every case, pulled from עדכנית's custom-fields view. Takes
+  a `batches` array of up to ~100 case+tab groups per request, because Make
+  bills per bundle and one call per case would cost ~96,000 operations a
+  month. The scenario's SQL, the Make module setup and the body-size limit:
+  [`docs/case-field-pull.md`](./docs/case-field-pull.md).
 - `POST /api/webhooks/incoming-document` - Make calls this (not a CRM user
   session) whenever a new relevant document arrives. Authenticated by a
   shared secret header, not Supabase Auth: `x-webhook-secret` must match

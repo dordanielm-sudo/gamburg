@@ -66,6 +66,8 @@ pm2 startup   # מדפיס פקודה חד-פעמית שצריך להריץ (ע�
 את הבלוק הבא (לא למחוק את מה שכבר קיים - להוסיף בתוך ה-`server` block הקיים):
 
 ```nginx
+client_max_body_size 20m;
+
 location / {
     proxy_pass http://127.0.0.1:3000;
     proxy_http_version 1.1;
@@ -77,6 +79,11 @@ location / {
     proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
+
+`client_max_body_size` נדרש בגלל סנכרון החוצצים: Make שולח מאות תיקים
+בבקשה אחת (ראו [`docs/case-field-pull.md`](./docs/case-field-pull.md)), וברירת
+המחדל של Nginx היא 1MB. בלי זה בקשה גדולה נחתכת ב-Nginx ומחזירה 413 בלי
+שהאפליקציה בכלל רואה אותה - כלומר גם בלי שורה ביומן הקריאות.
 
 (`Upgrade`/`Connection` כאן חשובים ל-Supabase Realtime - פעמון ההתראות
 מתחבר ב-WebSocket ישירות ל-Supabase מהדפדפן, לא דרך השרת שלכם, אז זה בעצם
