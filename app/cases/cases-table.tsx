@@ -21,6 +21,7 @@ import { Badge, hashTone, TONE_HEX, type Tone } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
+import { TemplateBar } from "@/components/template-bar";
 import {
   collectCaseFieldKeys,
   caseFilterFieldOptions,
@@ -243,8 +244,9 @@ export function CasesTable({
   // open the panel when arriving with a filter, so the condition is visible
   // and removable rather than silently narrowing the list
   const [showAdvanced, setShowAdvanced] = useState(filterFromUrl.length > 0);
-  const [templateName, setTemplateName] = useState("");
-  const [templateError, setTemplateError] = useState<string | null>(null);
+  // which saved template the view is currently showing, so "עדכון" knows
+  // what it would overwrite and the select keeps showing it
+  const [appliedTemplateId, setAppliedTemplateId] = useState("");
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -318,56 +320,68 @@ export function CasesTable({
     [],
   );
 
+  // Applying opens the filter panel. A template that is only a count on a
+  // button is a black box - you cannot tell what it narrowed to, let alone
+  // adjust it, which is the whole reason to have saved one.
   function applyTemplate(id: string) {
     const template = templates.find((t) => t.id === id);
     if (!template) return;
     const config = template.config as CasesViewConfig;
+    setAppliedTemplateId(id);
     setAdvancedFilters(config.filters ?? []);
     if (config.columns) setColumnOrder(sanitizeColumnOrder(config.columns));
     if (config.sortKey) setSortKey(config.sortKey as SortKey);
     if (config.sortDir) setSortDir(config.sortDir);
+    setShowAdvanced(true);
   }
 
-  async function saveTemplate() {
-    setTemplateError(null);
-    if (!templateName.trim()) {
-      setTemplateError("יש לתת שם לתבנית");
-      return;
-    }
-    if (advancedFilters.length === 0) {
-      setTemplateError("יש להוסיף לפחות תנאי סינון אחד");
-      return;
-    }
+  function currentConfig(): CasesViewConfig {
+    return { filters: advancedFilters, columns: columnOrder, sortKey, sortDir };
+  }
+
+  async function saveTemplate(name: string) {
     const nextOrder =
       templates.length > 0 ? Math.max(...templates.map((t) => t.display_order)) + 1 : 0;
-    const config: CasesViewConfig = {
-      filters: advancedFilters,
-      columns: columnOrder,
-      sortKey,
-      sortDir,
-    };
     const { data, error } = await supabase
       .from("view_templates")
       .insert({
         screen: "cases",
-        name: templateName.trim(),
-        config,
+        name,
+        config: currentConfig(),
         display_order: nextOrder,
         created_by: currentUserId,
       })
       .select()
       .single<ViewTemplate>();
-    if (error || !data) {
-      setTemplateError("שגיאה בשמירת התבנית");
-      return;
-    }
+    if (error || !data) return "שגיאה בשמירת התבנית";
     setTemplates((prev) => [...prev, data]);
-    setTemplateName("");
+    // the new template becomes the applied one, so the next edit updates it
+    // instead of quietly saving a second copy under a similar name
+    setAppliedTemplateId(data.id);
+    return null;
+  }
+
+  async function updateTemplate() {
+    if (!appliedTemplateId) return null;
+    const { error } = await supabase
+      .from("view_templates")
+      .update({ config: currentConfig() })
+      .eq("id", appliedTemplateId);
+    if (error) return "שגיאה בעדכון התבנית";
+    setTemplates((prev) =>
+      prev.map((t) =>
+        t.id === appliedTemplateId ? { ...t, config: currentConfig() } : t,
+      ),
+    );
+    return null;
   }
 
   async function deleteTemplate(id: string) {
     const { error } = await supabase.from("view_templates").delete().eq("id", id);
-    if (!error) setTemplates((prev) => prev.filter((t) => t.id !== id));
+    if (error) return "שגיאה במחיקת התבנית";
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
+    if (appliedTemplateId === id) setAppliedTemplateId("");
+    return null;
   }
 
   // days that have an open deadline/task somewhere, for the calendar's dot
@@ -921,20 +935,6 @@ export function CasesTable({
             onToggle={toggleFieldName}
           />
         )}
-        {templates.length > 0 && (
-          <select
-            value=""
-            onChange={(e) => e.target.value && applyTemplate(e.target.value)}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-          >
-            <option value="">תבנית שמורה...</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        )}
         <button
           onClick={() => setShowAdvanced((v) => !v)}
           className={`rounded-lg border px-3 py-2 text-sm font-medium ${
@@ -998,42 +998,19 @@ export function CasesTable({
           />
 
           {isManager && (
-            <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-indigo-100 pt-3">
-              <div className="min-w-[200px] flex-1">
-                <label className="mb-1 block text-xs text-gray-500">
-                  שם תבנית
-                </label>
-                <input
-                  value={templateName}
-                  onChange={(e) => setTemplateName(e.target.value)}
-                  placeholder="למשל: תיקים תקועים בחדל&quot;פ"
-                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <button
-                onClick={saveTemplate}
-                className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-900"
-              >
-                שמירה כתבנית
-              </button>
-              {templates.length > 0 && (
-                <select
-                  value=""
-                  onChange={(e) => e.target.value && deleteTemplate(e.target.value)}
-                  className="rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-500 focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="">מחיקת תבנית...</option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              )}
+            <div className="mt-3 border-t border-indigo-100 pt-3">
+              <TemplateBar
+                templates={templates}
+                appliedId={appliedTemplateId}
+                onApply={applyTemplate}
+                onDetach={() => setAppliedTemplateId("")}
+                onSave={saveTemplate}
+                onUpdate={updateTemplate}
+                onDelete={deleteTemplate}
+                canSave={advancedFilters.length > 0}
+                saveHint="יש להוסיף לפחות תנאי סינון אחד"
+              />
             </div>
-          )}
-          {templateError && (
-            <p className="mt-2 text-xs text-red-700">{templateError}</p>
           )}
         </div>
       )}
