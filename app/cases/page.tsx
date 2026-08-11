@@ -3,6 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { CasesTable } from "./cases-table";
+import {
+  NON_EMPTY_CASE_FIELD,
+  fetchCaseFieldKeys,
+} from "@/lib/case-field-catalog";
 import type {
   CaseTypeColumnPreset,
   CaseWithRelations,
@@ -28,6 +32,12 @@ async function fetchAllCases(
     const { data, error } = await supabase
       .from("cases")
       .select(CASES_SELECT)
+      // Only חוצץ fields that hold a value. Four fifths of them are empty,
+      // and an empty one shows nothing in a column and offers nothing to
+      // filter on - it was several megabytes of payload per page load doing
+      // no work. The picker still lists every field: those names come from
+      // case_field_catalog(), not from these rows.
+      .or(NON_EMPTY_CASE_FIELD, { referencedTable: "case_fields" })
       .order("last_touched_at", { ascending: false })
       .order("id", { ascending: true })
       .range(from, from + BATCH_SIZE - 1)
@@ -51,6 +61,7 @@ export default async function CasesPage() {
     { data: columnPresets },
     { data: columnOrder },
     { data: viewTemplates },
+    caseFieldKeys,
   ] = await Promise.all([
       fetchAllCases(supabase),
       supabase
@@ -71,6 +82,7 @@ export default async function CasesPage() {
         .eq("screen", "cases")
         .order("display_order")
         .returns<ViewTemplate[]>(),
+      fetchCaseFieldKeys(supabase),
     ]);
 
   return (
@@ -95,6 +107,7 @@ export default async function CasesPage() {
             currentUserId={profile.id}
             initialColumnOrder={columnOrder?.column_order ?? null}
             viewTemplates={viewTemplates ?? []}
+            caseFieldKeys={caseFieldKeys}
           />
         )}
       </main>

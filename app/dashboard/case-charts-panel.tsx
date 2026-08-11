@@ -14,7 +14,6 @@ import type {
   ViewTemplate,
 } from "@/types/database";
 import {
-  collectCaseFieldKeys,
   caseFilterFieldOptions,
   caseFilterValue,
   FIXED_KEY_PREFIX,
@@ -271,12 +270,17 @@ export function CaseChartsPanel({
   layout,
   isManager,
   currentUserId,
+  caseFieldKeys,
 }: {
   cases: ChartCaseRow[];
   viewTemplates: ViewTemplate[];
   layout: ViewTemplate | null;
   isManager: boolean;
   currentUserId: string;
+  // every חוצץ field that exists, from case_field_catalog() - the cases here
+  // carry only the fields holding a value, so deriving the picker from them
+  // would drop every field nobody has filled in yet
+  caseFieldKeys: string[];
 }) {
   const [templates, setTemplates] = useState(viewTemplates);
   const supabase = useMemo(() => createClient(), []);
@@ -288,11 +292,9 @@ export function CaseChartsPanel({
   const [layoutId, setLayoutId] = useState<string | null>(layout?.id ?? null);
   const [layoutError, setLayoutError] = useState<string | null>(null);
 
-  // חוצצים are discovered from the cases actually loaded, so the picker only
-  // ever offers tabs this dataset has values for
   const fieldOptions = useMemo(
-    () => caseFilterFieldOptions(collectCaseFieldKeys(cases)),
-    [cases],
+    () => caseFilterFieldOptions(caseFieldKeys),
+    [caseFieldKeys],
   );
 
   // Persisting is fire-and-forget on top of local state: the charts are a

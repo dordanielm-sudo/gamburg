@@ -24,7 +24,6 @@ import { NamedAvatar } from "@/components/ui/avatar";
 import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
 import { TemplateBar } from "@/components/template-bar";
 import {
-  collectCaseFieldKeys,
   caseFilterFieldOptions,
   caseFilterValue,
 } from "@/lib/case-filter-fields";
@@ -93,6 +92,7 @@ export function DeadlinesBoard({
   viewTemplates,
   isManager,
   currentUserId,
+  caseFieldKeys,
 }: {
   deadlines: CaseDeadlineWithCase[];
   canCreate: boolean;
@@ -100,6 +100,9 @@ export function DeadlinesBoard({
   viewTemplates: ViewTemplate[];
   isManager: boolean;
   currentUserId: string;
+  // every חוצץ field that exists, from case_field_catalog() - the embedded
+  // cases carry only the fields holding a value
+  caseFieldKeys: string[];
 }) {
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
@@ -404,15 +407,13 @@ export function DeadlinesBoard({
 
   // without a write-back target the field still saves locally; it just does
   // not log a change Make could never route
-  // חוצצים are discovered from the cases these deadlines belong to, so the
-  // picker offers exactly the tabs present in the loaded data
-  const filterFieldOptions = useMemo(() => {
-    const cases = rows.map((d) => d.case).filter((c) => c !== null);
-    return [
+  const filterFieldOptions = useMemo(
+    () => [
       ...DEADLINE_OWN_FIELD_OPTIONS,
-      ...caseFilterFieldOptions(collectCaseFieldKeys(cases)),
-    ];
-  }, [rows]);
+      ...caseFilterFieldOptions(caseFieldKeys),
+    ],
+    [caseFieldKeys],
+  );
 
   function syncFor(d: CaseDeadlineWithCase) {
     // a deadline is a field on the case in עדכנית, named by
