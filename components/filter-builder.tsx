@@ -14,6 +14,39 @@ function uniqueSortedValues(values: (string | null)[]) {
   );
 }
 
+// A checkbox list of every value the field actually takes across the items.
+// Shared by the "add a condition" picker and by editing one already in the
+// list, so both offer the same choices in the same order.
+function ValueChecklist({
+  options,
+  selected,
+  onToggle,
+}: {
+  options: string[];
+  selected: Set<string>;
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <div className="flex max-h-32 flex-wrap gap-x-3 gap-y-1 overflow-y-auto rounded-md border border-gray-300 bg-white p-2">
+      {options.length === 0 ? (
+        <span className="text-xs text-gray-400">אין ערכים</span>
+      ) : (
+        options.map((v) => (
+          <label key={v} className="flex items-center gap-1.5 text-xs text-gray-700">
+            <input
+              type="checkbox"
+              checked={selected.has(v)}
+              onChange={() => onToggle(v)}
+              className="h-3.5 w-3.5"
+            />
+            {v}
+          </label>
+        ))
+      )}
+    </div>
+  );
+}
+
 // shared across every screen that supports "סינון מתקדם" (cases, and the
 // dashboard's per-chart pre-filter) - the caller supplies the item list,
 // the pickable fields, and how to read a field's value off an item; this
@@ -33,6 +66,10 @@ export function FilterBuilder<T>({
 }) {
   const [pickerKey, setPickerKey] = useState("");
   const [pickerValues, setPickerValues] = useState<Set<string>>(new Set());
+  // index of the condition whose values are open for editing, or null. Kept
+  // as an index rather than a copy so the chip always edits what is on
+  // screen - a template applied while one is open swaps the list underneath.
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const valueOptions = useMemo(
     () =>
@@ -40,6 +77,21 @@ export function FilterBuilder<T>({
         ? uniqueSortedValues(items.map((item) => getValue(item, pickerKey)))
         : [],
     [items, pickerKey, getValue],
+  );
+
+  // A stale index (the list was replaced by a template while a chip was open)
+  // resolves to null, which closes the editor instead of throwing.
+  const editing = editingIndex === null ? null : (conditions[editingIndex] ?? null);
+  // Keyed on the field, not on the condition object: toggling a value makes a
+  // new object every time, and rescanning every case on each click is work
+  // that produces the same list.
+  const editingKey = editing?.key ?? "";
+  const editingOptions = useMemo(
+    () =>
+      editingKey
+        ? uniqueSortedValues(items.map((item) => getValue(item, editingKey)))
+        : [],
+    [items, editingKey, getValue],
   );
 
   function fieldLabel(key: string) {
@@ -55,6 +107,23 @@ export function FilterBuilder<T>({
     });
   }
 
+  // Toggling the last remaining value would leave a condition that matches
+  // nothing and cannot be recovered from the chip (it would render with no
+  // values), so removing it is treated as deleting the condition.
+  function toggleEditingValue(v: string) {
+    if (editingIndex === null || !editing) return;
+    const values = editing.values.includes(v)
+      ? editing.values.filter((x) => x !== v)
+      : [...editing.values, v];
+    if (values.length === 0) {
+      removeCondition(editingIndex);
+      return;
+    }
+    onConditionsChange(
+      conditions.map((c, i) => (i === editingIndex ? { ...c, values } : c)),
+    );
+  }
+
   function addCondition() {
     if (!pickerKey || pickerValues.size === 0) return;
     onConditionsChange([
@@ -67,6 +136,7 @@ export function FilterBuilder<T>({
 
   function removeCondition(index: number) {
     onConditionsChange(conditions.filter((_, i) => i !== index));
+    setEditingIndex(null);
   }
 
   return (
@@ -76,18 +146,54 @@ export function FilterBuilder<T>({
           {conditions.map((cond, i) => (
             <li
               key={i}
-              className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm"
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium shadow-sm ${
+                editingIndex === i
+                  ? "bg-indigo-600 text-white"
+                  : "bg-white text-gray-700"
+              }`}
             >
-              {fieldLabel(cond.key)}: {cond.values.join(" / ")}
+              <button
+                onClick={() => setEditingIndex(editingIndex === i ? null : i)}
+                title="עריכת הערכים בתנאי"
+                className="hover:underline"
+              >
+                {fieldLabel(cond.key)}: {cond.values.join(" / ")}
+              </button>
               <button
                 onClick={() => removeCondition(i)}
-                className="text-gray-400 hover:text-rose-600"
+                title="הסרת התנאי"
+                className={
+                  editingIndex === i
+                    ? "text-indigo-200 hover:text-white"
+                    : "text-gray-400 hover:text-rose-600"
+                }
               >
                 ✕
               </button>
             </li>
           ))}
         </ul>
+      )}
+
+      {editing && (
+        <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-indigo-800">
+              עריכת {fieldLabel(editing.key)}
+            </span>
+            <button
+              onClick={() => setEditingIndex(null)}
+              className="text-xs text-indigo-600 hover:underline"
+            >
+              סיום
+            </button>
+          </div>
+          <ValueChecklist
+            options={editingOptions}
+            selected={new Set(editing.values)}
+            onToggle={toggleEditingValue}
+          />
+        </div>
       )}
 
       <div className="flex flex-wrap items-start gap-2">
@@ -115,26 +221,11 @@ export function FilterBuilder<T>({
             <label className="mb-1 block text-xs text-gray-500">
               ערך (אפשר לבחור כמה)
             </label>
-            <div className="flex max-h-32 flex-wrap gap-x-3 gap-y-1 overflow-y-auto rounded-md border border-gray-300 bg-white p-2">
-              {valueOptions.length === 0 ? (
-                <span className="text-xs text-gray-400">אין ערכים</span>
-              ) : (
-                valueOptions.map((v) => (
-                  <label
-                    key={v}
-                    className="flex items-center gap-1.5 text-xs text-gray-700"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={pickerValues.has(v)}
-                      onChange={() => toggleValue(v)}
-                      className="h-3.5 w-3.5"
-                    />
-                    {v}
-                  </label>
-                ))
-              )}
-            </div>
+            <ValueChecklist
+              options={valueOptions}
+              selected={pickerValues}
+              onToggle={toggleValue}
+            />
           </div>
         )}
 

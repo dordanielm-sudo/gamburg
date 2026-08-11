@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { DonutChart } from "@/components/ui/donut-chart";
 import { hashTone } from "@/components/ui/badge";
 import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
+import { TemplateBar } from "@/components/template-bar";
 import type {
   ChartViewConfig,
   DashboardChartConfig,
@@ -52,7 +53,7 @@ function ChartSlot({
   isManager: boolean;
   onSaveTemplate: (name: string, config: ChartViewConfig) => Promise<string | null>;
   onUpdateTemplate: (id: string, config: ChartViewConfig) => Promise<string | null>;
-  onDeleteTemplate: (id: string) => void;
+  onDeleteTemplate: (id: string) => Promise<string | null>;
 }) {
   const field = chart.groupBy;
   const filters = chart.filters;
@@ -70,8 +71,6 @@ function ChartSlot({
   const setFilters = (next: ViewFilterCondition[]) =>
     onChange({ ...chart, filters: next });
   const [showFilters, setShowFilters] = useState(false);
-  const [templateName, setTemplateName] = useState("");
-  const [templateError, setTemplateError] = useState<string | null>(null);
   // which saved template the chart is currently showing, so its name can sit
   // at the top and so "עדכון" knows what to overwrite
   const [appliedTemplateId, setAppliedTemplateId] = useState<string>("");
@@ -107,11 +106,14 @@ function ChartSlot({
     return `/cases?filter=${encodeURIComponent(condition)}`;
   }
 
+  // Applying opens the filter panel, so the conditions the template carries
+  // are visible and editable instead of only a count on a button.
   function applyTemplate(id: string) {
     const template = templates.find((t) => t.id === id);
     if (!template) return;
     const config = template.config as ChartViewConfig;
     setAppliedTemplateId(id);
+    setShowFilters(true);
     onChange({
       ...chart,
       filters: config.filters ?? [],
@@ -122,18 +124,10 @@ function ChartSlot({
     });
   }
 
-  async function saveTemplate() {
-    setTemplateError(null);
-    if (!templateName.trim()) {
-      setTemplateError("יש לתת שם לתבנית");
-      return;
-    }
-    const error = await onSaveTemplate(templateName.trim(), { filters, groupBy: field });
-    if (error) {
-      setTemplateError(error);
-      return;
-    }
-    setTemplateName("");
+  async function saveTemplate(name: string) {
+    const error = await onSaveTemplate(name, { filters, groupBy: field });
+    if (error) return error;
+    return null;
   }
 
   // Overwrites the applied template with what is on screen now. Separate from
@@ -141,13 +135,14 @@ function ChartSlot({
   // one under a new name and delete the old, which left the list cluttered
   // with near-duplicates.
   async function updateTemplate() {
-    if (!appliedTemplate) return;
-    setTemplateError(null);
-    const error = await onUpdateTemplate(appliedTemplate.id, {
-      filters,
-      groupBy: field,
-    });
-    if (error) setTemplateError(error);
+    if (!appliedTemplate) return null;
+    return onUpdateTemplate(appliedTemplate.id, { filters, groupBy: field });
+  }
+
+  async function deleteTemplate(id: string) {
+    const error = await onDeleteTemplate(id);
+    if (!error && appliedTemplateId === id) setAppliedTemplateId("");
+    return error;
   }
 
   return (
@@ -225,21 +220,6 @@ function ChartSlot({
         </div>
       </div>
 
-      {templates.length > 0 && (
-        <select
-          value={appliedTemplateId}
-          onChange={(e) => e.target.value && applyTemplate(e.target.value)}
-          className="mb-3 w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-600 focus:border-blue-500 focus:outline-none"
-        >
-          <option value="">תבנית שמורה...</option>
-          {templates.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-      )}
-
       {showFilters && (
         <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/40 p-3">
           <FilterBuilder
@@ -250,44 +230,18 @@ function ChartSlot({
             onConditionsChange={setFilters}
           />
           {isManager && (
-            <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-indigo-100 pt-3">
-              <input
-                value={templateName}
-                onChange={(e) => setTemplateName(e.target.value)}
-                placeholder="שם תבנית..."
-                className="min-w-[160px] flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none"
+            <div className="mt-3 border-t border-indigo-100 pt-3">
+              <TemplateBar
+                templates={templates}
+                appliedId={appliedTemplateId}
+                onApply={applyTemplate}
+                onDetach={() => setAppliedTemplateId("")}
+                onSave={saveTemplate}
+                onUpdate={updateTemplate}
+                onDelete={deleteTemplate}
               />
-              <button
-                onClick={saveTemplate}
-                className="rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900"
-              >
-                שמירה כתבנית
-              </button>
-              {appliedTemplate && (
-                <button
-                  onClick={updateTemplate}
-                  className="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-                >
-                  עדכון &quot;{appliedTemplate.name}&quot;
-                </button>
-              )}
-              {templates.length > 0 && (
-                <select
-                  value=""
-                  onChange={(e) => e.target.value && onDeleteTemplate(e.target.value)}
-                  className="rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-500 focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="">מחיקת תבנית...</option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              )}
             </div>
           )}
-          {templateError && <p className="mt-2 text-xs text-red-700">{templateError}</p>}
         </div>
       )}
 
@@ -420,9 +374,11 @@ export function CaseChartsPanel({
     return null;
   }
 
-  async function handleDeleteTemplate(id: string) {
+  async function handleDeleteTemplate(id: string): Promise<string | null> {
     const { error } = await supabase.from("view_templates").delete().eq("id", id);
-    if (!error) setTemplates((prev) => prev.filter((t) => t.id !== id));
+    if (error) return "שגיאה במחיקת התבנית";
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
+    return null;
   }
 
   return (

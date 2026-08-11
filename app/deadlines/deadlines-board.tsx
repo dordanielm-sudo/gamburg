@@ -22,6 +22,7 @@ import { InlineEdit } from "@/components/ui/inline-edit";
 import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 import { NamedAvatar } from "@/components/ui/avatar";
 import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
+import { TemplateBar } from "@/components/template-bar";
 import {
   collectCaseFieldKeys,
   caseFilterFieldOptions,
@@ -126,8 +127,7 @@ export function DeadlinesBoard({
   const [templates, setTemplates] = useState(viewTemplates);
   const [advancedFilters, setAdvancedFilters] = useState<ViewFilterCondition[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [templateName, setTemplateName] = useState("");
-  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [appliedTemplateId, setAppliedTemplateId] = useState("");
 
   const labelOptions = useMemo(
     () =>
@@ -165,48 +165,58 @@ export function DeadlinesBoard({
     overdueOnly ||
     advancedFilters.length > 0;
 
+  // Applying opens the panel, so the conditions the template carries are
+  // visible and editable rather than an unexplained narrowing of the list.
   function applyTemplate(id: string) {
     const template = templates.find((t) => t.id === id);
+    if (!template) return;
     // config is a union across screens; on this one it is always the
     // filters-carrying shape
-    if (template)
-      setAdvancedFilters((template.config as CasesViewConfig).filters ?? []);
+    setAppliedTemplateId(id);
+    setAdvancedFilters((template.config as CasesViewConfig).filters ?? []);
+    setShowAdvanced(true);
   }
 
-  async function saveTemplate() {
-    setTemplateError(null);
-    if (!templateName.trim()) {
-      setTemplateError("יש לתת שם לתבנית");
-      return;
-    }
-    if (advancedFilters.length === 0) {
-      setTemplateError("יש להוסיף לפחות תנאי סינון אחד");
-      return;
-    }
+  async function saveTemplate(name: string) {
     const nextOrder =
       templates.length > 0 ? Math.max(...templates.map((t) => t.display_order)) + 1 : 0;
     const { data, error } = await supabase
       .from("view_templates")
       .insert({
         screen: "deadlines",
-        name: templateName.trim(),
+        name,
         config: { filters: advancedFilters },
         display_order: nextOrder,
         created_by: currentUserId,
       })
       .select()
       .single<ViewTemplate>();
-    if (error || !data) {
-      setTemplateError("שגיאה בשמירת התבנית");
-      return;
-    }
+    if (error || !data) return "שגיאה בשמירת התבנית";
     setTemplates((prev) => [...prev, data]);
-    setTemplateName("");
+    setAppliedTemplateId(data.id);
+    return null;
+  }
+
+  async function updateTemplate() {
+    if (!appliedTemplateId) return null;
+    const config = { filters: advancedFilters };
+    const { error } = await supabase
+      .from("view_templates")
+      .update({ config })
+      .eq("id", appliedTemplateId);
+    if (error) return "שגיאה בעדכון התבנית";
+    setTemplates((prev) =>
+      prev.map((t) => (t.id === appliedTemplateId ? { ...t, config } : t)),
+    );
+    return null;
   }
 
   async function deleteTemplate(id: string) {
     const { error } = await supabase.from("view_templates").delete().eq("id", id);
-    if (!error) setTemplates((prev) => prev.filter((t) => t.id !== id));
+    if (error) return "שגיאה במחיקת התבנית";
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
+    if (appliedTemplateId === id) setAppliedTemplateId("");
+    return null;
   }
 
   const caseFilterOption = caseOptions.find((c) => c.id === caseFilter);
@@ -606,20 +616,6 @@ export function DeadlinesBoard({
                 </option>
               ))}
             </select>
-            {templates.length > 0 && (
-              <select
-                value=""
-                onChange={(e) => e.target.value && applyTemplate(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              >
-                <option value="">תבנית שמורה...</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            )}
             <button
               onClick={() => setShowAdvanced((v) => !v)}
               className={`rounded-lg border px-3 py-2 text-sm font-medium ${
@@ -667,36 +663,20 @@ export function DeadlinesBoard({
               onConditionsChange={setAdvancedFilters}
             />
             {isManager && (
-              <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-indigo-100 pt-3">
-                <input
-                  value={templateName}
-                  onChange={(e) => setTemplateName(e.target.value)}
-                  placeholder="שם תבנית..."
-                  className="min-w-[200px] flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+              <div className="mt-3 border-t border-indigo-100 pt-3">
+                <TemplateBar
+                  templates={templates}
+                  appliedId={appliedTemplateId}
+                  onApply={applyTemplate}
+                  onDetach={() => setAppliedTemplateId("")}
+                  onSave={saveTemplate}
+                  onUpdate={updateTemplate}
+                  onDelete={deleteTemplate}
+                  canSave={advancedFilters.length > 0}
+                  saveHint="יש להוסיף לפחות תנאי סינון אחד"
                 />
-                <button
-                  onClick={saveTemplate}
-                  className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-900"
-                >
-                  שמירה כתבנית
-                </button>
-                {templates.length > 0 && (
-                  <select
-                    value=""
-                    onChange={(e) => e.target.value && deleteTemplate(e.target.value)}
-                    className="rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-500 focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="">מחיקת תבנית...</option>
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
               </div>
             )}
-            {templateError && <p className="mt-2 text-xs text-red-700">{templateError}</p>}
           </div>
         )}
 
