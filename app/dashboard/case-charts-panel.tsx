@@ -40,6 +40,7 @@ function ChartSlot({
   templates,
   isManager,
   onSaveTemplate,
+  onUpdateTemplate,
   onDeleteTemplate,
 }: {
   chart: DashboardChartConfig;
@@ -50,6 +51,7 @@ function ChartSlot({
   templates: ViewTemplate[];
   isManager: boolean;
   onSaveTemplate: (name: string, config: ChartViewConfig) => Promise<string | null>;
+  onUpdateTemplate: (id: string, config: ChartViewConfig) => Promise<string | null>;
   onDeleteTemplate: (id: string) => void;
 }) {
   const field = chart.groupBy;
@@ -70,6 +72,12 @@ function ChartSlot({
   const [showFilters, setShowFilters] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [templateError, setTemplateError] = useState<string | null>(null);
+  // which saved template the chart is currently showing, so its name can sit
+  // at the top and so "עדכון" knows what to overwrite
+  const [appliedTemplateId, setAppliedTemplateId] = useState<string>("");
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+
+  const appliedTemplate = templates.find((t) => t.id === appliedTemplateId) ?? null;
   const filteredCases = useMemo(
     () =>
       filters.length > 0
@@ -103,10 +111,14 @@ function ChartSlot({
     const template = templates.find((t) => t.id === id);
     if (!template) return;
     const config = template.config as ChartViewConfig;
+    setAppliedTemplateId(id);
     onChange({
       ...chart,
       filters: config.filters ?? [],
       groupBy: config.groupBy || chart.groupBy,
+      // the chart takes the template's name, which is what makes the heading
+      // say what is on screen rather than a title left over from before
+      title: template.name,
     });
   }
 
@@ -124,15 +136,43 @@ function ChartSlot({
     setTemplateName("");
   }
 
+  // Overwrites the applied template with what is on screen now. Separate from
+  // saving: without it the only way to correct a template was to save a second
+  // one under a new name and delete the old, which left the list cluttered
+  // with near-duplicates.
+  async function updateTemplate() {
+    if (!appliedTemplate) return;
+    setTemplateError(null);
+    const error = await onUpdateTemplate(appliedTemplate.id, {
+      filters,
+      groupBy: field,
+    });
+    if (error) setTemplateError(error);
+  }
+
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-start justify-between gap-2">
-        <input
-          value={chart.title}
-          onChange={(e) => onChange({ ...chart, title: e.target.value })}
-          aria-label="שם התרשים"
-          className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 font-semibold text-gray-900 hover:border-gray-200 focus:border-blue-400 focus:bg-white focus:outline-none"
-        />
+        <div className="min-w-0 flex-1">
+          <input
+            value={chart.title}
+            onChange={(e) => onChange({ ...chart, title: e.target.value })}
+            aria-label="שם התרשים"
+            className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 font-semibold text-gray-900 hover:border-gray-200 focus:border-blue-400 focus:bg-white focus:outline-none"
+          />
+          {appliedTemplate && (
+            <div className="mt-0.5 flex items-center gap-1 px-1 text-xs text-indigo-600">
+              <span>תבנית: {appliedTemplate.name}</span>
+              <button
+                onClick={() => setAppliedTemplateId("")}
+                title="ניתוק מהתבנית"
+                className="text-indigo-300 hover:text-indigo-700"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </div>
         <div className="flex shrink-0 items-center gap-2">
           <button
             onClick={() => setShowFilters((v) => !v)}
@@ -155,20 +195,39 @@ function ChartSlot({
               </option>
             ))}
           </select>
-          <button
-            onClick={onRemove}
-            title="הסרת התרשים"
-            aria-label="הסרת התרשים"
-            className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-400 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
-          >
-            ✕
-          </button>
+          {confirmingRemove ? (
+            // Two-step rather than a browser confirm(): the question appears
+            // where the click happened, and a mis-click on ✕ costs nothing.
+            <span className="flex items-center gap-1">
+              <button
+                onClick={onRemove}
+                className="rounded-md bg-rose-600 px-2 py-1 text-xs font-medium text-white hover:bg-rose-700"
+              >
+                למחוק?
+              </button>
+              <button
+                onClick={() => setConfirmingRemove(false)}
+                className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-500 hover:bg-gray-50"
+              >
+                ביטול
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setConfirmingRemove(true)}
+              title="הסרת התרשים"
+              aria-label="הסרת התרשים"
+              className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-400 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+            >
+              ✕
+            </button>
+          )}
         </div>
       </div>
 
       {templates.length > 0 && (
         <select
-          value=""
+          value={appliedTemplateId}
           onChange={(e) => e.target.value && applyTemplate(e.target.value)}
           className="mb-3 w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-600 focus:border-blue-500 focus:outline-none"
         >
@@ -204,6 +263,14 @@ function ChartSlot({
               >
                 שמירה כתבנית
               </button>
+              {appliedTemplate && (
+                <button
+                  onClick={updateTemplate}
+                  className="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                >
+                  עדכון &quot;{appliedTemplate.name}&quot;
+                </button>
+              )}
               {templates.length > 0 && (
                 <select
                   value=""
@@ -338,6 +405,21 @@ export function CaseChartsPanel({
     return null;
   }
 
+  async function handleUpdateTemplate(
+    id: string,
+    config: ChartViewConfig,
+  ): Promise<string | null> {
+    const { error } = await supabase
+      .from("view_templates")
+      .update({ config })
+      .eq("id", id);
+    if (error) return "שגיאה בעדכון התבנית";
+    setTemplates((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, config } : t)),
+    );
+    return null;
+  }
+
   async function handleDeleteTemplate(id: string) {
     const { error } = await supabase.from("view_templates").delete().eq("id", id);
     if (!error) setTemplates((prev) => prev.filter((t) => t.id !== id));
@@ -381,6 +463,7 @@ export function CaseChartsPanel({
               templates={templates}
               isManager={isManager}
               onSaveTemplate={handleSaveTemplate}
+              onUpdateTemplate={handleUpdateTemplate}
               onDeleteTemplate={handleDeleteTemplate}
             />
           ))}
