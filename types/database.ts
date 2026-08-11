@@ -262,28 +262,25 @@ export interface CasesViewConfig {
   sortDir?: "asc" | "desc";
 }
 
-// A donut can be built two ways:
+// screen === "dashboard": one donut slot's pre-filter + what it groups by.
 //
-//   "values" - one slice per distinct value of a single field. The original
-//              chart, and the default when `mode` is absent, which is what
-//              every layout and template saved before this says.
-//   "fields" - one slice per field in `fields`, each sized by how many cases
-//              hold any value in it. Adding a field adds a slice. Asked for
-//              to compare checklist items across a tab ("in how many cases
-//              did we need החרגת רכב, and how does that compare to
-//              הפעלת ע.מורשה") - a question a single-field breakdown cannot
-//              express, since those are separate fields, not values of one.
+// A donut groups by one field or by several. Each field contributes its own
+// values as slices, so adding צוות to a chart adds a slice per team - not a
+// single "צוות" slice, which would only say how many cases have any team at
+// all and answer nothing.
 //
-// In "fields" mode the slices do not partition the cases: a case holding
-// three of the chosen fields is counted in all three, so the total exceeds
-// the case count. That is inherent to the question being asked.
-export type ChartMode = "values" | "fields";
-
-// screen === "dashboard": one donut slot's pre-filter + what it groups by
+// `groupBy` is kept alongside `fields` and always mirrors fields[0]: every
+// chart and template saved before multiple fields existed has only groupBy,
+// and reading `fields ?? [groupBy]` is what lets those keep working
+// untouched.
+//
+// With more than one field the slices no longer partition the cases - each
+// field's values sum to the case count on their own, so the total is a
+// multiple of it. That is inherent to putting several breakdowns side by
+// side, which is what was asked for.
 export interface ChartViewConfig {
   filters: ViewFilterCondition[];
   groupBy: string;
-  mode?: ChartMode;
   fields?: string[];
 }
 
@@ -295,7 +292,6 @@ export interface DashboardChartConfig {
   title: string;
   groupBy: string;
   filters: ViewFilterCondition[];
-  mode?: ChartMode;
   fields?: string[];
 }
 
