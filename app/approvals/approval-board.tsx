@@ -452,6 +452,7 @@ export function ApprovalBoard({
                   {r.case && (
                     <Link
                       href={`/cases/${r.case.id}`}
+                      prefetch={false}
                       className="mr-2 text-xs text-blue-600 hover:underline"
                     >
                       {r.case.case_number} - {r.case.case_name}

@@ -211,18 +211,25 @@ export default async function DashboardPage() {
           </p>
         ) : (
           <>
+            {/*
+              prefetch={false} on every link out of this page. Next warms each
+              Link in view by rendering its target on the server, and the
+              targets here are the heaviest screens in the app - the cases list
+              loads every case with its relations. A dashboard visit was paying
+              for four or five of those before the user clicked anything.
+            */}
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              <Link href="/cases">
+              <Link href="/cases" prefetch={false}>
                 <StatTile label="תיקים פעילים" value={rows.length} tone="indigo" />
               </Link>
-              <Link href="/tasks?overdue=1">
+              <Link href="/tasks?overdue=1" prefetch={false}>
                 <StatTile
                   label="משימות באיחור"
                   value={overdueTaskCount ?? 0}
                   tone="rose"
                 />
               </Link>
-              <Link href={`/deadlines?date=${today}`}>
+              <Link href={`/deadlines?date=${today}`} prefetch={false}>
                 <StatTile
                   label="מועדים היום"
                   value={deadlinesTodayCount ?? 0}
@@ -234,7 +241,7 @@ export default async function DashboardPage() {
                 value={pendingDocumentCount ?? 0}
                 tone="blue"
               />
-              <Link href="/approvals?status=pending">
+              <Link href="/approvals?status=pending" prefetch={false}>
                 <StatTile
                   label="ממתין לאישור"
                   value={pendingApprovalCount ?? 0}
@@ -272,6 +279,7 @@ export default async function DashboardPage() {
                       <li key={`${item.kind}-${item.id}`} className="py-2.5">
                         <Link
                           href={item.kind === "task" ? `/tasks/${item.id}` : item.case ? `/cases/${item.case.id}` : "#"}
+                          prefetch={false}
                           className="flex items-center justify-between gap-3 hover:text-blue-700"
                         >
                           <span className="text-sm font-medium text-gray-900">

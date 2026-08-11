@@ -745,6 +745,7 @@ export function DeadlinesBoard({
                         ) : (
                           <Link
                             href={d.case ? `/cases/${d.case.id}` : "#"}
+                            prefetch={false}
                             className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
                           >
                             {d.label}
@@ -824,6 +825,7 @@ export function DeadlinesBoard({
                         {d.case ? (
                           <Link
                             href={`/cases/${d.case.id}`}
+                            prefetch={false}
                             className="hover:text-blue-700 hover:underline"
                           >
                             {d.case.case_number} - {d.case.case_name}

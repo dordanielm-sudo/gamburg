@@ -692,7 +692,11 @@ export function CasesTable({
     switch (key) {
       case "case_number":
         return (
-          <Link href={`/cases/${c.id}`} className="hover:text-blue-700 hover:underline">
+          <Link
+            href={`/cases/${c.id}`}
+            prefetch={false}
+            className="hover:text-blue-700 hover:underline"
+          >
             {c.case_number}
           </Link>
         );
@@ -700,7 +704,11 @@ export function CasesTable({
         if (editing) return cellEdit(c, "case_name", c.case_name);
         return (
           <>
-            <Link href={`/cases/${c.id}`} className="hover:text-blue-700 hover:underline">
+            <Link
+              href={`/cases/${c.id}`}
+              prefetch={false}
+              className="hover:text-blue-700 hover:underline"
+            >
               {c.case_name}
             </Link>
             {(c.spouse_details?.name ||
