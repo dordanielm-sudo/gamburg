@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getWebhookValue, logWebhookCall } from "@/lib/webhook-config";
 
-type HandlerResult = { status: number; json: Record<string, unknown> };
+type HandlerResult = {
+  status: number;
+  json: Record<string, unknown>;
+  // Stands in for the request body in webhook_logs. A handler sets it when
+  // the real body is too big to keep a copy of on every call - the log is
+  // for seeing what arrived, not for storing it a second time.
+  logBody?: unknown;
+};
 
 // Shared shape for every incoming Make webhook: check the shared-secret
 // header against webhook_configs (DB, editable from /dashboard/webhooks)
@@ -44,6 +51,13 @@ export async function runIncomingWebhook(
       : result.json.status === "skipped"
         ? "skipped"
         : "error";
-  await logWebhookCall(admin, key, outcome, result.status, body, result.json);
+  await logWebhookCall(
+    admin,
+    key,
+    outcome,
+    result.status,
+    result.logBody !== undefined ? result.logBody : body,
+    result.json,
+  );
   return NextResponse.json(result.json, { status: result.status });
 }
