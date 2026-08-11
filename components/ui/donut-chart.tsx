@@ -107,6 +107,13 @@ export function DonutChart({
                 // realising the chart could be clicked at all.
                 <Link
                   href={href}
+                  // Next prefetches every Link in view. A chart has a slice per
+                  // value, so a dashboard of a few donuts was firing twenty-odd
+                  // requests for screens nobody asked for - each one a full
+                  // server render of the cases list, competing for the same
+                  // cores as the page being looked at. Adding fields to a chart
+                  // made it worse, not better.
+                  prefetch={false}
                   className="group -mx-2 flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-blue-50"
                 >
                   {content}

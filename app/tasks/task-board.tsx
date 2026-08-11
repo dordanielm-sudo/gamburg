@@ -651,6 +651,7 @@ export function TaskBoard({
                       ) : (
                         <Link
                           href={`/tasks/${t.id}`}
+                          prefetch={false}
                           className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
                         >
                           {t.text}
@@ -680,6 +681,7 @@ export function TaskBoard({
                       {t.case ? (
                         <Link
                           href={`/cases/${t.case.id}`}
+                          prefetch={false}
                           className="hover:text-blue-700 hover:underline"
                         >
                           {t.case.case_number} - {t.case.case_name}
