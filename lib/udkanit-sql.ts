@@ -1,22 +1,49 @@
 import "server-only";
 
-// Builds the exact statement Make should run against עדכנית, so the scenario
-// is a single SQL module that executes what it was handed - no router, no
-// field-name mapping, no query assembled by hand in Make's UI.
+// Builds the complete statement Make should run against עדכנית - values
+// already in place, ready to paste into a single SQL module. No router, no
+// field-name mapping, no second field to wire up.
 //
-// The value never enters the SQL text. Every statement uses `?` placeholders
-// and ships its values in `params`, bound by the driver. That matters more
-// here than anywhere else in the codebase: `new_value` is whatever a user
-// typed into a form, and this string is executed verbatim against the firm's
-// live case-management database.
+// The values are inlined rather than bound, which puts the whole weight of
+// safety on sqlLiteral() below. `new_value` is whatever a user typed into a
+// form, and this string is executed verbatim against the firm's live
+// case-management database - so that function is the one place in this file
+// that has to be right.
 //
-// It also means the webhook must be treated as a credential. Anyone who can
-// POST to it can run these statements - not arbitrary SQL, since the
-// templates are fixed here, but still writes against עדכנית.
+// It also means the webhook is a credential. Anyone who can POST to it can
+// run these statements - not arbitrary SQL, since the templates are fixed
+// here, but still writes against עדכנית.
 
 export interface UdkanitStatement {
   sql: string;
+  // kept alongside the statement for the log and for tracing a bad write back
+  // to what was sent; Make does not need it
   params: (string | number | null)[];
+}
+
+// Renders a value as a T-SQL literal.
+//
+// Two things this must get right:
+//   * a single quote inside the value ends the literal early - doubling it is
+//     the escape SQL Server defines, and it is the only one needed for a
+//     string literal
+//   * the N prefix marks the literal as nvarchar. Without it SQL Server reads
+//     it as the database's non-Unicode codepage and Hebrew comes out as
+//     question marks - silently, since the write itself succeeds
+function sqlLiteral(value: string | number | null): string {
+  if (value === null) return "null";
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new Error(`ערך מספרי לא תקין: ${value}`);
+    }
+    return String(value);
+  }
+  // A NUL byte cannot appear in an nvarchar literal and would truncate the
+  // statement at the driver. Nothing legitimate contains one.
+  if (value.includes("\u0000")) {
+    throw new Error("הערך מכיל תו NUL ואינו ניתן לכתיבה");
+  }
+  return `N'${value.replace(/'/g, "''")}'`;
 }
 
 // Returned instead of a statement when a field has no write path yet, so Make
@@ -105,7 +132,9 @@ export function buildUdkanitUpdate(input: {
     const textColumn = CASE_TEXT_COLUMNS[fieldName];
     if (textColumn) {
       return {
-        sql: `update vwMainTik set ${textColumn} = ? where VisualID = ?;${ROWCOUNT_PROBE}`,
+        sql:
+          `update vwMainTik set ${textColumn} = ${sqlLiteral(newValue)}` +
+          ` where VisualID = ${sqlLiteral(caseNumber)};${ROWCOUNT_PROBE}`,
         params: [newValue, caseNumber],
       };
     }
@@ -116,8 +145,8 @@ export function buildUdkanitUpdate(input: {
         sql:
           `update mt set mt.${code.column} = lk.Counter\n` +
           `  from vwMainTik mt\n` +
-          `  join ${code.lookupTable} lk on lk.${code.nameColumn} = ?\n` +
-          ` where mt.VisualID = ?;${ROWCOUNT_PROBE}`,
+          `  join ${code.lookupTable} lk on lk.${code.nameColumn} = ${sqlLiteral(newValue)}\n` +
+          ` where mt.VisualID = ${sqlLiteral(caseNumber)};${ROWCOUNT_PROBE}`,
         params: [newValue, caseNumber],
       };
     }
@@ -126,8 +155,9 @@ export function buildUdkanitUpdate(input: {
     if (clientColumn) {
       return {
         sql:
-          `update vwClients set ${clientColumn} = ?\n` +
-          ` where Counter = (select SideCounter from vwMainTik where VisualID = ?);` +
+          `update vwClients set ${clientColumn} = ${sqlLiteral(newValue)}\n` +
+          ` where Counter = (select SideCounter from vwMainTik` +
+          ` where VisualID = ${sqlLiteral(caseNumber)});` +
           ROWCOUNT_PROBE,
         params: [newValue, caseNumber],
       };
