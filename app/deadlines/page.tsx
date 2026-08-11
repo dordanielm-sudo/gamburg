@@ -3,6 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { DeadlinesBoard } from "./deadlines-board";
+import {
+  NON_EMPTY_CASE_FIELD,
+  fetchCaseFieldKeys,
+} from "@/lib/case-field-catalog";
 import type { CaseDeadlineWithCase, Case, ViewTemplate } from "@/types/database";
 
 // the case is joined with everything the shared filter field set reads, so
@@ -29,6 +33,10 @@ export default async function DeadlinesPage() {
     const { data, error: batchError } = await supabase
       .from("case_deadlines")
       .select(DEADLINE_SELECT)
+      // Only חוצץ fields holding a value. It matters most here: the case is
+      // embedded per deadline, so a case with ten deadlines used to carry its
+      // whole field set ten times over.
+      .or(NON_EMPTY_CASE_FIELD, { referencedTable: "case.case_fields" })
       .order("due_date", { ascending: true })
       .order("id", { ascending: true })
       .range(from, from + BATCH - 1)
@@ -42,12 +50,15 @@ export default async function DeadlinesPage() {
     if (data.length < BATCH) break;
   }
 
-  const { data: viewTemplates } = await supabase
-    .from("view_templates")
-    .select("*")
-    .eq("screen", "deadlines")
-    .order("display_order")
-    .returns<ViewTemplate[]>();
+  const [{ data: viewTemplates }, caseFieldKeys] = await Promise.all([
+    supabase
+      .from("view_templates")
+      .select("*")
+      .eq("screen", "deadlines")
+      .order("display_order")
+      .returns<ViewTemplate[]>(),
+    fetchCaseFieldKeys(supabase),
+  ]);
 
   // handlers can only add deadlines to cases they handle; manager to any case
   let cases: Pick<Case, "id" | "case_number" | "case_name">[] = [];
@@ -90,6 +101,7 @@ export default async function DeadlinesPage() {
             viewTemplates={viewTemplates ?? []}
             isManager={profile.role === "manager"}
             currentUserId={profile.id}
+            caseFieldKeys={caseFieldKeys}
           />
         )}
       </main>

@@ -3,6 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { ApprovalBoard } from "./approval-board";
+import {
+  NON_EMPTY_CASE_FIELD,
+  fetchCaseFieldKeys,
+} from "@/lib/case-field-catalog";
 import type { ApprovalRequestWithNames, Case, ViewTemplate } from "@/types/database";
 
 const APPROVAL_SELECT =
@@ -14,19 +18,24 @@ export default async function ApprovalsPage() {
 
   const supabase = await createClient();
 
-  const [{ data: requests, error }, { data: viewTemplates }] = await Promise.all([
-    supabase
-      .from("approval_requests")
-      .select(APPROVAL_SELECT)
-      .order("created_at", { ascending: false })
-      .returns<ApprovalRequestWithNames[]>(),
-    supabase
-      .from("view_templates")
-      .select("*")
-      .eq("screen", "approvals")
-      .order("display_order")
-      .returns<ViewTemplate[]>(),
-  ]);
+  const [{ data: requests, error }, { data: viewTemplates }, caseFieldKeys] =
+    await Promise.all([
+      supabase
+        .from("approval_requests")
+        .select(APPROVAL_SELECT)
+        // only חוצץ fields holding a value; the case is embedded per request,
+        // so its field set repeats once per request without this
+        .or(NON_EMPTY_CASE_FIELD, { referencedTable: "case.case_fields" })
+        .order("created_at", { ascending: false })
+        .returns<ApprovalRequestWithNames[]>(),
+      supabase
+        .from("view_templates")
+        .select("*")
+        .eq("screen", "approvals")
+        .order("display_order")
+        .returns<ViewTemplate[]>(),
+      fetchCaseFieldKeys(supabase),
+    ]);
 
   const canCreate = profile.role !== "secretary";
   let cases: Pick<Case, "id" | "case_number" | "case_name">[] = [];
@@ -64,6 +73,7 @@ export default async function ApprovalsPage() {
             currentUserId={profile.id}
             currentUserFullName={profile.full_name}
             viewTemplates={viewTemplates ?? []}
+            caseFieldKeys={caseFieldKeys}
           />
         )}
       </main>

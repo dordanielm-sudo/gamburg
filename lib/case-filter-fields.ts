@@ -47,18 +47,10 @@ export const FIXED_CASE_FIELD_DEFS: {
   },
 ];
 
-// "PageName::FieldName" for every חוצץ field present in the given cases,
-// sorted so the picker order is stable between renders and between screens.
-export function collectCaseFieldKeys(cases: FilterableCase[]): string[] {
-  const keys = new Set<string>();
-  for (const c of cases) {
-    for (const f of c.case_fields ?? []) {
-      keys.add(`${f.page_name}::${f.field_name}`);
-    }
-  }
-  return Array.from(keys).sort((a, b) => a.localeCompare(b, "he"));
-}
-
+// The field keys used to be collected here by scanning the loaded rows,
+// which is what forced every screen to load all 67,000 case_fields - four
+// fifths of them empty and carrying nothing a screen could show. They now
+// come from case_field_catalog(), see lib/case-field-catalog.ts.
 export function caseFilterFieldOptions(
   caseFieldKeys: string[],
 ): { key: string; label: string }[] {

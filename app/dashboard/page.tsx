@@ -13,6 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { isCaseStuck, type CaseField, type ViewTemplate } from "@/types/database";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
+import {
+  NON_EMPTY_CASE_FIELD,
+  fetchCaseFieldKeys,
+} from "@/lib/case-field-catalog";
 
 interface DashboardCaseRow {
   id: string;
@@ -69,6 +73,7 @@ export default async function DashboardPage() {
     { data: upcomingDeadlines },
     { data: chartTemplates },
     { data: chartLayout },
+    caseFieldKeys,
   ] = await Promise.all([
     // batched: an unpaged select stops at 1000 rows without erroring, which
     // had every tile and chart on this page reporting on a slice of the data
@@ -76,6 +81,8 @@ export default async function DashboardPage() {
       supabase
         .from("cases")
         .select(DASHBOARD_CASE_SELECT)
+        // only חוצץ fields holding a value - see lib/case-field-catalog.ts
+        .or(NON_EMPTY_CASE_FIELD, { referencedTable: "case_fields" })
         .order("last_touched_at", { ascending: false })
         .order("id", { ascending: true })
         .range(from, to)
@@ -126,6 +133,7 @@ export default async function DashboardPage() {
       .select("*")
       .eq("screen", DASHBOARD_LAYOUT_SCREEN)
       .maybeSingle<ViewTemplate>(),
+    fetchCaseFieldKeys(supabase),
   ]);
 
   const rows = cases ?? [];
@@ -241,6 +249,7 @@ export default async function DashboardPage() {
               viewTemplates={chartTemplates ?? []}
               isManager={profile.role === "manager"}
               currentUserId={profile.id}
+              caseFieldKeys={caseFieldKeys}
             />
 
             <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">

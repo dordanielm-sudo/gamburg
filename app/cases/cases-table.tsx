@@ -23,7 +23,6 @@ import { NamedAvatar } from "@/components/ui/avatar";
 import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
 import { TemplateBar } from "@/components/template-bar";
 import {
-  collectCaseFieldKeys,
   caseFilterFieldOptions,
   caseFilterValue,
 } from "@/lib/case-filter-fields";
@@ -168,6 +167,7 @@ export function CasesTable({
   currentUserId,
   initialColumnOrder,
   viewTemplates,
+  caseFieldKeys,
 }: {
   cases: CaseWithRelations[];
   canEdit: boolean;
@@ -176,6 +176,10 @@ export function CasesTable({
   currentUserId: string;
   initialColumnOrder: string[] | null;
   viewTemplates: ViewTemplate[];
+  // every חוצץ field that exists, from case_field_catalog(). Not derived from
+  // `cases`, which now carries only the fields holding a value - a picker
+  // built from those would hide every field nobody has filled in yet.
+  caseFieldKeys: string[];
 }) {
   const searchParams = useSearchParams();
   const [rows, setRows] = useState(cases);
@@ -307,8 +311,6 @@ export function CasesTable({
       return next;
     });
   }
-
-  const caseFieldKeys = useMemo(() => collectCaseFieldKeys(rows), [rows]);
 
   const advancedFieldOptions = useMemo(
     () => caseFilterFieldOptions(caseFieldKeys),

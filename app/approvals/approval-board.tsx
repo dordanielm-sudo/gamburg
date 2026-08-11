@@ -67,6 +67,7 @@ export function ApprovalBoard({
   currentUserId,
   currentUserFullName,
   viewTemplates,
+  caseFieldKeys,
 }: {
   requests: ApprovalRequestWithNames[];
   canCreate: boolean;
@@ -75,6 +76,9 @@ export function ApprovalBoard({
   currentUserId: string;
   currentUserFullName: string;
   viewTemplates: ViewTemplate[];
+  // every חוצץ field that exists, from case_field_catalog() - the embedded
+  // cases carry only the fields holding a value
+  caseFieldKeys: string[];
 }) {
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
@@ -90,14 +94,6 @@ export function ApprovalBoard({
   const [advancedFilters, setAdvancedFilters] = useState<ViewFilterCondition[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [appliedTemplateId, setAppliedTemplateId] = useState("");
-
-  const caseFieldKeys = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of rows) {
-      for (const f of r.case?.case_fields ?? []) set.add(`${f.page_name}::${f.field_name}`);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "he"));
-  }, [rows]);
 
   const advancedFieldOptions = useMemo(
     () => [
