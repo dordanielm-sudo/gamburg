@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { DonutChart } from "@/components/ui/donut-chart";
 import { hashTone } from "@/components/ui/badge";
 import { FilterBuilder, matchesConditions } from "@/components/filter-builder";
 import { TemplateBar } from "@/components/template-bar";
 import type {
+  ChartMode,
   ChartViewConfig,
   DashboardChartConfig,
   DashboardLayoutConfig,
@@ -56,6 +57,16 @@ function ChartSlot({
 }) {
   const field = chart.groupBy;
   const filters = chart.filters;
+  // absent means "values" - that is what every chart saved before the second
+  // mode existed is
+  const mode: ChartMode = chart.mode ?? "values";
+  const selectedFields = useMemo(() => chart.fields ?? [], [chart.fields]);
+
+  const fieldLabel = useCallback(
+    (key: string) => fieldOptions.find((o) => o.key === key)?.label ?? key,
+    [fieldOptions],
+  );
+
   const setField = (groupBy: string) => {
     // the title tracks the grouping unless it was renamed by hand, so a chart
     // does not keep saying "לפי סטטוס" after being switched to something else
@@ -69,6 +80,13 @@ function ChartSlot({
   };
   const setFilters = (next: ViewFilterCondition[]) =>
     onChange({ ...chart, filters: next });
+  const setMode = (next: ChartMode) => onChange({ ...chart, mode: next });
+  const addField = (key: string) => {
+    if (!key || selectedFields.includes(key)) return;
+    onChange({ ...chart, fields: [...selectedFields, key] });
+  };
+  const removeField = (key: string) =>
+    onChange({ ...chart, fields: selectedFields.filter((k) => k !== key) });
   const [showFilters, setShowFilters] = useState(false);
   // which saved template the chart is currently showing, so its name can sit
   // at the top and so "עדכון" knows what to overwrite
@@ -85,6 +103,18 @@ function ChartSlot({
   );
 
   const segments = useMemo(() => {
+    if (mode === "fields") {
+      // One slice per chosen field, sized by how many cases hold anything in
+      // it. A field with no matches is kept rather than dropped: it was
+      // picked deliberately, and showing it at 0 answers the question, while
+      // omitting it looks like the chart is broken.
+      return selectedFields.map((key) => {
+        const value = filteredCases.filter(
+          (c) => caseFilterValue(c, key) !== null,
+        ).length;
+        return { label: fieldLabel(key), value, tone: hashTone(key) };
+      });
+    }
     const counts = new Map<string, number>();
     for (const c of filteredCases) {
       const value = caseFilterValue(c, field) ?? NO_VALUE_LABEL;
@@ -93,16 +123,28 @@ function ChartSlot({
     return [...counts.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([label, value]) => ({ label, value, tone: hashTone(label) }));
-  }, [filteredCases, field]);
+  }, [filteredCases, field, mode, selectedFields, fieldLabel]);
 
   // Every segment links through, whatever it is grouped by: the cases screen
   // reads the same condition shape the filter builder produces, so a חוצץ or
   // a שלב segment lands on a filtered list just like a status one. Only "no
   // value" has nothing to point at - there is no condition for "field empty".
+  //
+  // The chart's own filters ride along, or the list would be wider than the
+  // slice that was clicked.
   function hrefForSegment(label: string) {
-    if (label === NO_VALUE_LABEL) return null;
-    const condition = JSON.stringify([{ key: field, values: [label] }]);
-    return `/cases?filter=${encodeURIComponent(condition)}`;
+    let condition: ViewFilterCondition[];
+    if (mode === "fields") {
+      // the slice counts cases that hold anything in that field, so the link
+      // has to say exactly that - hence the not_empty operator
+      const key = selectedFields.find((k) => fieldLabel(k) === label);
+      if (!key) return null;
+      condition = [...filters, { key, values: [], op: "not_empty" as const }];
+    } else {
+      if (label === NO_VALUE_LABEL) return null;
+      condition = [...filters, { key: field, values: [label] }];
+    }
+    return `/cases?filter=${encodeURIComponent(JSON.stringify(condition))}`;
   }
 
   // Applying opens the filter panel, so the conditions the template carries
@@ -117,16 +159,25 @@ function ChartSlot({
       ...chart,
       filters: config.filters ?? [],
       groupBy: config.groupBy || chart.groupBy,
+      // absent in every template saved before the second mode existed, which
+      // is exactly what those templates mean
+      mode: config.mode ?? "values",
+      fields: config.fields ?? [],
       // the chart takes the template's name, which is what makes the heading
       // say what is on screen rather than a title left over from before
       title: template.name,
     });
   }
 
+  // What a template has to carry to reproduce the chart. In "fields" mode the
+  // chosen fields are the chart, so leaving them out would save a template
+  // that restores an empty donut.
+  function currentConfig(): ChartViewConfig {
+    return { filters, groupBy: field, mode, fields: selectedFields };
+  }
+
   async function saveTemplate(name: string) {
-    const error = await onSaveTemplate(name, { filters, groupBy: field });
-    if (error) return error;
-    return null;
+    return onSaveTemplate(name, currentConfig());
   }
 
   // Overwrites the applied template with what is on screen now. Separate from
@@ -135,7 +186,7 @@ function ChartSlot({
   // with near-duplicates.
   async function updateTemplate() {
     if (!appliedTemplate) return null;
-    return onUpdateTemplate(appliedTemplate.id, { filters, groupBy: field });
+    return onUpdateTemplate(appliedTemplate.id, currentConfig());
   }
 
   async function deleteTemplate(id: string) {
@@ -179,16 +230,27 @@ function ChartSlot({
             סינון{filters.length > 0 ? ` (${filters.length})` : ""}
           </button>
           <select
-            value={field}
-            onChange={(e) => setField(e.target.value)}
-            className="max-w-[190px] rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 focus:border-blue-500 focus:outline-none"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as ChartMode)}
+            aria-label="מבנה התרשים"
+            className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 focus:border-blue-500 focus:outline-none"
           >
-            {fieldOptions.map((o) => (
-              <option key={o.key} value={o.key}>
-                לפי {o.label}
-              </option>
-            ))}
+            <option value="values">פילוח שדה אחד</option>
+            <option value="fields">השוואת שדות</option>
           </select>
+          {mode === "values" && (
+            <select
+              value={field}
+              onChange={(e) => setField(e.target.value)}
+              className="max-w-[190px] rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 focus:border-blue-500 focus:outline-none"
+            >
+              {fieldOptions.map((o) => (
+                <option key={o.key} value={o.key}>
+                  לפי {o.label}
+                </option>
+              ))}
+            </select>
+          )}
           {confirmingRemove ? (
             // Two-step rather than a browser confirm(): the question appears
             // where the click happened, and a mis-click on ✕ costs nothing.
@@ -218,6 +280,50 @@ function ChartSlot({
           )}
         </div>
       </div>
+
+      {mode === "fields" && (
+        <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50/60 p-3">
+          {selectedFields.length > 0 && (
+            <ul className="mb-2 flex flex-wrap gap-2">
+              {selectedFields.map((key) => (
+                <li
+                  key={key}
+                  className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm"
+                >
+                  {fieldLabel(key)}
+                  <button
+                    onClick={() => removeField(key)}
+                    title="הסרת השדה מהתרשים"
+                    className="text-gray-400 hover:text-rose-600"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <select
+            value=""
+            onChange={(e) => addField(e.target.value)}
+            aria-label="הוספת שדה לתרשים"
+            className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-600 focus:border-blue-500 focus:outline-none"
+          >
+            <option value="">הוספת שדה לתרשים...</option>
+            {fieldOptions
+              .filter((o) => !selectedFields.includes(o.key))
+              .map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+          </select>
+          {selectedFields.length === 0 && (
+            <p className="mt-2 text-xs text-gray-400">
+              כל שדה שתוסיף יהפוך לפרוסה בעוגה, בגודל מספר התיקים שיש בהם ערך בו.
+            </p>
+          )}
+        </div>
+      )}
 
       {showFilters && (
         <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/40 p-3">

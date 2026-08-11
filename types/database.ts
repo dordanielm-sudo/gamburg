@@ -245,6 +245,12 @@ export interface CaseStageChecklistEntry {
 export interface ViewFilterCondition {
   key: string;
   values: string[];
+  // "in" (the default, and what every template saved before this existed
+  // means) - the field's value must be one of `values`.
+  // "not_empty" - the field only has to hold something. That is what a slice
+  // of a per-field chart counts, so it is also what that slice's
+  // click-through has to say; `values` is ignored.
+  op?: "in" | "not_empty";
 }
 
 // screen === "cases": also remembers which columns are shown, in what
@@ -256,10 +262,29 @@ export interface CasesViewConfig {
   sortDir?: "asc" | "desc";
 }
 
-// screen === "dashboard": one donut slot's pre-filter + group-by field
+// A donut can be built two ways:
+//
+//   "values" - one slice per distinct value of a single field. The original
+//              chart, and the default when `mode` is absent, which is what
+//              every layout and template saved before this says.
+//   "fields" - one slice per field in `fields`, each sized by how many cases
+//              hold any value in it. Adding a field adds a slice. Asked for
+//              to compare checklist items across a tab ("in how many cases
+//              did we need החרגת רכב, and how does that compare to
+//              הפעלת ע.מורשה") - a question a single-field breakdown cannot
+//              express, since those are separate fields, not values of one.
+//
+// In "fields" mode the slices do not partition the cases: a case holding
+// three of the chosen fields is counted in all three, so the total exceeds
+// the case count. That is inherent to the question being asked.
+export type ChartMode = "values" | "fields";
+
+// screen === "dashboard": one donut slot's pre-filter + what it groups by
 export interface ChartViewConfig {
   filters: ViewFilterCondition[];
   groupBy: string;
+  mode?: ChartMode;
+  fields?: string[];
 }
 
 // The dashboard's chart layout: which charts exist, in what order, and what
@@ -270,6 +295,8 @@ export interface DashboardChartConfig {
   title: string;
   groupBy: string;
   filters: ViewFilterCondition[];
+  mode?: ChartMode;
+  fields?: string[];
 }
 
 export interface DashboardLayoutConfig {
