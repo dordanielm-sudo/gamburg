@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { callMakeOutgoingWebhook } from "@/lib/make-webhook";
+import { buildUdkanitUpdate } from "@/lib/udkanit-sql";
 import { getWebhookValue, logWebhookCall } from "@/lib/webhook-config";
 
 // Section 4.2: generic CRM -> Make write-back. The client has already saved
@@ -151,6 +152,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "warning", message });
   }
 
+  // The statement Make should run, built here rather than assembled in Make's
+  // UI: the mapping then lives in version control, and the value travels as a
+  // bound parameter instead of inside the SQL text.
+  const statement = buildUdkanitUpdate({
+    entityType: entity_type,
+    fieldName: field_name,
+    caseNumber: case_number,
+    newValue: new_value === null || new_value === undefined ? null : String(new_value),
+    pageName: page_name ?? null,
+    sourceRef: source_ref ?? null,
+    valueType: value_type ?? null,
+  });
+
   const result = await callMakeOutgoingWebhook(webhookUrl, {
     case_id,
     case_number,
@@ -164,6 +178,11 @@ export async function POST(request: Request) {
     new_value,
     changed_by: user.id,
     changed_at: new Date().toISOString(),
+    // ready to execute as-is; params are bound, never interpolated. sql is
+    // null when the field has no write path, with `reason` saying why.
+    sql: statement.sql,
+    params: "params" in statement ? statement.params : null,
+    unsupported_reason: statement.sql === null ? statement.reason : null,
   });
 
   await admin
