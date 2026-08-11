@@ -5,10 +5,11 @@ import { runIncomingWebhook } from "@/lib/webhook-handler";
 // table instead of a fixed column, so any PageName/FieldName combination
 // works without a new endpoint or migration.
 //
-// Two body shapes, both accepted:
+// Three body shapes, all accepted:
 //
 //   { case_number, page_name, fields: [...] }        one case+tab
 //   { batches: [ {case_number, page_name, fields}, ... ] }   many at once
+//   [ {case_number, page_name, fields}, ... ]        the same, unwrapped
 //
 // The batch shape exists for operations cost, not convenience. Make charges
 // per bundle through every module - an Iterator does not merge anything, it
@@ -81,7 +82,18 @@ export async function POST(request: Request) {
       // parses fine and then matches nothing, which used to surface as an
       // empty-looking rejection with no hint at the cause. Parsing it here
       // costs nothing and turns a dead end into a warning.
+      //
+      // A bare top-level array is accepted too: mapping the SQL column into
+      // the request body without the {"batches": ...} wrapper is the other
+      // easy mistake, and the resulting body is unambiguous - an array here
+      // can only be the batch list.
       let batchesInput: unknown = body.batches;
+      if (Array.isArray(rawBody)) {
+        batchesInput = rawBody;
+        warnings.push(
+          "the body is a bare array - it was read as the batch list, but the expected shape is {\"batches\": [...]}",
+        );
+      }
       if (typeof batchesInput === "string") {
         try {
           batchesInput = JSON.parse(batchesInput);
