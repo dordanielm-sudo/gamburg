@@ -1,6 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CaseField } from "@/types/database";
-import { fetchAllRows } from "@/lib/fetch-all-rows";
 
 type FieldRow = Pick<
   CaseField,
@@ -16,37 +15,24 @@ interface CaseLike {
 //
 // The alternative is what the deadlines and approvals screens used to do:
 // embed case_fields inside the case, inside each row. A case with eight
-// deadlines then carried its whole field set eight times, and the deadlines
-// screen was measured at 408 kB and eleven seconds of server time. The
-// duplication is in the database's work too, not only the payload - the
-// embed is re-planned and re-read per parent row.
+// deadlines then carried its whole field set eight times - the deadlines
+// screen was measured at 408 kB - and the database re-plans and re-reads the
+// embed once per parent row.
+//
+// It goes through case_fields_grouped() rather than a paged select because
+// PostgREST caps a select at 1000 rows, and the 14,583 valued rows then took
+// fifteen sequential requests. The volume is small; fifteen round trips to a
+// database the app server does not sit next to is not.
 export async function fetchCaseFieldsByCase(
   supabase: SupabaseClient,
 ): Promise<Map<string, FieldRow[]>> {
-  const { data: rows } = await fetchAllRows<FieldRow & { case_id: string }>((from, to) =>
-    supabase
-      .from("case_fields")
-      .select("case_id, page_name, field_name, value_text, value_date, value_number")
-      // an empty field shows nothing in a column and offers nothing to filter
-      // on, and four fifths of them are empty
-      .or("value_text.not.is.null,value_date.not.is.null,value_number.not.is.null")
-      .order("case_id", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, to),
-  );
-
+  const { data, error } = await supabase.rpc("case_fields_grouped");
   const byCase = new Map<string, FieldRow[]>();
-  for (const row of rows) {
-    const list = byCase.get(row.case_id);
-    const field: FieldRow = {
-      page_name: row.page_name,
-      field_name: row.field_name,
-      value_text: row.value_text,
-      value_date: row.value_date,
-      value_number: row.value_number,
-    };
-    if (list) list.push(field);
-    else byCase.set(row.case_id, [field]);
+  if (error || !data) return byCase;
+  for (const [caseId, fields] of Object.entries(
+    data as Record<string, FieldRow[]>,
+  )) {
+    byCase.set(caseId, fields);
   }
   return byCase;
 }
