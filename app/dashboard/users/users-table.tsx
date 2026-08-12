@@ -40,6 +40,7 @@ export function UsersTable({ users }: { users: Profile[] }) {
                 <td className="w-1 p-0" aria-hidden />
                 <td className="px-4 py-3.5">
                   <Link
+                    prefetch={false}
                     href={`/dashboard/users/${u.id}`}
                     className="hover:text-blue-700 hover:underline"
                   >
@@ -56,6 +57,7 @@ export function UsersTable({ users }: { users: Profile[] }) {
                 </td>
                 <td className="px-4 py-3.5 text-left">
                   <Link
+                    prefetch={false}
                     href={`/dashboard/users/${u.id}`}
                     className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
                   >

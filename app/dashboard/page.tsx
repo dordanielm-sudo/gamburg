@@ -299,6 +299,7 @@ export default async function DashboardPage() {
                   </ul>
                 )}
                 <Link
+                  prefetch={false}
                   href="/tasks"
                   className="mt-3 inline-block text-sm text-blue-600 hover:underline"
                 >

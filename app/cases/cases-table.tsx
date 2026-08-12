@@ -957,6 +957,7 @@ export function CasesTable({
         </button>
         {isManager && (
           <Link
+            prefetch={false}
             href="/dashboard/case-columns"
             className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
           >
@@ -965,6 +966,7 @@ export function CasesTable({
         )}
         {isManager && (
           <Link
+            prefetch={false}
             href="/dashboard/case-stages"
             className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
           >

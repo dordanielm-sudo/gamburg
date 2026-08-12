@@ -192,6 +192,7 @@ export function TaskDetail({
               label: "תיק",
               value: current.case ? (
                 <Link
+                  prefetch={false}
                   href={`/cases/${current.case.id}`}
                   className="text-blue-700 hover:underline"
                 >

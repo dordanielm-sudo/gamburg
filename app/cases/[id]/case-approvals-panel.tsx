@@ -59,6 +59,7 @@ export function CaseApprovalsPanel({
           </ul>
         )}
         <Link
+          prefetch={false}
           href="/approvals"
           className="mt-3 inline-block text-sm text-blue-600 hover:underline"
         >
