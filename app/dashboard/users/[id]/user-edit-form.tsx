@@ -21,6 +21,9 @@ export function UserEditForm({ user, email }: { user: Profile; email: string }) 
   const [emailValue, setEmailValue] = useState(email);
   const [role, setRole] = useState<UserRole>(user.role);
   const [isActive, setIsActive] = useState(user.is_active);
+  const [udkanitId, setUdkanitId] = useState(
+    user.udkanit_user_id === null ? "" : String(user.udkanit_user_id),
+  );
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -29,7 +32,8 @@ export function UserEditForm({ user, email }: { user: Profile; email: string }) 
     fullName !== user.full_name ||
     emailValue !== email ||
     role !== user.role ||
-    isActive !== user.is_active;
+    isActive !== user.is_active ||
+    udkanitId !== (user.udkanit_user_id === null ? "" : String(user.udkanit_user_id));
 
   function handleSave() {
     setError(null);
@@ -42,9 +46,21 @@ export function UserEditForm({ user, email }: { user: Profile; email: string }) 
       setError("אימייל לא יכול להיות ריק");
       return;
     }
+    const trimmedUdkanitId = udkanitId.trim();
+    if (trimmedUdkanitId && !/^\d+$/.test(trimmedUdkanitId)) {
+      setError("מזהה עדכנית חייב להיות מספר");
+      return;
+    }
     startTransition(async () => {
       try {
-        await updateUserProfile(user.id, fullName.trim(), emailValue.trim(), role, isActive);
+        await updateUserProfile(
+          user.id,
+          fullName.trim(),
+          emailValue.trim(),
+          role,
+          isActive,
+          trimmedUdkanitId ? Number(trimmedUdkanitId) : null,
+        );
         setSaved(true);
         router.refresh();
       } catch (e) {
@@ -85,6 +101,24 @@ export function UserEditForm({ user, email }: { user: Profile; email: string }) 
             }}
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-gray-500">
+            מזהה בעדכנית
+          </label>
+          <input
+            value={udkanitId}
+            inputMode="numeric"
+            placeholder="ריק = ללא"
+            onChange={(e) => {
+              setUdkanitId(e.target.value);
+              setSaved(false);
+            }}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          />
+          <p className="mt-1 text-[11px] text-gray-400">
+            UserID מעדכנית - בלעדיו לא ניתן ליצור עבורו משימות שם
+          </p>
         </div>
         <div>
           <label className="mb-1 block text-xs text-gray-500">תפקיד</label>

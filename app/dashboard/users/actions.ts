@@ -91,12 +91,13 @@ export async function updateUserProfile(
   email: string,
   role: UserRole,
   isActive: boolean,
+  udkanitUserId: number | null,
 ) {
   const supabase = await requireManager();
 
   const { error: nameError } = await supabase
     .from("profiles")
-    .update({ full_name: fullName })
+    .update({ full_name: fullName, udkanit_user_id: udkanitUserId })
     .eq("id", userId);
   if (nameError) throw new Error(nameError.message);
 

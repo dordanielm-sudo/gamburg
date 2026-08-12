@@ -261,15 +261,39 @@ export function TaskBoard({
       })
       .select(TASK_SELECT)
       .single<TaskWithNames>();
-    setCreating(false);
 
     if (error) {
+      setCreating(false);
       setFormError(error.message);
       return;
     }
     setRows((prev) => [data, ...prev]);
     setCreateCaseId("");
     setCreateCaseText("");
+
+    // Saved in the CRM first, then opened in עדכנית - a failure past this
+    // point leaves a CRM-only task rather than losing what was typed, so it
+    // reports the reason instead of undoing the row.
+    try {
+      const res = await fetch("/api/task-create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: data.id }),
+      });
+      const result = await res.json();
+      if (result.status !== "success" && result.message) {
+        setFormError(result.message);
+      } else if (result.status === "success" && result.record_id) {
+        setRows((prev) =>
+          prev.map((t) =>
+            t.id === data.id ? { ...t, source_task_id: result.record_id } : t,
+          ),
+        );
+      }
+    } catch {
+      setFormError("המשימה נשמרה ב-CRM אך לא ניתן היה לפתוח אותה בעדכנית");
+    }
+    setCreating(false);
   }
 
   async function handleDelete(task: TaskWithNames) {
