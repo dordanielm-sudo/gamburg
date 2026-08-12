@@ -97,9 +97,19 @@ export async function updateUserProfile(
 
   const { error: nameError } = await supabase
     .from("profiles")
-    .update({ full_name: fullName, udkanit_user_id: udkanitUserId })
+    .update({ full_name: fullName })
     .eq("id", userId);
   if (nameError) throw new Error(nameError.message);
+
+  // not part of the update above: 0004 granted authenticated UPDATE on
+  // full_name only, so touching any other column is refused at the column
+  // GRANT regardless of the row policy. Goes through the same kind of
+  // manager-checked function role and is_active use (0044).
+  const { error: udkanitError } = await supabase.rpc("admin_set_udkanit_user_id", {
+    target_id: userId,
+    new_id: udkanitUserId,
+  });
+  if (udkanitError) throw new Error(udkanitError.message);
 
   const { error } = await supabase.rpc("admin_set_user_status", {
     target_id: userId,
