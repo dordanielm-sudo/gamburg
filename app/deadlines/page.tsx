@@ -3,19 +3,24 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { DeadlinesBoard } from "./deadlines-board";
+import { fetchCaseFieldKeys } from "@/lib/case-field-catalog";
 import {
-  NON_EMPTY_CASE_FIELD,
-  fetchCaseFieldKeys,
-} from "@/lib/case-field-catalog";
+  attachCaseFields,
+  fetchCaseFieldsByCase,
+} from "@/lib/attach-case-fields";
 import type { CaseDeadlineWithCase, Case, ViewTemplate } from "@/types/database";
 
-// the case is joined with everything the shared filter field set reads, so
-// the board can filter on case status/stage/חוצצים and not just its own columns
+// The case is joined with everything the shared filter field set reads, so
+// the board can filter on case status/stage and not just its own columns.
+//
+// case_fields are deliberately NOT embedded here. The case repeats once per
+// deadline, so embedding them made a case with eight deadlines carry its whole
+// field set eight times - measured at 408 kB and eleven seconds of server time
+// for this screen. They are fetched once and attached below.
 const DEADLINE_SELECT =
   "*, case:cases!case_deadlines_case_id_fkey(" +
   "id, case_number, case_name, status, case_type, case_nature, case_stage, team, " +
-  "handler:profiles!cases_handler_id_fkey(id, full_name), " +
-  "case_fields(page_name, field_name, value_text, value_date, value_number))";
+  "handler:profiles!cases_handler_id_fkey(id, full_name))";
 
 export default async function DeadlinesPage() {
   const profile = await getCurrentProfile();
@@ -33,10 +38,6 @@ export default async function DeadlinesPage() {
     const { data, error: batchError } = await supabase
       .from("case_deadlines")
       .select(DEADLINE_SELECT)
-      // Only חוצץ fields holding a value. It matters most here: the case is
-      // embedded per deadline, so a case with ten deadlines used to carry its
-      // whole field set ten times over.
-      .or(NON_EMPTY_CASE_FIELD, { referencedTable: "case.case_fields" })
       .order("due_date", { ascending: true })
       .order("id", { ascending: true })
       .range(from, from + BATCH - 1)
@@ -50,7 +51,7 @@ export default async function DeadlinesPage() {
     if (data.length < BATCH) break;
   }
 
-  const [{ data: viewTemplates }, caseFieldKeys] = await Promise.all([
+  const [{ data: viewTemplates }, caseFieldKeys, caseFieldsByCase] = await Promise.all([
     supabase
       .from("view_templates")
       .select("*")
@@ -58,7 +59,10 @@ export default async function DeadlinesPage() {
       .order("display_order")
       .returns<ViewTemplate[]>(),
     fetchCaseFieldKeys(supabase),
+    fetchCaseFieldsByCase(supabase),
   ]);
+
+  attachCaseFields(deadlines, caseFieldsByCase);
 
   // handlers can only add deadlines to cases they handle; manager to any case
   let cases: Pick<Case, "id" | "case_number" | "case_name">[] = [];
