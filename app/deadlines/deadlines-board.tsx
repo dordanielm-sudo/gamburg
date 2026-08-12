@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   deadlineUrgency,
@@ -93,6 +93,7 @@ export function DeadlinesBoard({
   isManager,
   currentUserId,
   caseFieldKeys,
+  includeDone,
 }: {
   deadlines: CaseDeadlineWithCase[];
   canCreate: boolean;
@@ -103,7 +104,12 @@ export function DeadlinesBoard({
   // every חוצץ field that exists, from case_field_catalog() - the embedded
   // cases carry only the fields holding a value
   caseFieldKeys: string[];
+  // whether completed deadlines were loaded at all. The server only sends
+  // them when asked, so this toggle is a navigation rather than local state -
+  // years of closed deadlines are not worth shipping to hide them again.
+  includeDone: boolean;
 }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState(deadlines);
@@ -112,7 +118,14 @@ export function DeadlinesBoard({
   const [calendarDate, setCalendarDate] = useState<string | null>(
     () => searchParams.get("date"),
   );
-  const [showDone, setShowDone] = useState(false);
+  const showDone = includeDone;
+  function setShowDone(next: boolean) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next) params.set("done", "1");
+    else params.delete("done");
+    const query = params.toString();
+    router.push(query ? `/deadlines?${query}` : "/deadlines");
+  }
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);

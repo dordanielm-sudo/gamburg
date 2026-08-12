@@ -22,11 +22,22 @@ const DEADLINE_SELECT =
   "id, case_number, case_name, status, case_type, case_nature, case_stage, team, " +
   "handler:profiles!cases_handler_id_fkey(id, full_name))";
 
-export default async function DeadlinesPage() {
+export default async function DeadlinesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string; done?: string }>;
+}) {
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
 
   const supabase = await createClient();
+  // The board hides completed deadlines unless asked, but the server used to
+  // send every one ever closed - years of them - for the browser to throw
+  // away. They now come only when the checkbox asks for them, which is what
+  // this parameter is: the toggle has to reach the server, so it lives in the
+  // URL rather than in component state.
+  const { done } = await searchParams;
+  const includeDone = done === "1";
 
   // PostgREST caps a single select at 1000 rows - page through in batches
   // (id as tiebreaker for stable order between batches), same as the
@@ -35,9 +46,11 @@ export default async function DeadlinesPage() {
   let deadlines: CaseDeadlineWithCase[] = [];
   let error: { message: string } | null = null;
   for (let from = 0; ; from += BATCH) {
-    const { data, error: batchError } = await supabase
-      .from("case_deadlines")
-      .select(DEADLINE_SELECT)
+    const base = supabase.from("case_deadlines").select(DEADLINE_SELECT);
+    const { data, error: batchError } = await (includeDone
+      ? base
+      : base.eq("status", "open")
+    )
       .order("due_date", { ascending: true })
       .order("id", { ascending: true })
       .range(from, from + BATCH - 1)
@@ -106,6 +119,7 @@ export default async function DeadlinesPage() {
             isManager={profile.role === "manager"}
             currentUserId={profile.id}
             caseFieldKeys={caseFieldKeys}
+            includeDone={includeDone}
           />
         )}
       </main>
