@@ -153,8 +153,11 @@ export async function POST(request: Request) {
   }
 
   // The statement Make should run, built here rather than assembled in Make's
-  // UI: the mapping then lives in version control, and the value travels as a
-  // bound parameter instead of inside the SQL text.
+  // UI: the field mapping then lives in version control and is reviewable,
+  // instead of being spread across router branches nobody can diff.
+  //
+  // The values are already inside the statement - see the warning at the top
+  // of lib/udkanit-sql.ts about what that puts on sqlLiteral().
   const statement = buildUdkanitUpdate({
     entityType: entity_type,
     fieldName: field_name,
@@ -178,9 +181,12 @@ export async function POST(request: Request) {
     new_value,
     changed_by: user.id,
     changed_at: new Date().toISOString(),
-    // ready to execute as-is; params are bound, never interpolated. sql is
-    // null when the field has no write path, with `reason` saying why.
+    // Ready to execute as-is - the values are already in the text, so Make
+    // needs no mapping of its own. null when the field has no write path
+    // yet, and then unsupported_reason says which one and why.
     sql: statement.sql,
+    // the same values, separately, for the log and for tracing a bad write
+    // back to what was sent. Make does not need them.
     params: "params" in statement ? statement.params : null,
     unsupported_reason: statement.sql === null ? statement.reason : null,
   });
