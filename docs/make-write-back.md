@@ -313,15 +313,26 @@ UserData_Str/_Date/_Num   RecCounter, FieldID, Data
 
 ### `entity_type = "task"` — משימה
 
-```sql
-update <טבלת_המשימות>
-   set <עמודה> = ?
- where TaskID = ?
-```
-Parameters: `{{new_value}}`, `{{source_ref}}`
+**אין מה למפות. השאילתה מגיעה מוכנה ב-`sql`.**
 
-כאן `source_ref` הוא מזהה המשימה בעדכנית. **לא** `entity_id` — זה ה-UUID
-של ה-CRM ועדכנית מעולם לא ראתה אותו.
+מ-`vwExportToOuterSystems_Tasks`: טבלת בסיס אחת, `dbo.Tasks`, והשורה מזוהה
+ב-`Counter` — שהוא בדיוק מה שה-CRM שומר כ-`source_task_id`. אין חיפוש
+רשומה ואין upsert: השורה תמיד קיימת, כי משימה בלי `source_task_id` נוצרה
+ב-CRM ומעולם לא הייתה בעדכנית.
+
+| שדה ב-CRM | העמודה בעדכנית |
+|---|---|
+| `text` | `TaskText` |
+| `subject` | `TaskSubject` |
+| `due_date` | `EndDate` |
+| `start_date` | `StartDate` |
+| `priority_name` | `Priority`, דרך `odpl_TableTypes` |
+| `status_name` | `TaskStatus`, דרך `odpl_TableTypes` |
+| `notes` | **אין** — שדה של ה-CRM בלבד |
+
+דחיפות וסטטוס הם קודים בטבלת חיפוש משותפת, `dbo.odpl_TableTypes`, שמופתחת
+ב-`TableName`. אותו היגיון כמו בסטטוס ובמהות של התיק: ה-join מכוון ואינו
+subquery, כך ששם לא מוכר מעדכן אפס שורות במקום לכתוב NULL על ערך תקין.
 
 ### `entity_type = "deadline"` — מועד
 
