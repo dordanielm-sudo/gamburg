@@ -3,14 +3,18 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { ApprovalBoard } from "./approval-board";
+import { fetchCaseFieldKeys } from "@/lib/case-field-catalog";
 import {
-  NON_EMPTY_CASE_FIELD,
-  fetchCaseFieldKeys,
-} from "@/lib/case-field-catalog";
+  attachCaseFields,
+  fetchCaseFieldsByCase,
+} from "@/lib/attach-case-fields";
 import type { ApprovalRequestWithNames, Case, ViewTemplate } from "@/types/database";
 
+// case_fields are fetched once and attached below rather than embedded here:
+// the case repeats once per request, and embedding them made a case with
+// several open requests carry its whole field set once per request.
 const APPROVAL_SELECT =
-  "*, submitted_by_profile:profiles!approval_requests_submitted_by_fkey(id, full_name), reviewed_by_profile:profiles!approval_requests_reviewed_by_fkey(id, full_name), approved_by_profile:profiles!approval_requests_approved_by_fkey(id, full_name), case:cases!approval_requests_case_id_fkey(id, case_number, case_name, case_type, case_nature, status, team, handler:profiles!cases_handler_id_fkey(id, full_name), case_fields(page_name, field_name, value_text, value_date, value_number))";
+  "*, submitted_by_profile:profiles!approval_requests_submitted_by_fkey(id, full_name), reviewed_by_profile:profiles!approval_requests_reviewed_by_fkey(id, full_name), approved_by_profile:profiles!approval_requests_approved_by_fkey(id, full_name), case:cases!approval_requests_case_id_fkey(id, case_number, case_name, case_type, case_nature, status, team, handler:profiles!cases_handler_id_fkey(id, full_name))";
 
 export default async function ApprovalsPage() {
   const profile = await getCurrentProfile();
@@ -18,14 +22,15 @@ export default async function ApprovalsPage() {
 
   const supabase = await createClient();
 
-  const [{ data: requests, error }, { data: viewTemplates }, caseFieldKeys] =
-    await Promise.all([
+  const [
+    { data: requests, error },
+    { data: viewTemplates },
+    caseFieldKeys,
+    caseFieldsByCase,
+  ] = await Promise.all([
       supabase
         .from("approval_requests")
         .select(APPROVAL_SELECT)
-        // only חוצץ fields holding a value; the case is embedded per request,
-        // so its field set repeats once per request without this
-        .or(NON_EMPTY_CASE_FIELD, { referencedTable: "case.case_fields" })
         .order("created_at", { ascending: false })
         .returns<ApprovalRequestWithNames[]>(),
       supabase
@@ -35,7 +40,10 @@ export default async function ApprovalsPage() {
         .order("display_order")
         .returns<ViewTemplate[]>(),
       fetchCaseFieldKeys(supabase),
+      fetchCaseFieldsByCase(supabase),
     ]);
+
+  if (requests) attachCaseFields(requests, caseFieldsByCase);
 
   const canCreate = profile.role !== "secretary";
   let cases: Pick<Case, "id" | "case_number" | "case_name">[] = [];
