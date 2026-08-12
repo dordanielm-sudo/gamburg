@@ -248,6 +248,108 @@ select @affected as affected;`,
   };
 }
 
+// ---------------------------------------------------------------------------
+// משימות - dbo.Tasks
+//
+// From vwExportToOuterSystems_Tasks. Unlike the חוצצים, this is one base table
+// with the row identified by Counter - which is exactly what the CRM stores as
+// source_task_id. No record lookup, no upsert: the row always exists, because
+// a task without a source_task_id was created in the CRM and never existed in
+// עדכנית at all.
+//
+// Priority and status are codes joined to dbo.odpl_TableTypes, a shared lookup
+// keyed by TableName. Same reasoning as the case's status/מהות columns: the
+// join is deliberate rather than a subquery, so an unknown name updates zero
+// rows instead of writing NULL over a good value.
+// ---------------------------------------------------------------------------
+
+const TASK_TEXT_COLUMNS: Record<string, string> = {
+  text: "TaskText",
+  subject: "TaskSubject",
+};
+
+const TASK_DATE_COLUMNS: Record<string, string> = {
+  due_date: "EndDate",
+  start_date: "StartDate",
+};
+
+const TASK_CODE_COLUMNS: Record<string, { column: string; tableName: string }> = {
+  priority_name: { column: "Priority", tableName: "TaskPriority" },
+  status_name: { column: "TaskStatus", tableName: "TaskStatus" },
+};
+
+const UNSUPPORTED_TASK_FIELDS: Record<string, string> = {
+  notes:
+    "הערות המשימה הן שדה של ה-CRM בלבד - לטבלת המשימות בעדכנית אין עמודה מקבילה",
+};
+
+function buildTaskUpdate(input: {
+  fieldName: string;
+  sourceRef: string | null;
+  newValue: string | null;
+}): UdkanitUpdate {
+  const { fieldName, sourceRef, newValue } = input;
+
+  const unsupported = UNSUPPORTED_TASK_FIELDS[fieldName];
+  if (unsupported) return { sql: null, reason: unsupported };
+
+  if (!sourceRef) {
+    return {
+      sql: null,
+      reason: "למשימה אין מזהה מקור - היא נוצרה ב-CRM ואינה קיימת בעדכנית",
+    };
+  }
+  // Tasks.Counter is an int; source_task_id is stored as text on our side.
+  // Checking here rather than letting SQL Server attempt the conversion keeps
+  // a malformed id a readable refusal instead of a driver error.
+  const counter = Number(sourceRef);
+  if (!Number.isInteger(counter)) {
+    return { sql: null, reason: `מזהה המשימה בעדכנית אינו מספר: ${sourceRef}` };
+  }
+
+  const textColumn = TASK_TEXT_COLUMNS[fieldName];
+  if (textColumn) {
+    return {
+      sql:
+        `update dbo.Tasks set ${textColumn} = ${sqlLiteral(newValue)}` +
+        ` where Counter = ${counter};${ROWCOUNT_PROBE}`,
+      params: [newValue, sourceRef],
+    };
+  }
+
+  const dateColumn = TASK_DATE_COLUMNS[fieldName];
+  if (dateColumn) {
+    // style 126 is ISO 8601 - explicit, rather than letting SQL Server read
+    // 03/04 as March or April depending on the server's locale
+    const value =
+      newValue === null || newValue === ""
+        ? "null"
+        : `convert(datetime, ${sqlLiteral(newValue)}, 126)`;
+    return {
+      sql:
+        `update dbo.Tasks set ${dateColumn} = ${value}` +
+        ` where Counter = ${counter};${ROWCOUNT_PROBE}`,
+      params: [newValue, sourceRef],
+    };
+  }
+
+  const code = TASK_CODE_COLUMNS[fieldName];
+  if (code) {
+    return {
+      sql:
+        `update t set t.${code.column} = lk.TypeID1\n` +
+        `  from dbo.Tasks t\n` +
+        `  join dbo.odpl_TableTypes lk\n` +
+        `    on lk.TableName = ${sqlLiteral(code.tableName)}\n` +
+        `   and lk.TypeName = ${sqlLiteral(newValue)}\n` +
+        ` where t.Counter = ${counter};${ROWCOUNT_PROBE}`,
+      params: [newValue, sourceRef],
+    };
+  }
+
+  return { sql: null, reason: `לשדה ${fieldName} במשימה אין מיפוי לעדכנית` };
+}
+
 export function buildUdkanitUpdate(input: {
   entityType: "case" | "case_field" | "task" | "deadline" | "document";
   fieldName: string;
@@ -319,10 +421,11 @@ export function buildUdkanitUpdate(input: {
   }
 
   if (entityType === "task") {
-    return {
-      sql: null,
-      reason: "ענף המשימות טרם נבנה - נדרשים שם טבלת המשימות בעדכנית ועמודת המזהה שלה",
-    };
+    return buildTaskUpdate({
+      fieldName,
+      sourceRef: input.sourceRef ?? null,
+      newValue,
+    });
   }
 
   return {
