@@ -47,10 +47,19 @@ interface CaseSyncPayload {
 // would assert progress nothing has evidenced. Applied on INSERT only: once
 // a case exists, its שלב belongs to whoever moved it, and a resync must
 // never walk that back (same rule as the flags/manager_note columns).
+//
+// חדל"פ cases can go through either of two tracks in עדכנית - via the רשם
+// (registrar) or straight to בית משפט (court) - which produce differently
+// worded מהות values for the same substantive stage. Confirmed against the
+// live MautName list (vwTikMaut): both tracks need a needle, or a case
+// opened via the רשם track lands with no שלב at all.
 const NATURE_TO_STAGE: [needle: string, stage: string][] = [
   ["לא הוגש טופס 5", "קליטה"],
   ["מחכים לצו", "ממתין לצו"],
+  ["מחכים להחלטת רשם", "ממתין לצו"],
   ["צו פתיחת הליכים", "לאחר צו"],
+  ["התקבלה החלטת רשם", "לאחר צו"],
+  ["גובש הסדר", "שיקום"],
   ["שיקום", "שיקום"],
   ["הפטר", "הסתיים"],
 ];
