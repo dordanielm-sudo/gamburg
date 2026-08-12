@@ -350,6 +350,93 @@ function buildTaskUpdate(input: {
   return { sql: null, reason: `לשדה ${fieldName} במשימה אין מיפוי לעדכנית` };
 }
 
+// ---------------------------------------------------------------------------
+// יצירת משימה - the only place the CRM adds a row to עדכנית rather than
+// changing one. Two inserts, because assignment lives in its own table:
+//
+//   dbo.Tasks      the task itself; Counter is an IDENTITY, so it is left out
+//                  and read back with SCOPE_IDENTITY()
+//   dbo.TaskUsers  one row per assignee, keyed on UserID - this is what makes
+//                  the task appear in someone's list. MetaplimNames on the
+//                  task is only the display string shown beside it.
+//
+// Shaped after a real recent row (Counter 15420 / TaskUsers 18543): the title
+// goes in TaskSubject, TaskStatus 0 and TaskUserStatus 0 mean open, and the
+// reminder columns carry the same defaults עדכנית's own UI writes.
+//
+// The new Counter comes back as the statement's single result, so Make can
+// return it as record_id and the CRM can store it as source_task_id - without
+// which the task exists in both systems with nothing tying them together, and
+// every later edit would have no record to update.
+export function buildTaskInsert(input: {
+  caseNumber: string;
+  subject: string;
+  text: string | null;
+  assigneeUdkanitUserId: number | null;
+  createdByUdkanitUserId: number;
+  startDate: string | null;
+  dueDate: string | null;
+}): UdkanitUpdate {
+  const {
+    caseNumber,
+    subject,
+    text,
+    assigneeUdkanitUserId,
+    createdByUdkanitUserId,
+    startDate,
+    dueDate,
+  } = input;
+
+  if (!subject.trim()) {
+    return { sql: null, reason: "למשימה אין תיאור - אין מה ליצור בעדכנית" };
+  }
+  if (assigneeUdkanitUserId === null) {
+    return {
+      sql: null,
+      reason:
+        "למטפל שהוקצה אין מזהה בעדכנית - יש להשלים אותו בכרטיס המשתמש כדי שניתן יהיה ליצור עבורו משימות שם",
+    };
+  }
+
+  const dateLiteral = (value: string | null) =>
+    value ? `convert(datetime, ${sqlLiteral(value)}, 126)` : "null";
+
+  return {
+    sql: `declare @tik int = (select Counter from vwMainTik where VisualID = ${sqlLiteral(caseNumber)});
+declare @side int = (select SideCounter from vwMainTik where VisualID = ${sqlLiteral(caseNumber)});
+-- the display string beside the assignment; taken from the login list rather
+-- than from the CRM so it always names someone עדכנית actually knows
+declare @who nvarchar(200) = (
+  select FullName from vwExportToOuterSystems_LoginUsers
+   where UserID = ${assigneeUdkanitUserId}
+);
+declare @task int = null;
+
+if @tik is not null and @who is not null
+begin
+  insert into dbo.Tasks
+    (TaskSubject, TaskText, TaskStatus, TikCounter, SideCounter,
+     MetaplimNames, StartDate, EndDate, TaskDoneWhen,
+     tsCreatedBy, tsCreateDate)
+  values
+    (${sqlLiteral(subject)}, ${text ? sqlLiteral(text) : "null"}, 0, @tik, @side,
+     @who, ${dateLiteral(startDate)}, ${dateLiteral(dueDate)}, 1,
+     ${createdByUdkanitUserId}, getdate());
+
+  set @task = convert(int, SCOPE_IDENTITY());
+
+  -- without this row the task exists but shows up in nobody's list
+  insert into dbo.TaskUsers
+    (TaskCounter, UserID, TaskUserStatus, StatusDate)
+  values
+    (@task, ${assigneeUdkanitUserId}, 0, getdate());
+end
+
+select @task as new_task_counter;`,
+    params: [caseNumber, subject, text, assigneeUdkanitUserId],
+  };
+}
+
 export function buildUdkanitUpdate(input: {
   entityType: "case" | "case_field" | "task" | "deadline" | "document";
   fieldName: string;

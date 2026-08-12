@@ -20,6 +20,11 @@ export interface Profile {
   full_name: string;
   role: UserRole;
   is_active: boolean;
+  // vwExportToOuterSystems_LoginUsers.UserID in עדכנית (0043). Set by hand on
+  // the users screen - names there abbreviate and collide, so they cannot be
+  // matched automatically. Null means tasks cannot be created in עדכנית for
+  // this person.
+  udkanit_user_id: number | null;
   created_at: string;
 }
 
