@@ -5,11 +5,21 @@ import { AppHeader } from "@/components/app-header";
 import { TaskBoard } from "./task-board";
 import type { TaskWithNames, Profile, Case } from "@/types/database";
 
-export default async function TasksPage() {
+export default async function TasksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ overdue?: string; status?: string }>;
+}) {
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
 
   const supabase = await createClient();
+  // The board opens on "פתוחות", but the server used to send every task ever
+  // closed for the browser to filter out - and the עדכנית sync fills this
+  // table by the thousands. Completed tasks now come only when the status
+  // control asks for them, which is why that control writes to the URL.
+  const { status } = await searchParams;
+  const includeDone = !!status && status !== "open";
 
   // PostgREST caps a single select at 1000 rows - with the עדכנית task sync
   // filling the table by the thousands, everything past the newest 1000
@@ -19,11 +29,15 @@ export default async function TasksPage() {
   let tasks: TaskWithNames[] = [];
   let error: { message: string } | null = null;
   for (let from = 0; ; from += BATCH) {
-    const { data, error: batchError } = await supabase
+    const base = supabase
       .from("tasks")
       .select(
         "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)",
-      )
+      );
+    const { data, error: batchError } = await (includeDone
+      ? base
+      : base.eq("status", "open")
+    )
       .order("created_at", { ascending: false })
       .order("id", { ascending: true })
       .range(from, from + BATCH - 1)

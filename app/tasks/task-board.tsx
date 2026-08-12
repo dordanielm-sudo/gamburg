@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   deadlineUrgency,
@@ -104,6 +104,7 @@ export function TaskBoard({
   cases: Pick<Case, "id" | "case_number" | "case_name">[];
   currentUserId: string;
 }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const [editing, setEditing] = useState(false);
@@ -114,7 +115,23 @@ export function TaskBoard({
   const [createCaseText, setCreateCaseText] = useState("");
   const [caseFilter, setCaseFilter] = useState("");
   const [handlerFilter, setHandlerFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("open");
+  // The status control is a navigation, not local state: anything other than
+  // "פתוחות" needs rows the server did not send, so the choice has to reach
+  // it. Absent means the default, which is also the cheap query.
+  const statusParam = searchParams.get("status");
+  const statusFilter: TaskStatus | "" =
+    statusParam === null
+      ? "open"
+      : statusParam === "all"
+        ? ""
+        : (statusParam as TaskStatus);
+  function setStatusFilter(next: TaskStatus | "") {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "open") params.delete("status");
+    else params.set("status", next === "" ? "all" : next);
+    const query = params.toString();
+    router.push(query ? `/tasks?${query}` : "/tasks");
+  }
   const [priorityFilter, setPriorityFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("due_date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
