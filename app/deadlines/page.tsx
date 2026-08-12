@@ -8,6 +8,7 @@ import {
   attachCaseFields,
   fetchCaseFieldsByCase,
 } from "@/lib/attach-case-fields";
+import { pageTimer, timed } from "@/lib/server-timing";
 import type { CaseDeadlineWithCase, Case, ViewTemplate } from "@/types/database";
 
 // The case is joined with everything the shared filter field set reads, so
@@ -27,7 +28,8 @@ export default async function DeadlinesPage({
 }: {
   searchParams: Promise<{ date?: string; done?: string }>;
 }) {
-  const profile = await getCurrentProfile();
+  const done_ = pageTimer("deadlines");
+  const profile = await timed("deadlines profile", getCurrentProfile());
   if (!profile) redirect("/login");
 
   const supabase = await createClient();
@@ -47,14 +49,14 @@ export default async function DeadlinesPage({
   let error: { message: string } | null = null;
   for (let from = 0; ; from += BATCH) {
     const base = supabase.from("case_deadlines").select(DEADLINE_SELECT);
-    const { data, error: batchError } = await (includeDone
-      ? base
-      : base.eq("status", "open")
-    )
-      .order("due_date", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, from + BATCH - 1)
-      .returns<CaseDeadlineWithCase[]>();
+    const { data, error: batchError } = await timed(
+      `deadlines rows[${from}]`,
+      (includeDone ? base : base.eq("status", "open"))
+        .order("due_date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + BATCH - 1)
+        .returns<CaseDeadlineWithCase[]>(),
+    );
     if (batchError) {
       error = batchError;
       break;
@@ -65,14 +67,17 @@ export default async function DeadlinesPage({
   }
 
   const [{ data: viewTemplates }, caseFieldKeys, caseFieldsByCase] = await Promise.all([
-    supabase
-      .from("view_templates")
-      .select("*")
-      .eq("screen", "deadlines")
-      .order("display_order")
-      .returns<ViewTemplate[]>(),
-    fetchCaseFieldKeys(supabase),
-    fetchCaseFieldsByCase(supabase),
+    timed(
+      "deadlines templates",
+      supabase
+        .from("view_templates")
+        .select("*")
+        .eq("screen", "deadlines")
+        .order("display_order")
+        .returns<ViewTemplate[]>(),
+    ),
+    timed("deadlines field catalog", fetchCaseFieldKeys(supabase)),
+    timed("deadlines case fields", fetchCaseFieldsByCase(supabase)),
   ]);
 
   attachCaseFields(deadlines, caseFieldsByCase);
@@ -87,15 +92,17 @@ export default async function DeadlinesPage({
         .order("case_number")
         .order("id", { ascending: true })
         .range(from, from + BATCH - 1);
-      const { data } =
-        profile.role === "handler"
-          ? await query.eq("handler_id", profile.id)
-          : await query;
+      const { data } = await timed(
+        `deadlines case list[${from}]`,
+        profile.role === "handler" ? query.eq("handler_id", profile.id) : query,
+      );
       if (!data || data.length === 0) break;
       cases = cases.concat(data);
       if (data.length < BATCH) break;
     }
   }
+
+  done_();
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
