@@ -129,6 +129,10 @@ export interface CaseDeadline {
   client_updated: boolean;
   preparation_done: boolean;
   source_field_name: string | null;
+  // which חוצץ source_field_name lives on - needed because the field name
+  // alone is not always unique across tabs ("מועד העלאת הצו" exists on more
+  // than one). null for a deadline synced before this column existed.
+  page_name: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

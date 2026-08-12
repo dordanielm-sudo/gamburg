@@ -14,6 +14,10 @@ import { runIncomingWebhook } from "@/lib/webhook-handler";
 interface DeadlineSyncPayload {
   case_number?: string;
   source_field_name?: string;
+  // which חוצץ the field lives on. A field name is not always unique across
+  // tabs ("מועד העלאת הצו" exists on more than one), so without this the
+  // write-back cannot tell which tab to update and silently touches nothing.
+  page_name?: string | null;
   label?: string | null;
   due_date?: string | null;
 }
@@ -58,10 +62,11 @@ export async function POST(request: Request) {
       }
 
       const label = body.label?.trim() || sourceFieldName;
+      const pageName = body.page_name?.trim() || null;
 
       const { data: updated, error: updateError } = await admin
         .from("case_deadlines")
-        .update({ label, due_date: dueDate })
+        .update({ label, due_date: dueDate, page_name: pageName })
         .eq("case_id", caseRow.id)
         .eq("source_field_name", sourceFieldName)
         .select("id");
@@ -78,6 +83,7 @@ export async function POST(request: Request) {
         .insert({
           case_id: caseRow.id,
           source_field_name: sourceFieldName,
+          page_name: pageName,
           label,
           due_date: dueDate,
         })

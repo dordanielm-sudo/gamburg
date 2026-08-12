@@ -1,0 +1,16 @@
+-- Gamburg CRM - which חוצץ a deadline's underlying field lives on.
+--
+-- A deadline is not its own record in עדכנית - it is a date field on the
+-- case, named by source_field_name, same as any חוצץ field. Writing it back
+-- means resolving that name to a FieldID in dbo.UserData_Defs, and a field
+-- name is not always unique across tabs: "מועד העלאת הצו" exists on both
+-- חדל"פ and צו שיקום כלכלי (confirmed against live data - nine field names
+-- collide this way). Without the page, the write cannot tell which one the
+-- deadline actually belongs to and, for a colliding name, resolves to no
+-- field at all - the write reports affected = 0 instead of updating either
+-- tab, silently.
+--
+-- Nullable and with no backfill: existing rows keep working exactly as before
+-- (a deadline whose field name happens to be unique still writes back fine),
+-- and the next incoming sync fills this in going forward.
+alter table public.case_deadlines add column page_name text;

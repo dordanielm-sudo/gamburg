@@ -439,6 +439,11 @@ export function DeadlinesBoard({
       caseNumber: d.case.case_number,
       entityId: d.id,
       sourceRef: d.source_field_name,
+      // resolves which tab's FieldID to write to when the name collides
+      // across tabs - undefined (not null) for a deadline synced before this
+      // column existed, which falls back to the old "name must be unique"
+      // behaviour rather than being treated as "known to have no tab"
+      pageName: d.page_name ?? undefined,
     };
   }
 
