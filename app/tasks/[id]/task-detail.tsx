@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import {
   deadlineUrgency,
+  taskTitle,
   type TaskWithNames,
   type TaskStatus,
 } from "@/types/database";
@@ -133,7 +134,7 @@ export function TaskDetail({
     <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <h1 className="min-w-0 flex-1 text-lg font-semibold text-gray-900">
-          {field("text", current.text)}
+          {field("subject", taskTitle(current))}
         </h1>
         <div className="flex shrink-0 items-center gap-1.5">
           {priorityLabel(current.priority_code, current.priority_name) && (
@@ -245,6 +246,17 @@ export function TaskDetail({
           ]}
         />
       </div>
+      {/* עדכנית's TaskText - the body under the title, set on about a third
+          of tasks (0042). Distinct from הערות below, which never leaves the
+          CRM. */}
+      {(editing || current.text) && (
+        <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4">
+          <div className="text-xs text-gray-400">פירוט</div>
+          <div className="mt-0.5 text-sm text-gray-700">
+            {field("text", current.text, "textarea")}
+          </div>
+        </div>
+      )}
       {(editing || current.notes) && (
         <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
           <div className="text-xs text-gray-400">הערות</div>
