@@ -175,6 +175,7 @@ export default async function CaseDetailPage({
               items={stageItems ?? []}
               checklistEntries={checklistEntries ?? []}
               currentStage={caseRow.case_stage}
+              currentNature={caseRow.case_nature}
               canEdit={canEdit}
             />
           )}
