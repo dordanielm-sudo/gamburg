@@ -34,16 +34,50 @@ export async function callMakeOutgoingWebhook(
     });
     clearTimeout(timeout);
 
-    const body = await response.json().catch(() => null);
-    if (response.ok && body && isSyncStatus(body.status)) {
+    // Read as text first so a rejection can say what actually came back. The
+    // generic "invalid response" covered three very different faults - a
+    // non-2xx, a body that is not JSON at all (Make answers "Accepted" until
+    // the scenario has a Webhook response module), and a JSON body whose
+    // status is not one of ours - and told them apart for nobody.
+    const raw = await response.text();
+    let body: unknown = null;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      // left null - reported below along with what was received
+    }
+
+    const parsed = body as { status?: unknown; message?: unknown; record_id?: unknown } | null;
+    if (response.ok && parsed && isSyncStatus(parsed.status)) {
       return {
-        status: body.status,
-        message: typeof body.message === "string" ? body.message : undefined,
+        status: parsed.status,
+        message: typeof parsed.message === "string" ? parsed.message : undefined,
         record_id:
-          typeof body.record_id === "string" ? body.record_id : undefined,
+          typeof parsed.record_id === "string"
+            ? parsed.record_id
+            : typeof parsed.record_id === "number"
+              ? String(parsed.record_id)
+              : undefined,
       };
     }
-    return { status: "failure", message: "תשובה לא תקינה מ-Make" };
+
+    const excerpt = raw.trim().slice(0, 120) || "(גוף ריק)";
+    if (!response.ok) {
+      return {
+        status: "failure",
+        message: `Make החזיר קוד ${response.status}: ${excerpt}`,
+      };
+    }
+    if (!parsed) {
+      return {
+        status: "failure",
+        message: `תשובת Make אינה JSON: ${excerpt} - חסר מודול Webhook response בסניף שרץ`,
+      };
+    }
+    return {
+      status: "failure",
+      message: `תשובת Make חסרה status תקין (success/failure/warning): ${excerpt}`,
+    };
   } catch {
     return { status: "failure", message: "לא ניתן להתחבר ל-Make" };
   }
