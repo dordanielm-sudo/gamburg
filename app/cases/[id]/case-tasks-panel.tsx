@@ -87,6 +87,7 @@ export function CaseTasksPanel({ tasks }: { tasks: TaskWithNames[] }) {
             const primaryLabel = showUrgency ? URGENCY_LABEL[urgency] : STATUS_LABELS[t.status];
             return (
               <Link
+                prefetch={false}
                 key={t.id}
                 href={`/tasks/${t.id}`}
                 className={`block rounded-lg border p-3 transition-colors hover:border-blue-300 hover:bg-blue-50/30 ${

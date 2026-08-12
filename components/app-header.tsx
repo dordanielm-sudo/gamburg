@@ -33,6 +33,13 @@ function NavLink({
   return (
     <Link
       href={href}
+      // The nav sits on every screen, so leaving prefetch on means every page
+      // load warms every other page - and these are the expensive ones. It
+      // was measured at seven prefetches per load, twice over (Next refires
+      // them when the router tree changes), with דשבורד, מועדים and משימות
+      // each taking about a second of server time. That work competed with
+      // rendering the screen the user was actually waiting for.
+      prefetch={false}
       className={`rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors ${
         active ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-200"
       }`}

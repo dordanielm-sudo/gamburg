@@ -94,6 +94,7 @@ export default async function TaskDetailPage({
       />
       <main className="flex-1 space-y-6 p-6">
         <Link
+          prefetch={false}
           href="/tasks"
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900"
         >
