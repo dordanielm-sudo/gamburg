@@ -110,6 +110,144 @@ const UNSUPPORTED_CASE_FIELDS: Record<string, string> = {
 // a case number that does not exist.
 const ROWCOUNT_PROBE = "\nselect @@ROWCOUNT as affected;";
 
+// ---------------------------------------------------------------------------
+// חוצצים - עדכנית's custom-field store
+//
+// vwExportToOuterSystems_UserData joins six tables, so it can never be written
+// to: SQL Server only lets an UPDATE touch one base table. That is why writing
+// through it silently changed nothing. The shape, from the view definition:
+//
+//   UserData_Records   Counter (pk), TikCounter, PageID   - one row per case+tab
+//   UserData_Pages     PageID, PageName, Deleted          - the tabs
+//   UserData_Defs      FieldID, PageID, FieldName, Deleted - the field list
+//   UserData_Str       RecCounter, FieldID, Data          - text values
+//   UserData_Date      RecCounter, FieldID, Data          - date values
+//   UserData_Num       RecCounter, FieldID, Data          - numeric values
+//
+// A field with no value has NO row in its value table - it shows as null in
+// the view only because of the LEFT JOIN. So writing is an upsert, not an
+// update, and a plain UPDATE would report success while changing nothing.
+// ---------------------------------------------------------------------------
+
+// Which value table a field's data lives in, and the UserData_Defs.FieldType
+// codes that belong to it. Counted straight off the live data - 7,770 + 11,478
+// values for types 1 and 5 in Str, 174 + 5,204 for 2 and 6 in Num, 8,904 for
+// type 3 in Date, and not a single value anywhere it does not belong.
+//
+// The FieldType list is not only a mapping, it is the guard: the statement
+// looks the field up with `FieldType in (...)`, so if the CRM's idea of the
+// type ever disagrees with עדכנית's, the lookup finds nothing and the write
+// reports zero rows. The alternative - trusting the CRM and writing anyway -
+// would put a date in the text table, where the next sync would read it back
+// as a string and the field would quietly stop working.
+const VALUE_TABLE: Record<string, { table: string; fieldTypes: number[] }> = {
+  text: { table: "dbo.UserData_Str", fieldTypes: [1, 5] },
+  date: { table: "dbo.UserData_Date", fieldTypes: [3] },
+  number: { table: "dbo.UserData_Num", fieldTypes: [2, 6] },
+};
+
+// Renders the value for the typed column it is going into. Each value table's
+// Data column has its own type - varchar, datetime, float - and a string
+// literal in the numeric one would be a conversion error at write time.
+function userDataLiteral(
+  valueType: "text" | "date" | "number",
+  value: string | null,
+): string {
+  if (value === null || value === "") return "null";
+  if (valueType === "text") return sqlLiteral(value);
+  if (valueType === "number") {
+    const n = Number(value);
+    if (!Number.isFinite(n)) {
+      throw new Error(`ערך מספרי לא תקין לשדה מספרי: ${value}`);
+    }
+    return String(n);
+  }
+  // style 126 is ISO 8601, which is what the CRM stores and sends - parsing it
+  // explicitly rather than letting SQL Server guess from the server's locale,
+  // where 03/04 could be March or April
+  return `convert(datetime, ${sqlLiteral(value)}, 126)`;
+}
+
+function buildUserDataUpdate(input: {
+  caseNumber: string;
+  pageName: string | null;
+  fieldName: string;
+  valueType: "text" | "date" | "number" | null;
+  newValue: string | null;
+}): UdkanitUpdate {
+  const { caseNumber, pageName, fieldName, valueType, newValue } = input;
+
+  if (!valueType) {
+    return {
+      sql: null,
+      reason: `לשדה ${fieldName} לא נשלח סוג ערך - אי אפשר לדעת לאיזו טבלת ערכים לכתוב`,
+    };
+  }
+  const target = VALUE_TABLE[valueType];
+  if (!target) {
+    return { sql: null, reason: `סוג ערך לא מוכר: ${valueType}` };
+  }
+  const table = target.table;
+  const typeGuard = `d.FieldType in (${target.fieldTypes.join(", ")})`;
+
+  // Without a page the field name has to be unique across all tabs. It often
+  // is not - "החרגת רכב" exists on both כללי and לקוח חדש - and writing to
+  // whichever one came back first would corrupt the other tab silently. The
+  // count() makes an ambiguous name resolve to null, which the guard below
+  // turns into affected = 0 rather than a wrong write.
+  const fieldLookup = pageName
+    ? `select top 1 d.FieldID
+       from dbo.UserData_Defs d
+       join dbo.UserData_Pages p on p.PageID = d.PageID and p.Deleted = 0
+      where p.PageName = ${sqlLiteral(pageName)}
+        and d.FieldName = ${sqlLiteral(fieldName)}
+        and ${typeGuard}
+        and d.Deleted = 0`
+    : `select case when count(*) = 1 then min(d.FieldID) end
+       from dbo.UserData_Defs d
+       join dbo.UserData_Pages p on p.PageID = d.PageID and p.Deleted = 0
+      where d.FieldName = ${sqlLiteral(fieldName)}
+        and ${typeGuard}
+        and d.Deleted = 0`;
+
+  const value = userDataLiteral(valueType, newValue);
+
+  return {
+    sql: `declare @fld int = (${fieldLookup});
+declare @page int = (select PageID from dbo.UserData_Defs where FieldID = @fld);
+declare @tik int = (select Counter from vwMainTik where VisualID = ${sqlLiteral(caseNumber)});
+-- a case can hold several records for the same tab (the view numbers them
+-- with ROW_NUMBER), and the first is the one the CRM shows
+declare @rec int = (
+  select top 1 Counter from dbo.UserData_Records
+   where TikCounter = @tik and PageID = @page
+   order by Counter
+);
+declare @affected int = 0;
+
+if @fld is not null and @rec is not null
+begin
+  update ${table} set Data = ${value}
+   where RecCounter = @rec and FieldID = @fld;
+  set @affected = @@ROWCOUNT;
+
+  -- no row yet means the field was never filled in for this case, not that
+  -- the lookup failed - the view shows it as null either way
+  if @affected = 0
+  begin
+    insert into ${table} (RecCounter, FieldID, Data)
+    values (@rec, @fld, ${value});
+    set @affected = @@ROWCOUNT;
+  end
+
+  update dbo.UserData_Records set tsModifyDate = getdate() where Counter = @rec;
+end
+
+select @affected as affected;`,
+    params: [newValue, caseNumber, pageName, fieldName],
+  };
+}
+
 export function buildUdkanitUpdate(input: {
   entityType: "case" | "case_field" | "task" | "deadline" | "document";
   fieldName: string;
@@ -171,12 +309,13 @@ export function buildUdkanitUpdate(input: {
   // source_field_name. Same statement, the field name arriving in a different
   // key.
   if (entityType === "case_field" || entityType === "deadline") {
-    return {
-      sql: null,
-      reason:
-        "טבלת הבסיס של השדות המותאמים בעדכנית טרם אותרה - " +
-        "יש להריץ sys.dm_sql_referenced_entities על vwExportToOuterSystems_UserData",
-    };
+    return buildUserDataUpdate({
+      caseNumber,
+      pageName: input.pageName ?? null,
+      fieldName: entityType === "deadline" ? (input.sourceRef ?? fieldName) : fieldName,
+      valueType: input.valueType ?? (entityType === "deadline" ? "date" : null),
+      newValue,
+    });
   }
 
   if (entityType === "task") {
