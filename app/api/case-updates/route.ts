@@ -168,6 +168,31 @@ export async function POST(request: Request) {
     valueType: value_type ?? null,
   });
 
+  // A field with no write path was never going to reach עדכנית, so there is
+  // nothing to ask Make about. Calling it anyway had two costs: every CRM-only
+  // edit (a flag, a manager note, moving the stepper) sent a bundle carrying
+  // sql: null that the scenario had to filter out, and - worse - the caller
+  // treats a "failure" answer as "the write did not happen" and undoes its own
+  // save. A scenario that does not reply in our shape (Make's default reply is
+  // the plain text "Accepted", not JSON) therefore rolled back edits to fields
+  // עדכנית does not even have. Answering here keeps the change saved and still
+  // says why it stopped at the CRM.
+  if (statement.sql === null) {
+    await admin
+      .from("case_sync_log")
+      .update({
+        webhook_status: "warning",
+        webhook_message: statement.reason,
+        responded_at: new Date().toISOString(),
+      })
+      .eq("id", logRow.id);
+    await logWebhookCall(admin, "outgoing_case_update", "skipped", 200, payload, {
+      status: "warning",
+      message: statement.reason,
+    });
+    return NextResponse.json({ status: "warning", message: statement.reason });
+  }
+
   const result = await callMakeOutgoingWebhook(webhookUrl, {
     case_id,
     case_number,
@@ -182,13 +207,12 @@ export async function POST(request: Request) {
     changed_by: user.id,
     changed_at: new Date().toISOString(),
     // Ready to execute as-is - the values are already in the text, so Make
-    // needs no mapping of its own. null when the field has no write path
-    // yet, and then unsupported_reason says which one and why.
+    // needs no mapping of its own. Never null: an unsupported field returned
+    // above without calling out at all.
     sql: statement.sql,
     // the same values, separately, for the log and for tracing a bad write
     // back to what was sent. Make does not need them.
-    params: "params" in statement ? statement.params : null,
-    unsupported_reason: statement.sql === null ? statement.reason : null,
+    params: statement.params,
   });
 
   await admin
