@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   deadlineUrgency,
+  taskTitle,
   type TaskWithNames,
   type TaskStatus,
 } from "@/types/database";
@@ -100,7 +101,7 @@ export function CaseTasksPanel({ tasks }: { tasks: TaskWithNames[] }) {
               >
                 <div className="flex items-start justify-between gap-3">
                   <span className="text-sm font-medium text-gray-900">
-                    {t.text}
+                    {taskTitle(t)}
                   </span>
                   <Badge tone={primaryTone}>{primaryLabel}</Badge>
                 </div>

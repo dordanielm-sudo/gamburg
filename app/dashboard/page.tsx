@@ -11,7 +11,12 @@ import {
 } from "./case-charts-panel";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { isCaseStuck, type CaseField, type ViewTemplate } from "@/types/database";
+import {
+  isCaseStuck,
+  taskTitle,
+  type CaseField,
+  type ViewTemplate,
+} from "@/types/database";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
 import {
   NON_EMPTY_CASE_FIELD,
@@ -108,7 +113,9 @@ export default async function DashboardPage() {
       .in("status", ["pending_review", "pending_approval"]),
     supabase
       .from("tasks")
-      .select("id, text, due_date, case:cases!tasks_case_id_fkey(id, case_number, case_name)")
+      .select(
+        "id, subject, text, due_date, case:cases!tasks_case_id_fkey(id, case_number, case_name)",
+      )
       .eq("status", "open")
       .not("due_date", "is", null)
       .order("due_date", { ascending: true })
@@ -172,7 +179,7 @@ export default async function DashboardPage() {
     ...(upcomingTasks ?? []).map((t) => ({
       id: t.id,
       kind: "task" as const,
-      label: t.text,
+      label: taskTitle(t),
       due_date: t.due_date as string,
       case: t.case as unknown as UpcomingItem["case"],
     })),

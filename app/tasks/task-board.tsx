@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   deadlineUrgency,
+  taskTitle,
   type TaskWithNames,
   type TaskStatus,
   type Profile,
@@ -75,7 +76,7 @@ const SORT_LABELS: Record<SortKey, string> = {
 function sortValue(t: TaskWithNames, key: SortKey): string | number | null {
   switch (key) {
     case "text":
-      return t.text;
+      return taskTitle(t);
     case "case":
       return t.case?.case_number ?? null;
     case "priority":
@@ -251,7 +252,7 @@ export function TaskBoard({
     const { data, error } = await supabase
       .from("tasks")
       .insert({
-        text,
+        subject: text,
         assigned_to: assignedTo,
         created_by: currentUserId,
         case_id: caseId,
@@ -272,7 +273,7 @@ export function TaskBoard({
   }
 
   async function handleDelete(task: TaskWithNames) {
-    if (!confirm(`למחוק לצמיתות את המשימה "${task.text}"? לא ניתן לשחזר.`)) {
+    if (!confirm(`למחוק לצמיתות את המשימה "${taskTitle(task)}"? לא ניתן לשחזר.`)) {
       return;
     }
     setDeletingId(task.id);
@@ -660,8 +661,8 @@ export function TaskBoard({
                         <InlineEdit
                           table="tasks"
                           rowId={t.id}
-                          column="text"
-                          value={t.text}
+                          column="subject"
+                          value={taskTitle(t)}
                           editing
                           sync={syncFor(t)}
                         />
@@ -671,7 +672,7 @@ export function TaskBoard({
                           prefetch={false}
                           className="font-semibold text-gray-900 hover:text-blue-700 hover:underline"
                         >
-                          {t.text}
+                          {taskTitle(t)}
                         </Link>
                       )}
                       {editing ? (

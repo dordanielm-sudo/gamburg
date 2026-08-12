@@ -385,7 +385,12 @@ export interface ApprovalRequestWithNames extends ApprovalRequest {
 
 export interface Task {
   id: string;
-  text: string;
+  // the title (עדכנית's TaskSubject) - what every screen shows. Nullable only
+  // because the column was added after the fact (0042); in practice every task
+  // has one, and taskTitle() below covers the gap.
+  subject: string | null;
+  // the optional body (עדכנית's TaskText) - set on about a third of tasks
+  text: string | null;
   created_by: string;
   assigned_to: string;
   case_id: string | null;
@@ -459,6 +464,13 @@ export interface TaskWithNames extends Task {
   assigned_to_profile: Pick<Profile, "id" | "full_name"> | null;
   created_by_profile: Pick<Profile, "id" | "full_name"> | null;
   case: Pick<Case, "id" | "case_number" | "case_name"> | null;
+}
+
+// What to show as the task's one-line title. subject is the real one, but a
+// task synced before 0042 - or created against an older build - can still
+// carry its title in text, so fall back rather than render an empty row.
+export function taskTitle(task: Pick<Task, "subject" | "text">): string {
+  return task.subject?.trim() || task.text?.trim() || "";
 }
 
 // section 4.4: no touch for 30+ days

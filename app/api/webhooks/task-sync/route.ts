@@ -122,15 +122,18 @@ export async function POST(request: Request) {
       const statusName = body.status_name?.trim();
       const status = (statusName && STATUS_MAP[statusName]) || "open";
 
-      const subject = body.subject?.trim();
-      const text = body.text?.trim();
-      const combinedText =
-        subject && text && subject !== text
-          ? `${subject}: ${text}`
-          : text || subject || sourceTaskId;
+      // Kept apart rather than merged into one string (0042): TaskSubject is
+      // the title and TaskText an optional body, and merging them made the
+      // write-back ambiguous - an edit went to TaskText while TaskSubject kept
+      // its old value, so the next sync appended one to the other. Every task
+      // in עדכנית has a subject; falling back to the id keeps a task with a
+      // blank one from rendering as an empty row.
+      const subject = asNonEmpty(body.subject);
+      const text = asNonEmpty(body.text);
 
       const taskFields = {
-        text: combinedText,
+        subject: subject ?? text ?? sourceTaskId,
+        text: subject ? text : null,
         case_id: caseRow.id,
         assigned_to: assignedTo,
         created_by: createdBy,
