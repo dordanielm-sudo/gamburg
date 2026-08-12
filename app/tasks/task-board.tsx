@@ -281,9 +281,16 @@ export function TaskBoard({
         body: JSON.stringify({ task_id: data.id }),
       });
       const result = await res.json();
-      if (result.status !== "success" && result.message) {
-        setFormError(result.message);
-      } else if (result.status === "success" && result.record_id) {
+      // an error response carries `error`, not `message` - checking only the
+      // latter swallowed exactly the failures worth seeing (a missing column,
+      // an unreachable route), leaving a CRM-only task and no explanation
+      if (!res.ok || result.status !== "success") {
+        setFormError(
+          result.message ??
+            result.error ??
+            `הסנכרון לעדכנית נכשל (${res.status})`,
+        );
+      } else if (result.record_id) {
         setRows((prev) =>
           prev.map((t) =>
             t.id === data.id ? { ...t, source_task_id: result.record_id } : t,
