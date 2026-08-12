@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Stepper } from "@/components/ui/stepper";
 import { Badge, TONE_HEX } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { natureForStage } from "@/lib/case-stage-nature";
 import type {
   CaseTypeStage,
   CaseTypeStageItem,
@@ -18,6 +19,7 @@ export function StageStepperPanel({
   items,
   checklistEntries,
   currentStage,
+  currentNature,
   canEdit,
 }: {
   caseId: string;
@@ -26,11 +28,13 @@ export function StageStepperPanel({
   items: CaseTypeStageItem[];
   checklistEntries: CaseStageChecklistEntry[];
   currentStage: string | null;
+  currentNature: string | null;
   canEdit: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const stageNames = useMemo(() => stages.map((s) => s.stage_name), [stages]);
   const [current, setCurrent] = useState(currentStage ?? "");
+  const [nature, setNature] = useState(currentNature);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [doneMap, setDoneMap] = useState<Record<string, boolean>>(() => {
@@ -88,10 +92,61 @@ export function StageStepperPanel({
         await supabase.from("cases").update({ case_stage: oldValue }).eq("id", caseId);
         setCurrent(oldValue);
         setError(result.message ?? "כשל בסנכרון");
+        setPending(false);
+        return;
       }
     } catch {
       setError("לא ניתן להתחבר לשרת הסנכרון");
+      setPending(false);
+      return;
     }
+
+    // שלב הוא concept של ה-CRM בלבד - אין לו עמודה בעדכנית (ראה
+    // lib/case-stage-nature.ts). הדבר האמיתי הקרוב ביותר הוא case_nature, אז
+    // הזזת השלב מעדכנת גם אותו, על אותו מסלול (רשם/בית משפט) שהתיק כבר נמצא
+    // בו - לא רק שמדווחים "אין מיפוי" ומשם זה.
+    const targetNature = natureForStage(newValue, nature);
+    if (targetNature && targetNature !== nature) {
+      const oldNature = nature;
+      setNature(targetNature);
+
+      const { error: natureDbError } = await supabase
+        .from("cases")
+        .update({ case_nature: targetNature })
+        .eq("id", caseId);
+
+      if (natureDbError) {
+        setNature(oldNature);
+        setError("השלב נשמר, אך עדכון מהות התיק נכשל");
+        setPending(false);
+        return;
+      }
+
+      try {
+        const natureRes = await fetch("/api/case-updates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            case_id: caseId,
+            case_number: caseNumber,
+            field_name: "case_nature",
+            old_value: oldNature,
+            new_value: targetNature,
+          }),
+        });
+        const natureResult = await natureRes.json();
+        if (natureResult.status === "failure") {
+          await supabase.from("cases").update({ case_nature: oldNature }).eq("id", caseId);
+          setNature(oldNature);
+          setError(natureResult.message ?? "השלב נשמר, אך הסנכרון של מהות התיק לעדכנית נכשל");
+        }
+      } catch {
+        await supabase.from("cases").update({ case_nature: oldNature }).eq("id", caseId);
+        setNature(oldNature);
+        setError("השלב נשמר, אך לא ניתן היה לסנכרן את מהות התיק לעדכנית");
+      }
+    }
+
     setPending(false);
   }
 
