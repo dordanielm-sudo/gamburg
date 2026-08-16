@@ -21,6 +21,12 @@ interface TaskDeletionsPayload {
   // string a single STRING_AGG row produces (which is one Make operation
   // instead of one per task)
   source_task_ids?: (string | number)[] | string;
+  // report what would go without touching anything. The first real run is
+  // the dangerous one - it clears out everything deleted in עדכנית since
+  // before this endpoint existed, which is correct but is also exactly what
+  // a broken query looks like, and there is no undo. Worth being able to
+  // read the number first.
+  dry_run?: boolean;
 }
 
 export async function POST(request: Request) {
@@ -92,6 +98,18 @@ export async function POST(request: Request) {
           goneIds.push(row.id);
         }
         if (data.length < BATCH) break;
+      }
+
+      if (body.dry_run) {
+        return {
+          status: 200,
+          json: {
+            status: "ok",
+            dry_run: true,
+            live_in_source: liveIds.size,
+            would_delete_here: goneIds.length,
+          },
+        };
       }
 
       for (let i = 0; i < goneIds.length; i += 200) {
