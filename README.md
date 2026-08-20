@@ -19,6 +19,10 @@ SSL, redeploy script) is documented step by step in [`DEPLOY.md`](./DEPLOY.md).
 ## Pages
 
 - `/login` - email/password sign-in.
+- `/lead` - public Telegram Mini App lead form (no CRM account): a
+  prospective client leaves a name and phone in the firm's bot and the lead
+  is forwarded to Make. Setup and the Make contract:
+  [`docs/telegram-lead-form.md`](./docs/telegram-lead-form.md).
 - `/cases` - "ניהול תיקים פתוחים": searchable/sortable table, all 3 roles.
 - `/dashboard` - manager-only stats (open/stuck/flagged cases, per-handler
   and per-status breakdowns).
@@ -53,6 +57,15 @@ SSL, redeploy script) is documented step by step in [`DEPLOY.md`](./DEPLOY.md).
   bills per bundle and one call per case would cost ~96,000 operations a
   month. The scenario's SQL, the Make module setup and the body-size limit:
   [`docs/case-field-pull.md`](./docs/case-field-pull.md).
+- `POST /api/telegram-lead` - called by the browser from the `/lead`
+  Telegram Mini App form. Authenticated by Telegram itself, not a CRM
+  session: the signed `initData` string the Mini App receives is verified
+  against `TELEGRAM_BOT_TOKEN` (`lib/telegram-init-data.ts`), so the route
+  is not an open form. Forwards `{name, phone, telegram_id, ...}` to
+  `outgoing_telegram_lead` / `MAKE_TELEGRAM_LEAD_WEBHOOK_URL` and relays
+  Make's synchronous `{status, message}` answer, logging every call to
+  `webhook_logs`. Contract and BotFather setup:
+  [`docs/telegram-lead-form.md`](./docs/telegram-lead-form.md).
 - `POST /api/webhooks/incoming-document` - Make calls this (not a CRM user
   session) whenever a new relevant document arrives. Authenticated by a
   shared secret header, not Supabase Auth: `x-webhook-secret` must match
@@ -66,7 +79,8 @@ SSL, redeploy script) is documented step by step in [`DEPLOY.md`](./DEPLOY.md).
   lives in `proxy.ts` (root) + `lib/supabase/proxy.ts`, not `middleware.ts`.
   `proxy.ts`'s matcher excludes `/api/*` on purpose - those routes enforce
   their own auth (session or shared secret) and must return JSON, not an
-  HTML redirect to /login.
+  HTML redirect to /login. It also excludes `/lead`, the Telegram lead form,
+  which is filled in by people with no CRM account at all.
 - All data access is enforced by Postgres RLS (see `supabase/`), not
   application-level checks - the browser Supabase client (`lib/supabase/client.ts`)
   is used directly from client components for mutations.
