@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { callMakeOutgoingWebhook } from "@/lib/make-webhook";
 import { getWebhookValue, logWebhookCall } from "@/lib/webhook-config";
 import { verifyTelegramInitData } from "@/lib/telegram-init-data";
 
 // The Telegram Mini App lead form (app/lead) posts here, and this forwards
-// the lead to Make - the same outgoing pattern as /api/case-updates: the URL
-// comes from webhook_configs (editable at /dashboard/webhooks) with the env
-// var as a fallback, and every call is written to webhook_logs so a lead
+// the lead to Make. The URL comes from webhook_configs (editable at
+// /dashboard/webhooks) with the env var as a fallback, same as the write-back
+// in /api/case-updates, and every call is written to webhook_logs so a lead
 // that never arrived can be traced from the panel.
 //
-// Auth is Telegram's own: the browser sends the signed initData string and
-// the server checks it against the bot token (lib/telegram-init-data.ts).
 // There is no CRM session here - the person filling this in is a prospective
 // client, not a user of the system. proxy.ts excludes /api/* already, and
 // /lead is excluded there too so the page itself is reachable logged out.
@@ -32,6 +29,40 @@ function normalizePhone(raw: string): string | null {
   const digits = trimmed.replace(/\D/g, "");
   if (digits.length < 9 || digits.length > 15) return null;
   return trimmed.startsWith("+") ? `+${digits}` : digits;
+}
+
+// Not callMakeOutgoingWebhook: that one demands Make answer in our
+// {status,...} shape, because a rejected write-back has to be undone in the
+// CRM. A lead has nothing to undo - the scenario received it or it didn't -
+// so a plain 2xx counts as delivered and the scenario needs no Webhook
+// response module.
+async function deliverLead(
+  url: string,
+  payload: Record<string, unknown>,
+  timeoutMs = 10_000,
+): Promise<{ status: "success" | "failure"; message?: string }> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    const raw = (await response.text()).trim().slice(0, 120);
+    if (!response.ok) {
+      return {
+        status: "failure",
+        message: `Make החזיר קוד ${response.status}: ${raw || "(גוף ריק)"}`,
+      };
+    }
+    return { status: "success", message: raw || undefined };
+  } catch {
+    return { status: "failure", message: "לא ניתן להתחבר ל-Make" };
+  }
 }
 
 export async function POST(request: Request) {
@@ -61,37 +92,29 @@ export async function POST(request: Request) {
     );
   }
 
+  // Telegram signs the initData string the Mini App receives, so with the bot
+  // token set we can tell a real Telegram user from a script that found the
+  // URL. Without the token there is nothing to check against; the form still
+  // works (the lead is only a name and a phone - nothing is claimed about who
+  // sent it), it is just open to junk. Setting TELEGRAM_BOT_TOKEN closes it.
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) {
-    // Refusing beats accepting: with no token there is no way to tell a real
-    // Telegram user from anyone who found the URL, and a lead nobody can
-    // trace back to a person is worse than no lead.
-    return NextResponse.json(
-      {
-        status: "failure",
-        message: "TELEGRAM_BOT_TOKEN is not configured",
-      },
-      { status: 503 },
-    );
-  }
-
-  const verified = verifyTelegramInitData(payload.init_data ?? "", botToken);
-  if (!verified.ok) {
-    return NextResponse.json(
-      { status: "failure", message: `unauthorized: ${verified.reason}` },
-      { status: 401 },
-    );
+  let verified = false;
+  if (botToken) {
+    const result = verifyTelegramInitData(payload.init_data ?? "", botToken);
+    if (!result.ok) {
+      return NextResponse.json(
+        { status: "failure", message: `unauthorized: ${result.reason}` },
+        { status: 401 },
+      );
+    }
+    verified = true;
   }
 
   const admin = createAdminClient();
-  // never the raw init_data - it carries the signature and is worthless in a
-  // log anyway; what matters is who and what came through.
-  const logBody = {
-    name,
-    phone,
-    telegram_id: verified.user?.id ?? null,
-    username: verified.user?.username ?? null,
-  };
+  // Only what Make is sent, plus whether it was a verified Telegram user -
+  // never the raw init_data, which carries the signature and is worthless in
+  // a log anyway.
+  const logBody = { name, phone, verified };
 
   const webhookUrl = await getWebhookValue(
     admin,
@@ -106,22 +129,18 @@ export async function POST(request: Request) {
     return NextResponse.json(json);
   }
 
-  const result = await callMakeOutgoingWebhook(webhookUrl, {
-    ...logBody,
-    first_name: verified.user?.first_name ?? null,
-    last_name: verified.user?.last_name ?? null,
-    language_code: verified.user?.language_code ?? null,
-    source: "telegram_lead_form",
-    submitted_at: new Date().toISOString(),
-  });
+  // name and phone, nothing else - that is the whole contract with the
+  // scenario on the other side.
+  const result = await deliverLead(webhookUrl, { name, phone });
 
-  const logStatus =
-    result.status === "failure"
-      ? "error"
-      : result.status === "warning"
-        ? "skipped"
-        : "ok";
-  await logWebhookCall(admin, WEBHOOK_KEY, logStatus, 200, logBody, result);
+  await logWebhookCall(
+    admin,
+    WEBHOOK_KEY,
+    result.status === "failure" ? "error" : "ok",
+    200,
+    logBody,
+    result,
+  );
 
   return NextResponse.json(result);
 }

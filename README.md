@@ -58,13 +58,13 @@ SSL, redeploy script) is documented step by step in [`DEPLOY.md`](./DEPLOY.md).
   month. The scenario's SQL, the Make module setup and the body-size limit:
   [`docs/case-field-pull.md`](./docs/case-field-pull.md).
 - `POST /api/telegram-lead` - called by the browser from the `/lead`
-  Telegram Mini App form. Authenticated by Telegram itself, not a CRM
-  session: the signed `initData` string the Mini App receives is verified
-  against `TELEGRAM_BOT_TOKEN` (`lib/telegram-init-data.ts`), so the route
-  is not an open form. Forwards `{name, phone, telegram_id, ...}` to
-  `outgoing_telegram_lead` / `MAKE_TELEGRAM_LEAD_WEBHOOK_URL` and relays
-  Make's synchronous `{status, message}` answer, logging every call to
-  `webhook_logs`. Contract and BotFather setup:
+  Telegram Mini App form. Not a CRM session: when `TELEGRAM_BOT_TOKEN` is
+  set, the signed `initData` string the Mini App receives is verified
+  against it (`lib/telegram-init-data.ts`) so only someone actually inside
+  the bot can submit. Forwards `{name, phone}` - nothing else - to
+  `outgoing_telegram_lead` / `MAKE_TELEGRAM_LEAD_WEBHOOK_URL`, counts any
+  2xx as delivered, and logs every call to `webhook_logs`. Contract and
+  BotFather setup:
   [`docs/telegram-lead-form.md`](./docs/telegram-lead-form.md).
 - `POST /api/webhooks/incoming-document` - Make calls this (not a CRM user
   session) whenever a new relevant document arrives. Authenticated by a

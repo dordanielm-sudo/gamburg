@@ -9,12 +9,13 @@
 -- No leads table: the lead's home is Make (and whatever it writes to from
 -- there), the CRM only hands it over and records that it did.
 
-insert into public.webhook_configs (key, label, endpoint_path, direction, value_type)
+insert into public.webhook_configs (key, label, endpoint_path, direction, value_type, value)
 values (
   'outgoing_telegram_lead',
   'טופס לידים בטלגרם (יוצא)',
   '/api/telegram-lead',
   'outgoing',
-  'url'
+  'url',
+  'https://hook.eu1.make.com/zzrivke4mrh0oki1axk5gluoywtw3emq'
 )
 on conflict (key) do nothing;
