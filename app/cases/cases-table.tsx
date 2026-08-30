@@ -840,7 +840,7 @@ export function CasesTable({
         <span className="text-xs text-gray-400">
           תיקים עם מועד/משימה פתוחים ב:
         </span>
-        <div className="flex items-center gap-1 rounded-full bg-gray-100 p-1">
+        <div className="scroll-strip flex max-w-full shrink-0 items-center gap-1 overflow-x-auto rounded-full bg-gray-100 p-1">
           {(Object.keys(RANGE_LABELS) as RangeKey[]).map((key) => (
             <button
               key={key}

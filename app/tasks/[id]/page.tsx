@@ -92,7 +92,7 @@ export default async function TaskDetailPage({
         title="משימה"
         userId={profile.id}
       />
-      <main className="flex-1 space-y-6 p-6">
+      <main className="flex-1 space-y-6 p-4 sm:p-6">
         <Link
           prefetch={false}
           href="/tasks"

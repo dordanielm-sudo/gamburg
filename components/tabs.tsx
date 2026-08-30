@@ -19,12 +19,16 @@ export function Tabs({
 
   return (
     <div>
-      <div className="mb-4 flex w-fit items-center gap-1 rounded-full bg-gray-100 p-1">
+      {/* A case can carry seven חוצצים, which is wider than a phone. The strip
+          scrolls sideways instead of stretching the page, same as the main nav
+          - w-max on the inner row is what lets it exceed the scroller. */}
+      <div className="scroll-strip mb-4 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <div className="flex w-max items-center gap-1 rounded-full bg-gray-100 p-1">
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setActive(t.id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium whitespace-nowrap transition-colors ${
+            className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium whitespace-nowrap transition-colors ${
               activeTab?.id === t.id
                 ? "bg-blue-600 text-white"
                 : "text-gray-600 hover:bg-gray-200"
@@ -33,6 +37,7 @@ export function Tabs({
             {t.label}
           </button>
         ))}
+        </div>
       </div>
       {activeTab?.content}
     </div>

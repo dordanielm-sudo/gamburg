@@ -202,9 +202,9 @@ export default async function DashboardPage() {
         userId={profile.id}
         title="דשבורד מנהלים"
       />
-      <main className="flex-1 space-y-6 p-6">
-        <div className="rounded-2xl bg-gradient-to-l from-slate-900 to-slate-800 px-6 py-8 text-white">
-          <h1 className="text-2xl font-bold">
+      <main className="flex-1 space-y-6 p-4 sm:p-6">
+        <div className="rounded-2xl bg-gradient-to-l from-slate-900 to-slate-800 px-5 py-6 text-white sm:px-6 sm:py-8">
+          <h1 className="text-xl font-bold sm:text-2xl">
             שלום, {profile.full_name.split(" ")[0]}
           </h1>
           <p className="mt-1 text-slate-300">

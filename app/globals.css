@@ -3,3 +3,16 @@
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
 }
+
+/* Horizontal strips of pills - the main nav, the חוצצים tabs on a case, the
+   status filters on each board. They are wider than a phone and scroll
+   sideways rather than stretching the page, but the scrollbar itself is noise
+   under a row of tabs: touch devices hide it anyway, and on a narrow desktop
+   window it reads as a broken layout rather than an affordance. */
+.scroll-strip {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scroll-strip::-webkit-scrollbar {
+  display: none;
+}
