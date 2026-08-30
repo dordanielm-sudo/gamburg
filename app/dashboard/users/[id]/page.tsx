@@ -73,7 +73,7 @@ export default async function UserDetailPage({
         userId={profile.id}
         title={`כרטיס משתמש - ${targetUser.full_name}`}
       />
-      <main className="flex-1 space-y-6 p-6">
+      <main className="flex-1 space-y-6 p-4 sm:p-6">
         <Link
           prefetch={false}
           href="/dashboard/users"

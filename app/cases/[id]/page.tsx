@@ -233,7 +233,7 @@ export default async function CaseDetailPage({
         title={`תיק ${caseRow.case_number} - ${caseRow.case_name}`}
         userId={profile.id}
       />
-      <main className="flex-1 space-y-6 p-6">
+      <main className="flex-1 space-y-6 p-4 sm:p-6">
         <Link
           prefetch={false}
           href="/cases"

@@ -93,7 +93,7 @@ export default async function CasesPage() {
         title="ניהול תיקים פתוחים"
         userId={profile.id}
       />
-      <main className="flex-1 p-6">
+      <main className="flex-1 p-4 sm:p-6">
         {error ? (
           <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
             שגיאה בטעינת התיקים: {error.message}

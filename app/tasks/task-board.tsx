@@ -507,7 +507,7 @@ export function TaskBoard({
             hint={SYNC_HINT}
           />
         )}
-        <div className="flex items-center gap-1 rounded-full bg-gray-100 p-1">
+        <div className="scroll-strip flex max-w-full shrink-0 items-center gap-1 overflow-x-auto rounded-full bg-gray-100 p-1">
           <button
             onClick={() => {
               setOverdueOnly((v) => !v);
