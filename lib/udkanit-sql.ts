@@ -437,16 +437,27 @@ select @task as new_task_counter;`,
   };
 }
 
-// Removing a task from עדכנית outright.
+// Removing a task from עדכנית outright. This is the only statement the CRM
+// sends that destroys a record in the firm's live system, so it is
+// deliberately narrow: one task, addressed by its own Counter.
 //
-// Both tables that reference dbo.Tasks - TaskUsers, which carries the
-// assignment, and TaskInformedUsers - declare ON DELETE CASCADE, so one
-// statement is enough and there are no orphans to clean up by hand.
+// Four tables carry a TaskCounter, and they need three different treatments:
 //
-// This is the only statement the CRM sends that destroys a record in the
-// firm's live system, so it is deliberately narrow: one task, addressed by
-// its own Counter, with the row count reported back so a delete that matched
-// nothing is not read as success.
+//   TaskUsers, TaskInformedUsers  ON DELETE CASCADE - the delete takes them
+//   TaskLinks                     no foreign key, 2,143 rows live. Deleted
+//                                 explicitly: a link to a task that no longer
+//                                 exists is nothing but debris.
+//   HozActions                    no foreign key, and only four rows in the
+//                                 whole system reference a task at all. Those
+//                                 belong to the הוצאה לפועל module, where an
+//                                 action record has worth of its own. Deleting
+//                                 one to tidy up after a task would destroy
+//                                 another module's data, and orphaning it
+//                                 silently is no better - so a task any of
+//                                 them points at is refused instead.
+//
+// The two deletes run in one transaction: without it a failure between them
+// leaves the links gone and the task still there.
 export function buildTaskDelete(sourceRef: string | null): UdkanitUpdate {
   if (!sourceRef) {
     return {
@@ -460,7 +471,22 @@ export function buildTaskDelete(sourceRef: string | null): UdkanitUpdate {
   }
 
   return {
-    sql: `delete from dbo.Tasks where Counter = ${counter};${ROWCOUNT_PROBE}`,
+    // THROW rather than a quiet no-op: it surfaces as a driver error, which
+    // Make reports as a failure, which stops the CRM deleting its own copy.
+    // A task that stays in both systems is recoverable; one that vanishes
+    // here while still linked there is not.
+    sql: `declare @task int = ${counter};
+
+if exists (select 1 from dbo.HozActions where TaskCounter = @task)
+  throw 51000, N'המשימה מקושרת לפעולה בהוצאה לפועל ולכן לא נמחקה', 1;
+
+begin transaction;
+  delete from dbo.TaskLinks where TaskCounter = @task;
+  delete from dbo.Tasks where Counter = @task;
+  declare @affected int = @@ROWCOUNT;
+commit transaction;
+
+select @affected as affected;`,
     params: [sourceRef],
   };
 }
