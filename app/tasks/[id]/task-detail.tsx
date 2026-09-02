@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { pushTaskStatus } from "@/lib/task-status";
 import {
   deadlineUrgency,
   taskTitle,
@@ -67,6 +68,7 @@ export function TaskDetail({
   const supabase = useMemo(() => createClient(), []);
   const [current, setCurrent] = useState(task);
   const [saving, setSaving] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
   // A task written back to עדכנית needs both a case and a source_task_id -
@@ -123,11 +125,28 @@ export function TaskDetail({
       .from("tasks")
       .update(patch)
       .eq("id", task.id);
-    setSaving(false);
 
     if (error) {
+      setSaving(false);
       setCurrent(previous);
+      return;
     }
+
+    // Status was the one task field that stopped at the CRM. Because the
+    // incoming sync overwrites `status` on every run, the change looked like
+    // it stuck and then quietly reverted on the next sweep.
+    const pushed = await pushTaskStatus(previous, status);
+    setSaving(false);
+    if (!pushed.ok) {
+      await supabase.from("tasks").update({
+        status: previous.status,
+        completed_at: previous.completed_at,
+      }).eq("id", task.id);
+      setCurrent(previous);
+      setStatusError(pushed.message ?? "כשל בסנכרון לעדכנית");
+      return;
+    }
+    setStatusError(null);
   }
 
   return (
@@ -174,6 +193,9 @@ export function TaskDetail({
             />
           </div>
         </div>
+      )}
+      {statusError && (
+        <p className="mt-2 text-sm text-red-700">{statusError}</p>
       )}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
