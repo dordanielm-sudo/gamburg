@@ -72,7 +72,6 @@ export default async function DashboardPage() {
     { data: cases, error },
     { count: overdueTaskCount },
     { count: deadlinesTodayCount },
-    { count: pendingDocumentCount },
     { count: pendingApprovalCount },
     { data: upcomingTasks },
     { data: upcomingDeadlines },
@@ -103,10 +102,6 @@ export default async function DashboardPage() {
       .select("id", { count: "exact", head: true })
       .eq("status", "open")
       .eq("due_date", today),
-    supabase
-      .from("documents")
-      .select("id", { count: "exact", head: true })
-      .in("status", ["in_correction", "correction_needed"]),
     supabase
       .from("approval_requests")
       .select("id", { count: "exact", head: true })
@@ -225,7 +220,7 @@ export default async function DashboardPage() {
               loads every case with its relations. A dashboard visit was paying
               for four or five of those before the user clicked anything.
             */}
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Link href="/cases" prefetch={false}>
                 <StatTile label="תיקים פעילים" value={rows.length} tone="indigo" />
               </Link>
@@ -243,11 +238,6 @@ export default async function DashboardPage() {
                   tone="amber"
                 />
               </Link>
-              <StatTile
-                label="מסמכים ממתינים"
-                value={pendingDocumentCount ?? 0}
-                tone="blue"
-              />
               <Link href="/approvals?status=pending" prefetch={false}>
                 <StatTile
                   label="ממתין לאישור"
