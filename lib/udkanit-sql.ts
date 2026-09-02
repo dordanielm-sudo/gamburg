@@ -437,6 +437,34 @@ select @task as new_task_counter;`,
   };
 }
 
+// Removing a task from עדכנית outright.
+//
+// Both tables that reference dbo.Tasks - TaskUsers, which carries the
+// assignment, and TaskInformedUsers - declare ON DELETE CASCADE, so one
+// statement is enough and there are no orphans to clean up by hand.
+//
+// This is the only statement the CRM sends that destroys a record in the
+// firm's live system, so it is deliberately narrow: one task, addressed by
+// its own Counter, with the row count reported back so a delete that matched
+// nothing is not read as success.
+export function buildTaskDelete(sourceRef: string | null): UdkanitUpdate {
+  if (!sourceRef) {
+    return {
+      sql: null,
+      reason: "למשימה אין מזהה מקור - היא נוצרה ב-CRM ואינה קיימת בעדכנית",
+    };
+  }
+  const counter = Number(sourceRef);
+  if (!Number.isInteger(counter)) {
+    return { sql: null, reason: `מזהה המשימה בעדכנית אינו מספר: ${sourceRef}` };
+  }
+
+  return {
+    sql: `delete from dbo.Tasks where Counter = ${counter};${ROWCOUNT_PROBE}`,
+    params: [sourceRef],
+  };
+}
+
 export function buildUdkanitUpdate(input: {
   entityType: "case" | "case_field" | "task" | "deadline" | "document";
   fieldName: string;
