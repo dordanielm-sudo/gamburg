@@ -20,8 +20,13 @@ import { Spinner } from "@/components/ui/spinner";
 import { InlineEdit } from "@/components/ui/inline-edit";
 import { TaskPriorityEditor } from "./task-priority-editor";
 import { collectPriorityOptions } from "@/lib/task-priority";
+import { pushTaskStatus } from "@/lib/task-status";
 import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 import { NamedAvatar } from "@/components/ui/avatar";
+
+// One webhook round trip to עדכנית per synced task, so a bulk status change
+// is capped instead of running unbounded against the firm's live system.
+const BULK_STATUS_LIMIT = 10;
 
 const TASK_SELECT =
   "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)";
@@ -332,23 +337,53 @@ export function TaskBoard({
   }
 
   async function bulkSetStatus(status: TaskStatus) {
-    const ids = selectedTasks.map((t) => t.id);
-    if (ids.length === 0) return;
+    if (selectedTasks.length === 0) return;
+    // Each synced task costs one webhook round trip to עדכנית, so the batch is
+    // capped rather than left to run for a minute on a large selection.
+    // Refusing beats silently doing the first ten of thirty.
+    if (selectedTasks.length > BULK_STATUS_LIMIT) {
+      setBulkError(
+        `שינוי סטטוס מוגבל ל-${BULK_STATUS_LIMIT} משימות בכל פעם (נבחרו ${selectedTasks.length}) - כל משימה מסונכרנת נכתבת לעדכנית בנפרד`,
+      );
+      return;
+    }
+    const batch = selectedTasks;
+    const ids = batch.map((t) => t.id);
     setBulkError(null);
     setBulkBusy(true);
     const completed_at = status === "done" ? new Date().toISOString() : null;
+
     const error = await eachChunk(ids, (chunk) =>
       supabase.from("tasks").update({ status, completed_at }).in("id", chunk),
     );
-    setBulkBusy(false);
     if (error) {
+      setBulkBusy(false);
       setBulkError(error.message);
       return;
     }
+
+    // One at a time, not in parallel: this is the firm's live case system on
+    // the other end, and a burst of writes buys nothing here.
+    const failed: string[] = [];
+    for (const task of batch) {
+      const result = await pushTaskStatus(task, status);
+      if (!result.ok) failed.push(taskTitle(task));
+    }
+    setBulkBusy(false);
+
     const changed = new Set(ids);
     setRows((prev) =>
       prev.map((t) => (changed.has(t.id) ? { ...t, status, completed_at } : t)),
     );
+
+    if (failed.length > 0) {
+      // The CRM value stands but עדכנית did not take it, and the incoming
+      // sync overwrites status - so these will revert. Say so plainly.
+      setBulkError(
+        `${failed.length} משימות לא סונכרנו לעדכנית ויחזרו לסטטוס הקודם בסנכרון הבא: ${failed.join(", ")}`,
+      );
+      return;
+    }
     setSelected(new Set());
   }
 
