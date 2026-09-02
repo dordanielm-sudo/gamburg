@@ -140,6 +140,9 @@ export function TaskBoard({
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [overdueOnly, setOverdueOnly] = useState(() => searchParams.get("overdue") === "1");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const [pageJumpInput, setPageJumpInput] = useState("");
@@ -303,6 +306,86 @@ export function TaskBoard({
     setCreating(false);
   }
 
+  function toggleSelected(id: string) {
+    setBulkError(null);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Deliberately batched at 200: PostgREST takes the whole id list in the URL,
+  // and a few hundred uuids is already a long one.
+  async function eachChunk(
+    ids: string[],
+    // PromiseLike, not Promise: a Supabase query builder is thenable but is
+    // not an actual Promise, so it does not satisfy Promise<T>
+    run: (chunk: string[]) => PromiseLike<{ error: { message: string } | null }>,
+  ) {
+    for (let i = 0; i < ids.length; i += 200) {
+      const { error } = await run(ids.slice(i, i + 200));
+      if (error) return error;
+    }
+    return null;
+  }
+
+  async function bulkSetStatus(status: TaskStatus) {
+    const ids = selectedTasks.map((t) => t.id);
+    if (ids.length === 0) return;
+    setBulkError(null);
+    setBulkBusy(true);
+    const completed_at = status === "done" ? new Date().toISOString() : null;
+    const error = await eachChunk(ids, (chunk) =>
+      supabase.from("tasks").update({ status, completed_at }).in("id", chunk),
+    );
+    setBulkBusy(false);
+    if (error) {
+      setBulkError(error.message);
+      return;
+    }
+    const changed = new Set(ids);
+    setRows((prev) =>
+      prev.map((t) => (changed.has(t.id) ? { ...t, status, completed_at } : t)),
+    );
+    setSelected(new Set());
+  }
+
+  async function bulkDelete() {
+    // Same rule as the per-row button: an open task is not deletable. Rather
+    // than refusing the whole batch when one open task is selected, the
+    // deletable ones go and the count of skipped ones is reported.
+    const deletable = selectedTasks.filter((t) => t.status !== "open");
+    const skipped = selectedTasks.length - deletable.length;
+    if (deletable.length === 0) {
+      setBulkError("משימה פתוחה אינה ניתנת למחיקה - יש לסמן אותה כבוצעה או בוטלה קודם");
+      return;
+    }
+    if (
+      !confirm(
+        `למחוק לצמיתות ${deletable.length} משימות? לא ניתן לשחזר.` +
+          (skipped > 0 ? `\n${skipped} משימות פתוחות יידלגו.` : ""),
+      )
+    ) {
+      return;
+    }
+    setBulkError(null);
+    setBulkBusy(true);
+    const ids = deletable.map((t) => t.id);
+    const error = await eachChunk(ids, (chunk) =>
+      supabase.from("tasks").delete().in("id", chunk),
+    );
+    setBulkBusy(false);
+    if (error) {
+      setBulkError(error.message);
+      return;
+    }
+    const gone = new Set(ids);
+    setRows((prev) => prev.filter((t) => !gone.has(t.id)));
+    setSelected(new Set());
+  }
+
   async function handleDelete(task: TaskWithNames) {
     if (!confirm(`למחוק לצמיתות את המשימה "${taskTitle(task)}"? לא ניתן לשחזר.`)) {
       return;
@@ -366,6 +449,14 @@ export function TaskBoard({
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
+  // Derived from the filtered rows, not from the raw selection: a task the
+  // user filters away after ticking it is no longer something a bulk action
+  // should reach, and the count on the bar stays honest about what will be
+  // affected. Selection deliberately survives paging, so a batch can be
+  // gathered across pages.
+  const selectedTasks = sortedRows.filter((t) => selected.has(t.id));
+  const allOnPageSelected =
+    paginatedRows.length > 0 && paginatedRows.every((t) => selected.has(t.id));
   const pageWindow = (() => {
     const span = 2;
     const nums = new Set<number>([
@@ -622,6 +713,47 @@ export function TaskBoard({
         </span>
       </div>
 
+      {canCreate && selectedTasks.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-4 py-3">
+          <span className="text-sm font-semibold text-indigo-900">
+            {selectedTasks.length} נבחרו
+          </span>
+          {bulkBusy && <Spinner className="h-4 w-4 text-indigo-600" />}
+          <span className="mx-1 h-4 w-px bg-indigo-200" aria-hidden />
+          <span className="text-sm text-indigo-900">שינוי סטטוס:</span>
+          {(["open", "done", "cancelled"] as TaskStatus[]).map((s) => (
+            <button
+              key={s}
+              onClick={() => bulkSetStatus(s)}
+              disabled={bulkBusy}
+              className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-sm font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+            >
+              {STATUS_LABELS[s]}
+            </button>
+          ))}
+          <button
+            onClick={bulkDelete}
+            disabled={bulkBusy}
+            className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+          >
+            מחיקה
+          </button>
+          <button
+            onClick={() => {
+              setSelected(new Set());
+              setBulkError(null);
+            }}
+            disabled={bulkBusy}
+            className="text-sm text-gray-500 hover:text-gray-800 disabled:opacity-50"
+          >
+            ניקוי הבחירה
+          </button>
+          {bulkError && (
+            <span className="w-full text-sm text-red-700">{bulkError}</span>
+          )}
+        </div>
+      )}
+
       {sortedRows.length === 0 ? (
         <p className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-400 shadow-sm">
           אין משימות
@@ -632,6 +764,36 @@ export function TaskBoard({
             <thead className="border-b border-indigo-100 bg-indigo-50/60 text-right">
               <tr>
                 <th className="w-1 p-0" aria-hidden />
+                {canCreate && (
+                  <th className="w-10 px-3 py-3">
+                    <input
+                      type="checkbox"
+                      aria-label="בחירת כל המשימות בעמוד"
+                      checked={allOnPageSelected}
+                      // indeterminate is not an attribute, only a DOM property
+                      ref={(el) => {
+                        if (el)
+                          el.indeterminate =
+                            !allOnPageSelected &&
+                            paginatedRows.some((t) => selected.has(t.id));
+                      }}
+                      onChange={() => {
+                        setBulkError(null);
+                        setSelected((prev) => {
+                          const next = new Set(prev);
+                          // toggles this page only - selections made on other
+                          // pages are left alone so a batch can span pages
+                          for (const t of paginatedRows) {
+                            if (allOnPageSelected) next.delete(t.id);
+                            else next.add(t.id);
+                          }
+                          return next;
+                        });
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                  </th>
+                )}
                 {(
                   [
                     ["text", ""],
@@ -687,6 +849,17 @@ export function TaskBoard({
                     }
                   >
                     <td className="w-1 p-0" aria-hidden />
+                    {canCreate && (
+                      <td className="w-10 px-3 py-3.5">
+                        <input
+                          type="checkbox"
+                          aria-label={`בחירת המשימה ${taskTitle(t)}`}
+                          checked={selected.has(t.id)}
+                          onChange={() => toggleSelected(t.id)}
+                          className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-3.5">
                       {editing ? (
                         <InlineEdit
