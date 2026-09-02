@@ -24,9 +24,10 @@ import { pushTaskStatus } from "@/lib/task-status";
 import { EditToggle, SYNC_HINT } from "@/components/ui/edit-toggle";
 import { NamedAvatar } from "@/components/ui/avatar";
 
-// One webhook round trip to עדכנית per synced task, so a bulk status change
-// is capped instead of running unbounded against the firm's live system.
-const BULK_STATUS_LIMIT = 10;
+// A bulk status change or delete costs one webhook round trip to עדכנית per
+// synced task, so it is capped rather than left to run unbounded against the
+// firm's live system.
+const BULK_SYNC_LIMIT = 10;
 
 const TASK_SELECT =
   "*, assigned_to_profile:profiles!tasks_assigned_to_fkey(id, full_name), created_by_profile:profiles!tasks_created_by_fkey(id, full_name), case:cases!tasks_case_id_fkey(id, case_number, case_name)";
@@ -341,9 +342,9 @@ export function TaskBoard({
     // Each synced task costs one webhook round trip to עדכנית, so the batch is
     // capped rather than left to run for a minute on a large selection.
     // Refusing beats silently doing the first ten of thirty.
-    if (selectedTasks.length > BULK_STATUS_LIMIT) {
+    if (selectedTasks.length > BULK_SYNC_LIMIT) {
       setBulkError(
-        `שינוי סטטוס מוגבל ל-${BULK_STATUS_LIMIT} משימות בכל פעם (נבחרו ${selectedTasks.length}) - כל משימה מסונכרנת נכתבת לעדכנית בנפרד`,
+        `שינוי סטטוס מוגבל ל-${BULK_SYNC_LIMIT} משימות בכל פעם (נבחרו ${selectedTasks.length}) - כל משימה מסונכרנת נכתבת לעדכנית בנפרד`,
       );
       return;
     }
@@ -397,9 +398,17 @@ export function TaskBoard({
       setBulkError("משימה פתוחה אינה ניתנת למחיקה - יש לסמן אותה כבוצעה או בוטלה קודם");
       return;
     }
+    // Each one is now a round trip to עדכנית, so the same cap as a status
+    // change applies.
+    if (deletable.length > BULK_SYNC_LIMIT) {
+      setBulkError(
+        `מחיקה מוגבלת ל-${BULK_SYNC_LIMIT} משימות בכל פעם (נבחרו ${deletable.length} הניתנות למחיקה) - כל משימה נמחקת מעדכנית בנפרד`,
+      );
+      return;
+    }
     if (
       !confirm(
-        `למחוק לצמיתות ${deletable.length} משימות? לא ניתן לשחזר.` +
+        `למחוק לצמיתות ${deletable.length} משימות? הן יימחקו גם מעדכנית. לא ניתן לשחזר.` +
           (skipped > 0 ? `\n${skipped} משימות פתוחות יידלגו.` : ""),
       )
     ) {
@@ -407,25 +416,76 @@ export function TaskBoard({
     }
     setBulkError(null);
     setBulkBusy(true);
-    const ids = deletable.map((t) => t.id);
-    const error = await eachChunk(ids, (chunk) =>
-      supabase.from("tasks").delete().in("id", chunk),
-    );
-    setBulkBusy(false);
-    if (error) {
-      setBulkError(error.message);
-      return;
+
+    // One at a time, and each CRM row goes only after its עדכנית counterpart
+    // is gone - so a failure halfway leaves the two systems agreeing on
+    // everything it managed to do.
+    const removed: string[] = [];
+    const failed: string[] = [];
+    for (const task of deletable) {
+      const pushed = await deleteInUdkanit(task.id);
+      if (!pushed.ok) {
+        failed.push(`${taskTitle(task)} (${pushed.message})`);
+        continue;
+      }
+      const { error } = await supabase.from("tasks").delete().eq("id", task.id);
+      if (error) failed.push(`${taskTitle(task)} (${error.message})`);
+      else removed.push(task.id);
     }
-    const gone = new Set(ids);
+    setBulkBusy(false);
+
+    const gone = new Set(removed);
     setRows((prev) => prev.filter((t) => !gone.has(t.id)));
-    setSelected(new Set());
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of removed) next.delete(id);
+      return next;
+    });
+
+    if (failed.length > 0) {
+      setBulkError(`${failed.length} משימות לא נמחקו: ${failed.join("; ")}`);
+    }
+  }
+
+  // עדכנית first, the CRM only once that succeeded. The other order would let
+  // a task vanish here while still sitting there, with nothing left pointing
+  // at it.
+  async function deleteInUdkanit(taskId: string) {
+    try {
+      const res = await fetch("/api/task-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: taskId }),
+      });
+      const result = await res.json();
+      if (!res.ok || result.status === "failure") {
+        return {
+          ok: false,
+          message: result.message ?? result.error ?? `שגיאה ${res.status}`,
+        };
+      }
+      return { ok: true as const };
+    } catch {
+      return { ok: false, message: "לא ניתן להתחבר לשרת הסנכרון" };
+    }
   }
 
   async function handleDelete(task: TaskWithNames) {
-    if (!confirm(`למחוק לצמיתות את המשימה "${taskTitle(task)}"? לא ניתן לשחזר.`)) {
+    if (
+      !confirm(
+        `למחוק לצמיתות את המשימה "${taskTitle(task)}"? היא תימחק גם מעדכנית. לא ניתן לשחזר.`,
+      )
+    ) {
       return;
     }
+    setBulkError(null);
     setDeletingId(task.id);
+    const pushed = await deleteInUdkanit(task.id);
+    if (!pushed.ok) {
+      setDeletingId(null);
+      setBulkError(pushed.message ?? "המחיקה בעדכנית נכשלה - המשימה לא נמחקה");
+      return;
+    }
     const { error } = await supabase.from("tasks").delete().eq("id", task.id);
     setDeletingId(null);
     if (!error) {
