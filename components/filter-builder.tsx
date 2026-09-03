@@ -167,12 +167,15 @@ export function FilterBuilder<T>({
 
   // A stale index (the list was replaced by a template while a chip was open)
   // resolves to null, which closes the editor instead of throwing. A
-  // "not_empty" condition has no values to edit, so it never opens either -
-  // it arrives from a per-field chart's click-through, and all you can do
-  // with it is keep it or drop it.
+  // "not_empty"/"empty" condition has no values to edit, so it never opens
+  // either - "not_empty" arrives from a per-field chart's click-through, and
+  // all you can do with either is keep it or drop it.
   const openCondition =
     editingIndex === null ? null : (conditions[editingIndex] ?? null);
-  const editing = openCondition?.op === "not_empty" ? null : openCondition;
+  const editing =
+    openCondition?.op === "not_empty" || openCondition?.op === "empty"
+      ? null
+      : openCondition;
   // Keyed on the field, not on the condition object: toggling a value makes a
   // new object every time, and rescanning every case on each click is work
   // that produces the same list.
@@ -254,6 +257,21 @@ export function FilterBuilder<T>({
     setPickerValues(new Set());
   }
 
+  // A field nobody has filled in (for the cases currently in scope) offers no
+  // values to pick from, and used to be a dead end: the value list was empty
+  // and the only button needed at least one value checked. "Cases missing
+  // this field" is itself a real answer, so it is offered directly rather
+  // than only ever being reachable from a chart's per-value click-through.
+  function addEmptyCondition() {
+    if (!pickerKey) return;
+    onConditionsChange([
+      ...conditions,
+      { key: pickerKey, values: [], op: "empty" },
+    ]);
+    setPickerKey("");
+    setPickerValues(new Set());
+  }
+
   function removeCondition(index: number) {
     onConditionsChange(conditions.filter((_, i) => i !== index));
     setEditingIndex(null);
@@ -274,6 +292,8 @@ export function FilterBuilder<T>({
             >
               {cond.op === "not_empty" ? (
                 <span>{fieldLabel(cond.key)}: יש ערך</span>
+              ) : cond.op === "empty" ? (
+                <span>{fieldLabel(cond.key)}: ללא ערך</span>
               ) : (
                 <button
                   onClick={() => setEditingIndex(editingIndex === i ? null : i)}
@@ -351,6 +371,14 @@ export function FilterBuilder<T>({
               {pickerValues.size > 0 ? ` (${pickerValues.size})` : ""}
             </button>
           )}
+          {pickerKey && (
+            <button
+              onClick={addEmptyCondition}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
+            >
+              הצג ללא ערך בשדה זה
+            </button>
+          )}
         </div>
 
         {pickerKey && (
@@ -382,6 +410,7 @@ export function matchesConditions<T>(
   return conditions.every((cond) => {
     const value = getValue(item, cond.key);
     if (cond.op === "not_empty") return value !== null && value !== "";
+    if (cond.op === "empty") return value === null || value === "";
     return value !== null && cond.values.includes(value);
   });
 }

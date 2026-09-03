@@ -1,8 +1,8 @@
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
+import { BackLink } from "@/components/back-link";
 import { TaskDetail } from "./task-detail";
 import { collectPriorityOptions } from "@/lib/task-priority";
 import type { TaskWithNames } from "@/types/database";
@@ -93,13 +93,12 @@ export default async function TaskDetailPage({
         userId={profile.id}
       />
       <main className="flex-1 space-y-6 p-4 sm:p-6">
-        <Link
-          prefetch={false}
+        <BackLink
           href="/tasks"
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900"
         >
           ← חזרה למשימות
-        </Link>
+        </BackLink>
 
         <TaskDetail
           task={task}

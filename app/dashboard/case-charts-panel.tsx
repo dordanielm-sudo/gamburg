@@ -502,6 +502,13 @@ export function CaseChartsPanel({
   });
   const [layoutId, setLayoutId] = useState<string | null>(layout?.id ?? null);
   const [layoutError, setLayoutError] = useState<string | null>(null);
+  // Guards the very first save: until a layout row exists, persist() has to
+  // INSERT rather than UPDATE, and a second click landing before the first
+  // insert's response comes back would see the same "no id yet" state and
+  // insert again - two rows for what is meant to be a singleton. Once
+  // layoutId is set every persist() is an UPDATE to that row, which is safe
+  // to overlap, so the button only needs disabling for this one window.
+  const [savingLayout, setSavingLayout] = useState(false);
 
   const fieldOptions = useMemo(
     () => caseFilterFieldOptions(caseFieldKeys),
@@ -525,6 +532,11 @@ export function CaseChartsPanel({
       if (error) setLayoutError("סידור התרשימים לא נשמר");
       return;
     }
+
+    // Only reachable with no id yet, i.e. the INSERT branch a rapid second
+    // click could otherwise also take.
+    if (savingLayout) return;
+    setSavingLayout(true);
     const { data, error } = await supabase
       .from("view_templates")
       .insert({
@@ -536,6 +548,7 @@ export function CaseChartsPanel({
       })
       .select()
       .single<ViewTemplate>();
+    setSavingLayout(false);
     if (error || !data) {
       setLayoutError("סידור התרשימים לא נשמר");
       return;
@@ -605,7 +618,8 @@ export function CaseChartsPanel({
           {isManager && (
             <button
               onClick={addChart}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              disabled={savingLayout}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
             >
               + הוספת תרשים
             </button>

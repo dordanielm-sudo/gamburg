@@ -76,7 +76,7 @@ export default async function DashboardPage() {
     { data: upcomingTasks },
     { data: upcomingDeadlines },
     { data: chartTemplates },
-    { data: chartLayout },
+    { data: chartLayoutRows },
     caseFieldKeys,
   ] = await Promise.all([
     // batched: an unpaged select stops at 1000 rows without erroring, which
@@ -130,13 +130,26 @@ export default async function DashboardPage() {
     // which charts the dashboard shows, as arranged by the manager. Absent
     // until someone changes the layout, in which case the panel falls back
     // to its defaults.
+    //
+    // .limit(1) rather than .maybeSingle(): a race in the panel's own save
+    // (two "add chart" clicks landing before the first insert set its
+    // remembered row id) could leave two rows here, and .maybeSingle()
+    // throws on more than one match - an error this call never checked for,
+    // so `chartLayout` silently became undefined and the whole arrangement
+    // reset to the defaults on the next load. Taking the newest row survives
+    // that instead of erroring on it; migration 0046 also cleans up any
+    // duplicate already sitting in the table and stops new ones at the
+    // database.
     supabase
       .from("view_templates")
       .select("*")
       .eq("screen", DASHBOARD_LAYOUT_SCREEN)
-      .maybeSingle<ViewTemplate>(),
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .returns<ViewTemplate[]>(),
     fetchCaseFieldKeys(supabase),
   ]);
+  const chartLayout = chartLayoutRows?.[0] ?? null;
 
   const rows = cases ?? [];
   const stuckCount = rows.filter((c) => isCaseStuck(c.last_touched_at)).length;

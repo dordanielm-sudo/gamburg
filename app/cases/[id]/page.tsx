@@ -1,8 +1,8 @@
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
+import { BackLink } from "@/components/back-link";
 import { Tabs } from "@/components/tabs";
 import { DocumentsPanel } from "./documents-panel";
 import { DeadlinesPanel } from "./deadlines-panel";
@@ -234,13 +234,12 @@ export default async function CaseDetailPage({
         userId={profile.id}
       />
       <main className="flex-1 space-y-6 p-4 sm:p-6">
-        <Link
-          prefetch={false}
+        <BackLink
           href="/cases"
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900"
         >
           ← חזרה לרשימת התיקים
-        </Link>
+        </BackLink>
 
         <Tabs tabs={tabs} />
       </main>
