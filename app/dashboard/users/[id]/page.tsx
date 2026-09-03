@@ -36,7 +36,7 @@ export default async function UserDetailPage({
     await Promise.all([
       supabase
         .from("profiles")
-        .select("id, full_name, role, is_active, udkanit_user_id, created_at")
+        .select("id, full_name, role, is_active, udkanit_user_id, auto_created, created_at")
         .eq("id", id)
         .maybeSingle<Profile>(),
       supabase

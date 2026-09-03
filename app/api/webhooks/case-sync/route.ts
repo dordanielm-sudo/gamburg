@@ -1,4 +1,5 @@
 import { runIncomingWebhook } from "@/lib/webhook-handler";
+import { resolveOrCreateHandler } from "@/lib/handler-resolution";
 import type { SpouseDetails } from "@/types/database";
 
 // Import of cases from עדכנית via the handler's Make scenario. Auth: a
@@ -92,19 +93,15 @@ export async function POST(request: Request) {
       let handlerId: string | null = null;
       const handlerName = body.handler_name?.trim();
       if (handlerName) {
-        // "מנהל" in עדכנית is a generic placeholder for cases חנה handles
-        // directly rather than a specific handler name - route it to the
-        // manager for now (per handler request), not a name match.
-        const query =
-          handlerName === "מנהל"
-            ? admin.from("profiles").select("id").eq("role", "manager")
-            : admin.from("profiles").select("id").eq("full_name", handlerName);
-        const { data: handler } = await query.maybeSingle();
-        if (handler) {
-          handlerId = handler.id;
-        } else {
+        const resolved = await resolveOrCreateHandler(admin, handlerName);
+        handlerId = resolved.id;
+        if (resolved.error) {
           warnings.push(
-            `no profile matches handler_name "${handlerName}" - handler_id left unset`,
+            `handler_name "${handlerName}": ${resolved.error} - handler_id left unset`,
+          );
+        } else if (resolved.created) {
+          warnings.push(
+            `created a new profile for handler_name "${handlerName}" - no login until a manager sets a real email`,
           );
         }
       }

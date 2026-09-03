@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveOrCreateHandler } from "@/lib/handler-resolution";
 import type { UserRole } from "@/types/database";
 
 async function requireManager() {
@@ -128,6 +129,19 @@ export async function updateUserProfile(
   });
   if (authError) throw new Error(authError.message);
 
+  // auto_created (0047) marks a profile the sync provisioned with a
+  // placeholder address because handler_name matched nobody yet. Setting a
+  // real email here - the same action that gives the account a working
+  // login - is exactly the signal that setup is done, so it clears itself
+  // rather than needing a separate step. Same column-GRANT trap as
+  // udkanit_user_id (0004 only granted `authenticated` write on full_name),
+  // so this goes through the admin client rather than a plain update.
+  const { error: autoCreatedError } = await admin
+    .from("profiles")
+    .update({ auto_created: false })
+    .eq("id", userId);
+  if (autoCreatedError) throw new Error(autoCreatedError.message);
+
   revalidatePath("/dashboard/users");
   revalidatePath(`/dashboard/users/${userId}`);
 }
@@ -177,4 +191,44 @@ export async function removeTabPermission(id: string, profileId: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath(`/dashboard/users/${profileId}`);
+}
+
+export interface BulkHandlerResult {
+  name: string;
+  status: "created" | "existing" | "error";
+  message?: string;
+}
+
+// Manual counterpart to the auto-creation in case-sync/task-sync (0047): the
+// same resolveOrCreateHandler a sync uses, run here on demand so a manager
+// can materialize a batch of known-missing handler_names right now, rather
+// than waiting for a sync to touch each one's case or task again.
+export async function bulkCreatePendingHandlers(
+  names: string[],
+): Promise<BulkHandlerResult[]> {
+  await requireManager();
+  const admin = createAdminClient();
+
+  const unique = Array.from(
+    new Set(names.map((n) => n.trim()).filter((n) => n.length > 0)),
+  );
+
+  const results: BulkHandlerResult[] = [];
+  // one at a time - this is Admin API user creation, not worth parallelizing
+  // against for a batch that is, in practice, a handful of names
+  for (const name of unique) {
+    const resolved = await resolveOrCreateHandler(admin, name);
+    if (resolved.error) {
+      results.push({ name, status: "error", message: resolved.error });
+    } else if (resolved.created) {
+      results.push({ name, status: "created" });
+    } else {
+      results.push({ name, status: "existing" });
+    }
+  }
+
+  if (results.some((r) => r.status === "created")) {
+    revalidatePath("/dashboard/users");
+  }
+  return results;
 }
