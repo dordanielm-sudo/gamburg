@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { AddUserForm } from "./add-user-form";
+import { BulkCreateHandlersForm } from "./bulk-create-handlers-form";
 import { UsersTable } from "./users-table";
 import type { Profile } from "@/types/database";
 
@@ -14,7 +15,7 @@ export default async function UsersPage() {
   const supabase = await createClient();
   const { data: users, error } = await supabase
     .from("profiles")
-    .select("id, full_name, role, is_active, created_at")
+    .select("id, full_name, role, is_active, auto_created, created_at")
     .order("full_name")
     .returns<Profile[]>();
 
@@ -34,6 +35,7 @@ export default async function UsersPage() {
         ) : (
           <>
             <AddUserForm />
+            <BulkCreateHandlersForm />
             <h2 className="font-semibold text-gray-900">משתמשים</h2>
             <UsersTable users={users ?? []} />
           </>

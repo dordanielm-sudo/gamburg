@@ -25,6 +25,10 @@ export interface Profile {
   // matched automatically. Null means tasks cannot be created in עדכנית for
   // this person.
   udkanit_user_id: number | null;
+  // set when a handler_name from a sync matched no profile and this one was
+  // created on the spot (0047) - it has a placeholder email and no working
+  // login until a manager sets a real one, which clears this back to false.
+  auto_created: boolean;
   created_at: string;
 }
 

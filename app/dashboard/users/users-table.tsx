@@ -51,9 +51,16 @@ export function UsersTable({ users }: { users: Profile[] }) {
                   <Badge tone={ROLE_TONE[u.role]}>{ROLE_LABELS[u.role]}</Badge>
                 </td>
                 <td className="px-4 py-3.5">
-                  <Badge tone={u.is_active ? "green" : "gray"}>
-                    {u.is_active ? "פעיל" : "מושבת"}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    <Badge tone={u.is_active ? "green" : "gray"}>
+                      {u.is_active ? "פעיל" : "מושבת"}
+                    </Badge>
+                    {u.auto_created && (
+                      <span title="נוצר אוטומטית מסנכרון - טרם הוגדר אימייל אמיתי">
+                        <Badge tone="amber">טרם הוזן אימייל</Badge>
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3.5 text-left">
                   <Link

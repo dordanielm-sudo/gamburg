@@ -1,5 +1,5 @@
 import { runIncomingWebhook } from "@/lib/webhook-handler";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveOrCreateHandler } from "@/lib/handler-resolution";
 
 // Import of tasks (משימות) from עדכנית, mirroring case-sync. The
 // case_sync_allowlist gate has been lifted (see case-sync) - a task still
@@ -47,18 +47,6 @@ function asNonEmpty(v: string | null | undefined): string | null {
   return t ? t : null;
 }
 
-async function resolveProfileId(
-  admin: SupabaseClient,
-  name: string,
-): Promise<string | null> {
-  const query =
-    name === "מנהל"
-      ? admin.from("profiles").select("id").eq("role", "manager")
-      : admin.from("profiles").select("id").eq("full_name", name);
-  const { data } = await query.maybeSingle();
-  return data?.id ?? null;
-}
-
 export async function POST(request: Request) {
   return runIncomingWebhook(
     "task_sync",
@@ -94,16 +82,23 @@ export async function POST(request: Request) {
       const warnings: string[] = [];
 
       const handlerName = body.handler_name?.trim().split(",")[0]?.trim();
-      let assignedTo: string | null = handlerName
-        ? await resolveProfileId(admin, handlerName)
-        : null;
-      if (handlerName && !assignedTo) {
-        warnings.push(
-          `no profile matches handler_name "${handlerName}" - falling back to manager`,
-        );
+      let assignedTo: string | null = null;
+      if (handlerName) {
+        const resolved = await resolveOrCreateHandler(admin, handlerName);
+        assignedTo = resolved.id;
+        if (resolved.error) {
+          warnings.push(
+            `handler_name "${handlerName}": ${resolved.error} - falling back to manager`,
+          );
+        } else if (resolved.created) {
+          warnings.push(
+            `created a new profile for handler_name "${handlerName}" - no login until a manager sets a real email`,
+          );
+        }
       }
       if (!assignedTo) {
-        assignedTo = await resolveProfileId(admin, "מנהל");
+        const managerResolution = await resolveOrCreateHandler(admin, "מנהל");
+        assignedTo = managerResolution.id;
       }
       if (!assignedTo) {
         return {
