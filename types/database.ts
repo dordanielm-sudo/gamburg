@@ -259,7 +259,12 @@ export interface ViewFilterCondition {
   // "not_empty" - the field only has to hold something. That is what a slice
   // of a per-field chart counts, so it is also what that slice's
   // click-through has to say; `values` is ignored.
-  op?: "in" | "not_empty";
+  // "empty" - the opposite: the field holds nothing. Without this, a field
+  // nobody has filled in yet (or not filled in for the cases currently in
+  // scope) offers no values to pick from and so could never be filtered on
+  // at all - exactly the case a manager most wants to find ("which cases are
+  // missing X"). `values` is ignored, same as "not_empty".
+  op?: "in" | "not_empty" | "empty";
 }
 
 // screen === "cases": also remembers which columns are shown, in what
