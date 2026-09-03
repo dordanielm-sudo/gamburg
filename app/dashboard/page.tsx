@@ -76,7 +76,7 @@ export default async function DashboardPage() {
     { data: upcomingTasks },
     { data: upcomingDeadlines },
     { data: chartTemplates },
-    { data: chartLayoutRows },
+    { data: chartLayoutRows, error: chartLayoutError },
     caseFieldKeys,
   ] = await Promise.all([
     // batched: an unpaged select stops at 1000 rows without erroring, which
@@ -149,6 +149,13 @@ export default async function DashboardPage() {
       .returns<ViewTemplate[]>(),
     fetchCaseFieldKeys(supabase),
   ]);
+  // Silently falling back to defaults on a query failure here (rather than
+  // surfacing it like the cases query above) is exactly what made the
+  // dashboard-layout-not-saving reports impossible to tell apart from an
+  // actual missing row - log it so pm2 logs show the real reason instead.
+  if (chartLayoutError) {
+    console.error("dashboard chart layout fetch failed:", chartLayoutError);
+  }
   const chartLayout = chartLayoutRows?.[0] ?? null;
 
   const rows = cases ?? [];
