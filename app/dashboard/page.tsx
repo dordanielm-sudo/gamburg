@@ -167,6 +167,8 @@ export default async function DashboardPage() {
       profileRole: profile.role,
       rowCount: chartLayoutRows?.length ?? null,
       rows: chartLayoutRows,
+      screenConstant: DASHBOARD_LAYOUT_SCREEN,
+      screenConstantType: typeof DASHBOARD_LAYOUT_SCREEN,
     }),
   );
   const chartLayout = chartLayoutRows?.[0] ?? null;
