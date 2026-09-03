@@ -12,8 +12,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // are listed explicitly rather than guessed by matching a name prefix, which
 // would risk routing a case to the wrong person the day two staff share a
 // first name.
+//
+// "שירןס" is a different shape of the same problem: not an abbreviation, a
+// typo. עדכנית holds two unrelated people whose vwMainTik.TikMetaplim token
+// both start with "שירן" - UserID 8 (שירן טולדנו) as "שירן " and UserID 28
+// (שירן סלע) as "שירןס", missing the space before her family name's first
+// letter, in every case that references her (confirmed against live data -
+// the typo is in עדכנית's own configuration, not introduced by our sync).
+// Aliased to her real name rather than left to auto-create a profile
+// literally called "שירןס".
 const HANDLER_NAME_ALIASES: Record<string, string> = {
   חנה: "חנה גמבורג",
+  שירןס: "שירן סלע",
 };
 
 export interface HandlerResolution {
