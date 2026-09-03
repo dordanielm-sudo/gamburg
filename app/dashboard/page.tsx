@@ -156,6 +156,19 @@ export default async function DashboardPage() {
   if (chartLayoutError) {
     console.error("dashboard chart layout fetch failed:", chartLayoutError);
   }
+  // Temporary: the error above never fires, yet the row is confirmed to
+  // exist and to be visible to this same user's session via a direct REST
+  // call - logging what this exact server-side query actually got back
+  // (and who it ran as) is the only way left to see where the two diverge.
+  console.log(
+    "dashboard chart layout debug:",
+    JSON.stringify({
+      profileId: profile.id,
+      profileRole: profile.role,
+      rowCount: chartLayoutRows?.length ?? null,
+      rows: chartLayoutRows,
+    }),
+  );
   const chartLayout = chartLayoutRows?.[0] ?? null;
 
   const rows = cases ?? [];
