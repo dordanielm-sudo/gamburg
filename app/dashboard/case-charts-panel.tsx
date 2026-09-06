@@ -24,6 +24,7 @@ import {
   FIXED_KEY_PREFIX,
   type FilterableCase,
 } from "@/lib/case-filter-fields";
+import { DASHBOARD_LAYOUT_SCREEN } from "@/lib/dashboard-layout";
 
 // The charts group by the same keys they filter by - the shared picker keys
 // from case-filter-fields - so a חוצץ field can be grouped on, not only
@@ -470,10 +471,9 @@ const DEFAULT_CHARTS: DashboardChartConfig[] = [
   { title: "תיקים לפי מטפל", groupBy: `${FIXED_KEY_PREFIX}handler`, filters: [] },
 ];
 
-// The layout is one view_templates row, so add/remove/rename is a single
-// atomic write. `screen` is free text on that table, so no migration was
-// needed to carve out a namespace for it.
-export const DASHBOARD_LAYOUT_SCREEN = "dashboard_layout";
+// DASHBOARD_LAYOUT_SCREEN lives in lib/dashboard-layout.ts, not here - see
+// that file for why a value this module and a server component both read
+// cannot be exported across the "use client" boundary.
 
 export function CaseChartsPanel({
   cases,
@@ -548,12 +548,43 @@ export function CaseChartsPanel({
       })
       .select()
       .single<ViewTemplate>();
-    setSavingLayout(false);
-    if (error || !data) {
+    if (!error && data) {
+      setSavingLayout(false);
+      setLayoutId(data.id);
+      return;
+    }
+
+    // The row is a singleton (migration 0046), so an insert that fails
+    // because one already exists means this page rendered without being
+    // handed it. Adopting the row that is actually there beats reporting a
+    // failure the manager can do nothing about: the arrangement they just
+    // made gets saved, and every later change on this page is an ordinary
+    // update to it. Losing that write silently - an insert conflicting, the
+    // change staying on screen until the next reload threw it away - is
+    // exactly what made this look like the dashboard "not saving".
+    const { data: existing } = await supabase
+      .from("view_templates")
+      .select("id")
+      .eq("screen", DASHBOARD_LAYOUT_SCREEN)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .returns<{ id: string }[]>();
+    const existingId = existing?.[0]?.id;
+    if (!existingId) {
+      setSavingLayout(false);
       setLayoutError("סידור התרשימים לא נשמר");
       return;
     }
-    setLayoutId(data.id);
+    const { error: adoptError } = await supabase
+      .from("view_templates")
+      .update({ config })
+      .eq("id", existingId);
+    setSavingLayout(false);
+    if (adoptError) {
+      setLayoutError("סידור התרשימים לא נשמר");
+      return;
+    }
+    setLayoutId(existingId);
   }
 
   function addChart() {

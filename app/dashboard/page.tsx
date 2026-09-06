@@ -4,11 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { AppHeader } from "@/components/app-header";
 import { StatTile } from "@/components/ui/stat-tile";
-import {
-  CaseChartsPanel,
-  DASHBOARD_LAYOUT_SCREEN,
-  type ChartCaseRow,
-} from "./case-charts-panel";
+import { CaseChartsPanel, type ChartCaseRow } from "./case-charts-panel";
+import { DASHBOARD_LAYOUT_SCREEN } from "@/lib/dashboard-layout";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import {
@@ -156,21 +153,6 @@ export default async function DashboardPage() {
   if (chartLayoutError) {
     console.error("dashboard chart layout fetch failed:", chartLayoutError);
   }
-  // Temporary: the error above never fires, yet the row is confirmed to
-  // exist and to be visible to this same user's session via a direct REST
-  // call - logging what this exact server-side query actually got back
-  // (and who it ran as) is the only way left to see where the two diverge.
-  console.log(
-    "dashboard chart layout debug:",
-    JSON.stringify({
-      profileId: profile.id,
-      profileRole: profile.role,
-      rowCount: chartLayoutRows?.length ?? null,
-      rows: chartLayoutRows,
-      screenConstant: DASHBOARD_LAYOUT_SCREEN,
-      screenConstantType: typeof DASHBOARD_LAYOUT_SCREEN,
-    }),
-  );
   const chartLayout = chartLayoutRows?.[0] ?? null;
 
   const rows = cases ?? [];
