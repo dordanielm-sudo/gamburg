@@ -110,10 +110,24 @@ npm run build && npx next start
 
 ## 4. אל מה מתחברים ואיך
 
+### החשבונות
+
+כל ארבעת השירותים החיצוניים רשומים על **אותו חשבון גוגל של המשרד**, וההתחברות
+לכולם היא דרך "Login with Google":
+
+| שירות | חשבון |
+|---|---|
+| Supabase | `gamburgh@gmail.com` |
+| Make.com | `gamburgh@gmail.com` |
+| GitHub | `gamburgh@gmail.com` |
+| Cloudways | `gamburgh@gmail.com` |
+
+הסיסמה עצמה לא כתובה כאן ולא תהיה כתובה בשום קובץ ב-repo. תבקש אותה
+ממי שמסר לך את הפרויקט.
+
 ### Supabase
 
 הפרויקט: `kexclvsdxplzahcxsmgw` (הכתובת המלאה ב-`.env.production` על השרת).
-הגישה דרך הדשבורד ב-supabase.com עם חשבון בעל הרשאה לפרויקט.
 
 מה תעשה שם בפועל: להריץ מיגרציות ב-SQL editor, לבדוק נתונים, ולנהל
 משתמשים ב-Authentication.
@@ -137,7 +151,27 @@ pm2 logs gamburg-crm    # לוגים חיים
 
 ### Make.com
 
-התרחישים לא נמצאים ב-repo - הם מוגדרים בממשק של Make. מה שכן מתועד:
+התרחישים לא נמצאים ב-repo - הם מוגדרים בממשק של Make, בארגון `1187624`.
+
+| תרחיש | קישור | נגד איזו נקודת קצה |
+|---|---|---|
+| עדכון תיקים | [9544721](https://eu2.make.com/1187624/scenarios/9544721/edit) | `POST /api/webhooks/case-sync` |
+| עדכון משימות | [9621384](https://eu2.make.com/1187624/scenarios/9621384/edit) | `POST /api/webhooks/task-sync` |
+| עדכון מועדים ב-CRM | [9625919](https://eu2.make.com/1187624/scenarios/9625919/edit) | `POST /api/webhooks/deadline-sync` |
+| מחיקת משימות | [9666949](https://eu2.make.com/1187624/scenarios/9666949/edit) | `POST /api/webhooks/task-deletions` |
+| שליחת נתונים לעדכנית | [9640133](https://eu2.make.com/1187624/scenarios/9640133/edit) | מקבל את `MAKE_OUTGOING_WEBHOOK_URL` - כלומר `case-updates`, `task-create` ו-`task-delete` |
+
+ההתאמה בין שם התרחיש לנקודת הקצה נגזרה מהשמות ומהתוכן, לא ממיפוי רשמי -
+אם אתה משנה תרחיש, תוודא בתוכו לאיזו כתובת הוא פונה.
+
+**שלוש נקודות קצה בקוד שאין להן תרחיש ברשימה הזאת:**
+`case-field-sync` (ייבוא החוצצים), `incoming-document` (דחיפת מסמך חדש)
+ו-`task-reconcile` (סגירת משימות שנעלמו מעדכנית). או שהתרחישים קיימים
+ולא נרשמו כאן, או שהם לא נבנו - **תבדוק ב-Make לפני שאתה מניח שהזרימות
+האלה פועלות.** דרך מהירה לוודא: `/dashboard/webhooks` מראה מתי כל נקודת
+קצה נקראה בפעם האחרונה.
+
+מה שמתועד לעומק על צד ה-Make:
 - [`docs/make-write-back.md`](./docs/make-write-back.md) - החוזה המלא של
   הכתיבה חזרה, טבלת הניתוב, ומדריך בנייה.
 - [`docs/case-field-pull.md`](./docs/case-field-pull.md) - ייבוא החוצצים.
