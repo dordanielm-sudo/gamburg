@@ -26,6 +26,11 @@ const HANDLER_NAME_ALIASES: Record<string, string> = {
   שירןס: "שירן סלע",
 };
 
+// See the comment at the top of resolveOrCreateHandler's manager branch: the
+// same עדכנית account (UserID 1) reaches us under either spelling depending
+// on which column the calling scenario read it from.
+const MANAGER_PLACEHOLDER_NAMES = new Set(["מנהל", "מנהל המערכת"]);
+
 export interface HandlerResolution {
   id: string | null;
   // true only when this call is the one that created the profile - lets a
@@ -62,10 +67,14 @@ export async function resolveOrCreateHandler(
   const handlerName = rawName.trim();
   if (!handlerName) return { id: null, created: false };
 
-  // "מנהל" in עדכנית is a generic placeholder for cases/tasks חנה handles
-  // directly rather than a specific handler name - routed to whoever holds
-  // the manager role today, not a name match.
-  if (handlerName === "מנהל") {
+  // The same account under two spellings: TikMetaplim abbreviates it to
+  // "מנהל", while vwExportToOuterSystems_LoginUsers.FullName - which the
+  // case-sync scenario now joins on TikOwner - gives UserID 1 its full name,
+  // "מנהל המערכת". Both are the generic placeholder for cases/tasks חנה
+  // handles directly rather than a specific handler name, so both route to
+  // whoever holds the manager role today rather than matching on the name
+  // (which would otherwise open a profile literally called "מנהל המערכת").
+  if (MANAGER_PLACEHOLDER_NAMES.has(handlerName)) {
     const { data } = await admin
       .from("profiles")
       .select("id")
