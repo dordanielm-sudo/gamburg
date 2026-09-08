@@ -14,8 +14,17 @@ import type {
   ViewTemplate,
 } from "@/types/database";
 
+// Spelled out rather than "*": this runs for every case in the office, so a
+// column the screen never reads costs its width times ~1700 rows on every
+// load. See CaseWithRelations for what is left out and why.
 const CASES_SELECT =
-  "*, handler:profiles!cases_handler_id_fkey(id, full_name), case_deadlines(id, due_date, status), tasks(id, due_date, status), case_fields(page_name, field_name, value_text, value_date, value_number)";
+  "id, case_number, case_name, opened_date, case_type, case_nature, case_stage, " +
+  "handler_id, status, client_id_number, client_phone, spouse_details, " +
+  "flag_problematic_client, flag_non_paying, flag_transferring_documents, " +
+  "manager_note, manager_follow_up, team, last_touched_at, " +
+  "handler:profiles!cases_handler_id_fkey(id, full_name), " +
+  "case_deadlines(id, due_date, status), tasks(id, due_date, status), " +
+  "case_fields(page_name, field_name, value_text, value_date, value_number)";
 
 // PostgREST caps any single select() at db.max_rows (1000 here) regardless
 // of how large a .range() is requested - past that count the list was
