@@ -83,7 +83,39 @@ export interface CaseWithHandler extends Case {
 
 // for the cases screen's date-range filter (deadlines/tasks) and its
 // per-חוצץ field picker (case_fields)
-export interface CaseWithRelations extends CaseWithHandler {
+//
+// Deliberately a Pick of Case rather than all of it: this row is loaded for
+// every case in the office on the heaviest screen in the app, so a column
+// nothing on that screen reads is dead weight multiplied by ~1700. Left out
+// are external_ref, client_email, client_address, drive_url and the
+// source/status/created/updated timestamps - the case card loads the whole
+// row separately, for one case. client_id_number and client_phone stay
+// because the search box matches on them, and spouse_details because the
+// name cell shows a "בן/בת זוג" badge when it holds anything.
+export interface CaseWithRelations
+  extends Pick<
+    Case,
+    | "id"
+    | "case_number"
+    | "case_name"
+    | "opened_date"
+    | "case_type"
+    | "case_nature"
+    | "case_stage"
+    | "handler_id"
+    | "status"
+    | "client_id_number"
+    | "client_phone"
+    | "spouse_details"
+    | "flag_problematic_client"
+    | "flag_non_paying"
+    | "flag_transferring_documents"
+    | "manager_note"
+    | "manager_follow_up"
+    | "team"
+    | "last_touched_at"
+  > {
+  handler: Pick<Profile, "id" | "full_name"> | null;
   case_deadlines: Pick<CaseDeadline, "id" | "due_date" | "status">[];
   tasks: Pick<Task, "id" | "due_date" | "status">[];
   case_fields: Pick<
