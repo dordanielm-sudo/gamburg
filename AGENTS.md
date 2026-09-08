@@ -76,3 +76,40 @@ multiple base tables, which SQL Server refuses to UPDATE through - the write
 succeeds (`@@ROWCOUNT` even, sometimes) but touches nothing. Find the base
 tables the view is built from (`sys.dm_sql_referenced_entities` or the view's
 `object_definition()`) and write to those directly.
+
+## Never import a plain value from a `"use client"` file into server code
+`DASHBOARD_LAYOUT_SCREEN` - the string `"dashboard_layout"` - was exported
+from `app/dashboard/case-charts-panel.tsx` (a client component) and imported
+by `app/dashboard/page.tsx` (a server component) to filter a query on. The
+client boundary exists to hand server code an opaque reference to a
+*component*; it makes no promise about a plain constant, and the value the
+server bundle ended up comparing against was not that string.
+
+What made this cost a full day: nothing fails. The query is valid, returns
+no error, and matches zero rows - indistinguishable from "nothing saved
+yet", so the dashboard fell back to its default charts on every load while
+the saved row sat in the table. RLS, PostgREST's schema cache, PM2 workers,
+Nginx, Cloudflare and the browser cache were all eliminated first, and the
+only clue that survived was that the *neighbouring* query in the same file,
+filtering on a literal `"dashboard"`, always worked.
+
+Values shared by both sides go in their own module - see
+`lib/dashboard-layout.ts`. If a server-side query returns nothing while the
+same query run directly against PostgREST returns the row, suspect the
+filter value before suspecting the database.
+
+## An export view that lacks a column silently sends nothing, not an error
+684 cases sat with no handler for weeks. The auto-provisioning in
+`lib/handler-resolution.ts` was not failing - it was never called, because
+`vwExportToOuterSystems_Files`, the view the case-sync scenario reads, has
+no handler column at all, so `handler_name` was simply absent from every
+payload. An absent optional field looks exactly like "this case genuinely
+has no handler".
+
+The handler lives in `vwMainTik.TikMetaplim` (a comma-separated list) with
+`TikMetaplimUserIDs` positionally aligned to it. `TikOwner` on the export
+view is always one of those ids - עדכנית's own "case owner" - so joining
+`vwExportToOuterSystems_LoginUsers` on it yields one handler, by full name
+(`חנה גמבורג`, not the `חנה` that `TikMetaplim` abbreviates to). Note that
+adding a column to the SQL is only half of it: Make must also map the new
+field into the webhook body, or it reaches the query and stops there.
