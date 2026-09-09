@@ -75,7 +75,9 @@ try {
                 # ---------------------------
 
                 # --- מנגנון סינון חכם עם זיכרון ---
-                $matchedWord = $FilteredWords | Where-Object { $file.Name -like "*$_*" } | Select-Object -First 1
+                # רווחים כפולים בשם הקובץ מכווצים לרווח בודד, כדי ש-"דוח  חודשי" ייתפס גם הוא
+                $normalizedName = ($file.Name -replace '\s+', ' ')
+                $matchedWord = $FilteredWords | Where-Object { $normalizedName -like "*$_*" } | Select-Object -First 1
                 if ($matchedWord) {
                     Skip-Once $file "Filtered word in filename ($matchedWord)"
                     continue # מדלג לקובץ הבא
