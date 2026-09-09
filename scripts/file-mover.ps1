@@ -19,6 +19,9 @@ $HistoryFile = "C:\Scripts\SkippedHistory.txt"
 # סיומות שלא מועתקות. להוספת סוגים נוספים - הוסף לרשימה, למשל ".xls", ".xlsm"
 $ExcludedExtensions = @(".xlsx")
 
+# קבצים ששמם מכיל אחד מהביטויים האלה לא מועתקים
+$FilteredWords = @("דוח חודשי", "רשימת קבצים")
+
 function Log($msg) {
     Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $msg"
 }
@@ -72,8 +75,9 @@ try {
                 # ---------------------------
 
                 # --- מנגנון סינון חכם עם זיכרון ---
-                if ($file.Name -match "income|outcome|עוש") {
-                    Skip-Once $file "Filtered word in filename"
+                $matchedWord = $FilteredWords | Where-Object { $file.Name -like "*$_*" } | Select-Object -First 1
+                if ($matchedWord) {
+                    Skip-Once $file "Filtered word in filename ($matchedWord)"
                     continue # מדלג לקובץ הבא
                 }
                 # -----------------------------------
