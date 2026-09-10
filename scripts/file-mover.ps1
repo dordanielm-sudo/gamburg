@@ -16,6 +16,10 @@ $LogFile = "C:\Scripts\FileMover.log"
 # --- קובץ חדש לשמירת היסטוריית הדילוגים ---
 $HistoryFile = "C:\Scripts\SkippedHistory.txt"
 
+# חותמת הזמן של הריצה המוצלחת האחרונה. רק קבצים ששונו אחריה מועתקים.
+$WatermarkFile = "C:\Scripts\LastRun.txt"
+$TimeFormat = "yyyy-MM-dd HH:mm:ss"
+
 # סיומות שלא מועתקות. להוספת סוגים נוספים - הוסף לרשימה, למשל ".xls", ".xlsm"
 $ExcludedExtensions = @(".xlsx")
 
@@ -49,7 +53,19 @@ function Skip-Once($file, $reason) {
     }
 }
 
+$runStart = Get-Date
+
 Log "START"
+
+# ריצה ראשונה: רק רושמים את הזמן ויוצאים. שום דבר קיים לא מועתק רטרואקטיבית.
+if (!(Test-Path -LiteralPath $WatermarkFile)) {
+    Set-Content -LiteralPath $WatermarkFile -Value $runStart.ToString($TimeFormat)
+    Log "BASELINE SET: $($runStart.ToString($TimeFormat)) - nothing copied. Only files changed after this will be copied."
+    exit
+}
+
+$cutoff = [datetime]::ParseExact((Get-Content -LiteralPath $WatermarkFile -TotalCount 1).Trim(), $TimeFormat, $null)
+Log "Copying files modified after $($cutoff.ToString($TimeFormat))"
 
 try {
     if (!(Test-Path -LiteralPath $SourceRoot)) {
@@ -64,6 +80,7 @@ try {
 
     $clients = Get-ChildItem -LiteralPath $SourceRoot -Directory
     $copied = 0
+    $tooOld = 0
 
     foreach ($client in $clients) {
         $sourcePath = $client.FullName
@@ -75,6 +92,13 @@ try {
 
         foreach ($file in $files) {
             try {
+                # --- דילוג על קבצים שלא השתנו מאז הריצה הקודמת ---
+                if ($file.LastWriteTime -le $cutoff) {
+                    $tooOld++
+                    continue
+                }
+                # ---------------------------------------------------
+
                 # --- דילוג על קבצי אקסל ---
                 if ($ExcludedExtensions -contains $file.Extension.ToLower()) {
                     Skip-Once $file "Excel file"
@@ -110,7 +134,11 @@ try {
         }
     }
 
-    Log "END - Copied $copied files"
+    # מעדכנים את החותמת רק אחרי שהלולאה הסתיימה בשלום. זמן תחילת הריצה, לא הסוף,
+    # כדי שקובץ ששונה בזמן הריצה עצמה ייתפס בריצה הבאה ולא יאבד.
+    Set-Content -LiteralPath $WatermarkFile -Value $runStart.ToString($TimeFormat)
+
+    Log "END - Copied $copied files, skipped $tooOld unchanged"
 
 } catch {
     Log "FATAL: $($_.Exception.Message)"
