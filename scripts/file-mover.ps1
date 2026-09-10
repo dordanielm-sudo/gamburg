@@ -22,8 +22,16 @@ $ExcludedExtensions = @(".xlsx")
 # קבצים ששמם מכיל אחד מהביטויים האלה לא מועתקים
 $FilteredWords = @("דוח חודשי", "רשימת קבצים")
 
+# יצירת תיקיית הלוג אם היא לא קיימת - אחרת כל כתיבה ללוג נכשלת בשקט
+$LogDir = Split-Path $LogFile -Parent
+if (!(Test-Path -LiteralPath $LogDir)) {
+    New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+}
+
 function Log($msg) {
-    Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $msg"
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $msg"
+    Add-Content -Path $LogFile -Value $line
+    Write-Host $line   # מוצג גם על המסך בהרצה ידנית
 }
 
 # טעינת קבצים שנופו בעבר לזיכרון (כדי שהבדיקה תהיה מהירה במיוחד)
