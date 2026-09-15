@@ -242,6 +242,7 @@ pm2 logs gamburg-crm    # לוגים חיים
 | `POST /api/webhooks/task-reconcile` | רשימת המשימות הפתוחות - סוגר מה שנעלם |
 | `POST /api/webhooks/task-deletions` | רשימת כל המשימות - מוחק מה שאינו בה |
 | `POST /api/webhooks/incoming-document` | מסמך חדש הגיע |
+| `POST /api/reminders/due` | **לא ייבוא** - Make קורא פעם ביום ומקבל בחזרה את המועדים שמתקרבים ואת מי להתריע. השליחה עצמה נעשית ב-Make. |
 
 ### החוצה: CRM → עדכנית
 
