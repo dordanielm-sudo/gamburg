@@ -1,9 +1,10 @@
 import { runIncomingWebhook } from "@/lib/webhook-handler";
 import {
   REMINDER_SOURCE_FIELDS,
-  REMINDER_DAYS_BEFORE,
+  REMINDER_LEAD_WORKING_DAYS,
   officeToday,
   addDays,
+  nthWorkingDayBefore,
 } from "@/lib/reminder-fields";
 
 // Everything a reminder email needs, for every relevant deadline coming up.
@@ -80,21 +81,29 @@ export async function POST(request: Request) {
         return { status: 400, json: { error: "today must be YYYY-MM-DD" } };
       }
 
-      const daysBefore =
+      const leads =
         body.days_before && body.days_before.length > 0
           ? body.days_before
-          : [...REMINDER_DAYS_BEFORE];
-      if (daysBefore.some((d) => !Number.isInteger(d) || d < 0)) {
+          : [...REMINDER_LEAD_WORKING_DAYS];
+      if (leads.some((d) => !Number.isInteger(d) || d < 1)) {
         return {
           status: 400,
-          json: { error: "days_before must be non-negative whole numbers" },
+          json: { error: "days_before must be whole numbers of 1 or more" },
         };
       }
 
-      // date -> how many days ahead it is, so each row knows which reminder
-      // it is without recomputing the arithmetic per row
-      const dueDates = new Map<string, number>();
-      for (const d of daysBefore) dueDates.set(addDays(today, d), d);
+      // Asked of the due date, not of today: "is today the nth working day
+      // before this deadline?" Working backwards is what lets a weekend sit
+      // between the two without shifting anything - the alternative, adding
+      // n working days to today, cannot express "the reminder for Sunday
+      // goes out on Thursday" without special-casing which side the weekend
+      // falls on.
+      //
+      // The window is calendar days and deliberately loose: two working days
+      // back from a Sunday is Wednesday, four calendar days, and a fortnight
+      // covers every arrangement of that with room to spare.
+      const maxLead = Math.max(...leads);
+      const windowEnd = addDays(today, maxLead * 7 + 7);
 
       const { data: deadlines, error } = await admin
         .from("case_deadlines")
@@ -103,7 +112,8 @@ export async function POST(request: Request) {
             "case:cases!case_deadlines_case_id_fkey(id, case_number, case_name, handler_id)",
         )
         .eq("status", "open")
-        .in("due_date", [...dueDates.keys()])
+        .gt("due_date", today)
+        .lte("due_date", windowEnd)
         .in("source_field_name", [...REMINDER_SOURCE_FIELDS])
         .order("due_date")
         .returns<DeadlineRow[]>();
@@ -112,7 +122,19 @@ export async function POST(request: Request) {
         return { status: 500, json: { error: error.message } };
       }
 
-      const rows = deadlines ?? [];
+      // deadline id -> which reminder today is for it. A deadline the window
+      // caught but whose reminder days are not today drops out here.
+      const leadFor = new Map<string, number>();
+      for (const d of deadlines ?? []) {
+        for (const lead of leads) {
+          if (nthWorkingDayBefore(d.due_date, lead) === today) {
+            leadFor.set(d.id, lead);
+            break;
+          }
+        }
+      }
+
+      const rows = (deadlines ?? []).filter((d) => leadFor.has(d.id));
       if (rows.length === 0) {
         return {
           status: 200,
@@ -200,7 +222,7 @@ export async function POST(request: Request) {
           source_field_name: r.source_field_name,
           page_name: r.page_name,
           due_date: r.due_date,
-          days_until: dueDates.get(r.due_date) ?? null,
+          working_days_until: leadFor.get(r.id) ?? null,
           recipients: people,
         };
       });
@@ -221,7 +243,7 @@ export async function POST(request: Request) {
             case_name: r.case_name,
             label: r.label,
             due_date: r.due_date,
-            days_until: r.days_until,
+            working_days_until: r.working_days_until,
             deadline_id: r.deadline_id,
           })),
       );

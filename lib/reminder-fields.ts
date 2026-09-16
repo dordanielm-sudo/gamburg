@@ -21,9 +21,36 @@ export const REMINDER_SOURCE_FIELDS = [
   "מועד חקירה",
 ] as const;
 
-// Two reminders per deadline: one with a working day still in hand, one the
-// day before.
-export const REMINDER_DAYS_BEFORE = [2, 1] as const;
+// Two reminders per deadline, counted in working days rather than calendar
+// days: the last working day before it, and the one before that.
+//
+// Counting calendar days silently loses the most important reminders. A
+// hearing on Sunday would have been announced on Friday and Saturday, when
+// the office is closed and nobody reads mail - so the reminder that mattered
+// most arrived when it could do the least. In working days the same hearing
+// is announced on Thursday and Wednesday.
+export const REMINDER_LEAD_WORKING_DAYS = [2, 1] as const;
+
+// Sunday through Thursday. getUTCDay(): 0 = Sunday, 5 = Friday, 6 = Saturday.
+export function isWorkingDay(isoDate: string): boolean {
+  const day = new Date(`${isoDate}T00:00:00Z`).getUTCDay();
+  return day !== 5 && day !== 6;
+}
+
+// The nth working day before a date - which is the day its nth reminder goes
+// out. Walks backwards rather than forwards so a due date that itself falls
+// on a weekend still gets its reminders, on the working days before it.
+export function nthWorkingDayBefore(isoDate: string, n: number): string {
+  let cursor = isoDate;
+  let remaining = n;
+  // A week of weekend in a row is impossible, so this cannot run away; the
+  // bound is a guard against a malformed date, not an expected case.
+  for (let step = 0; step < n * 7 + 7 && remaining > 0; step++) {
+    cursor = addDays(cursor, -1);
+    if (isWorkingDay(cursor)) remaining--;
+  }
+  return cursor;
+}
 
 // The office works in Israel; the server does not. Computing "two days from
 // today" off the server's UTC date is right for most of the day and wrong
