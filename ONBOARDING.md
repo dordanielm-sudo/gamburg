@@ -134,6 +134,9 @@ npm run build && npx next start
 
 ### השרת (production)
 
+הכתובת הפומבית: **`https://crm.hanagamburg.com`** - זו הכתובת שכל תרחישי
+Make פונים אליה.
+
 מתארח ב-Cloudways. **התיקייה בפועל: `/home/master/gamburg`** - שים לב
 ש-[`DEPLOY.md`](./DEPLOY.md) מתאר מבנה `~/applications/<app>/public_html`,
 וזה לא הנתיב בשרת הנוכחי.
