@@ -27,6 +27,10 @@ $ExcludedExtensions = @(".xlsx")
 # קבצים ששמם מכיל אחד מהביטויים האלה לא מועתקים
 $FilteredWords = @("דוח חודשי", "רשימת קבצים")
 
+# גיל מרבי של קובץ להעתקה, בימים. רצפה קשיחה: גם אם החותמת ב-LastRun.txt
+# הוזזה אחורה, שום דבר ישן מזה לא יועתק.
+$MaxAgeDays = 7
+
 # יצירת תיקיית הלוג אם היא לא קיימת - אחרת כל כתיבה ללוג נכשלת בשקט
 $LogDir = Split-Path $LogFile -Parent
 if (!(Test-Path -LiteralPath $LogDir)) {
@@ -77,6 +81,14 @@ if (!(Test-Path -LiteralPath $WatermarkFile)) {
 }
 
 $cutoff = [datetime]::ParseExact((Get-Content -LiteralPath $WatermarkFile -TotalCount 1).Trim(), $TimeFormat, $null)
+
+# הרצפה הקשיחה גוברת על חותמת ישנה מדי.
+$ageFloor = $runStart.AddDays(-$MaxAgeDays)
+if ($cutoff -lt $ageFloor) {
+    Log "Watermark $($cutoff.ToString($TimeFormat)) is older than the $MaxAgeDays day limit - using $($ageFloor.ToString($TimeFormat)) instead"
+    $cutoff = $ageFloor
+}
+
 Log "Copying files modified after $($cutoff.ToString($TimeFormat))"
 
 try {
