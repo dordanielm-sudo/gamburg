@@ -205,17 +205,53 @@ export async function POST(request: Request) {
         };
       });
 
+      // One entry per email to actually send, so the scenario iterates once
+      // and sends blindly. The grouped `reminders` above nests recipients
+      // inside deadlines, which would need a second Iterator in Make and a
+      // filter step to skip the unsendable - and a filter step that anyone
+      // forgets is how mail goes to a @no-login.invalid address.
+      const messages = reminders.flatMap((r) =>
+        r.recipients
+          .filter((p) => p.can_email)
+          .map((p) => ({
+            to_name: p.name,
+            to_email: p.email,
+            reason: p.reason,
+            case_number: r.case_number,
+            case_name: r.case_name,
+            label: r.label,
+            due_date: r.due_date,
+            days_until: r.days_until,
+            deadline_id: r.deadline_id,
+          })),
+      );
+
+      // The other half of that split: whoever should have been told and
+      // cannot be. Kept out of `messages` so nothing tries to send to them,
+      // and returned in full rather than counted so the office can see who
+      // is still missing an address.
+      const unreachable = reminders.flatMap((r) =>
+        r.recipients
+          .filter((p) => !p.can_email)
+          .map((p) => ({
+            name: p.name,
+            reason: p.reason,
+            case_number: r.case_number,
+            label: r.label,
+            due_date: r.due_date,
+          })),
+      );
+
       return {
         status: 200,
         json: {
           status: "ok",
           today,
           count: reminders.length,
-          // Surfaced rather than left for Make to work out: a reminder with
-          // nobody reachable is the case that quietly sends no mail.
-          unreachable: reminders.filter((r) =>
-            r.recipients.every((p) => !p.can_email),
-          ).length,
+          message_count: messages.length,
+          unreachable_count: unreachable.length,
+          messages,
+          unreachable,
           reminders,
         },
       };
