@@ -11,7 +11,8 @@ while (!(Test-Path "H:\") -and $waited -lt $maxWait) {
 
 $SourceRoot = "H:\האחסון שלי\Docs"
 $TargetRoot = "\\SRV-OD20\Odlight_6271$\Docs"
-$LogFile = "C:\Scripts\FileMover.log"
+# לוג נפרד מהסקריפט הישן. שניהם על אותו קובץ = כתיבות מתנגשות ושורות שאובדות.
+$LogFile = "C:\Scripts\FileMover_NoExcel.log"
 
 # --- קובץ חדש לשמירת היסטוריית הדילוגים ---
 $HistoryFile = "C:\Scripts\SkippedHistory.txt"
@@ -31,6 +32,17 @@ $LogDir = Split-Path $LogFile -Parent
 if (!(Test-Path -LiteralPath $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 }
+
+# סיבוב לוג: קובץ שעבר 5MB נשמר בצד עם חותמת זמן ומתחילים חדש.
+$LogBase = [IO.Path]::GetFileNameWithoutExtension($LogFile)
+if ((Test-Path -LiteralPath $LogFile) -and ((Get-Item -LiteralPath $LogFile).Length / 1MB -gt 5)) {
+    Rename-Item -LiteralPath $LogFile -NewName ("{0}_{1}.log" -f $LogBase, (Get-Date -Format 'yyyyMMdd_HHmmss'))
+}
+
+# לוגים מסובבים בני יותר מ-14 יום נמחקים, כדי שהתיקייה לא תתפח בלי גבול.
+Get-ChildItem -LiteralPath $LogDir -Filter "$LogBase`_*.log" -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 
 function Log($msg) {
     $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $msg"
