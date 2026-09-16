@@ -84,9 +84,20 @@ try {
 
     foreach ($client in $clients) {
         $sourcePath = $client.FullName
-        $targetPath = Join-Path $TargetRoot $client.Name
 
-        if (!(Test-Path -LiteralPath $targetPath)) { continue }
+        # תיקייה כפולה ב-Drive מוצגת ב-Windows עם סיומת " (1)" / " (2)" וכו'.
+        # היעד בשרת הוא תמיד התיקייה ללא הסיומת.
+        $targetName = $client.Name -replace ' \(\d+\)$', ''
+        $targetPath = Join-Path $TargetRoot $targetName
+
+        if (!(Test-Path -LiteralPath $targetPath)) {
+            Log "SKIP: no server folder for $($client.Name)"
+            continue
+        }
+
+        if ($targetName -ne $client.Name) {
+            Log "DUPLICATE: $($client.Name) -> $targetName"
+        }
 
         $files = Get-ChildItem -LiteralPath $sourcePath -Recurse -File -ErrorAction SilentlyContinue
 
@@ -127,6 +138,9 @@ try {
                     Log "SUCCESS: Copied $($file.Name) to $destFile"
 
                     $copied++
+                } else {
+                    # תת-תיקייה שקיימת ב-Drive ואין לה מקבילה בשרת. נרשם פעם אחת לקובץ.
+                    Skip-Once $file "No destination folder: $destDir"
                 }
             } catch {
                 Log "ERROR: $($_.Exception.Message)"
