@@ -15,7 +15,33 @@ const ROLE_TONE: Record<UserRole, Tone> = {
   secretary: "purple",
 };
 
-export function UsersTable({ users }: { users: Profile[] }) {
+// Auto-created profiles carry a deliberately undeliverable address under
+// .invalid (see lib/handler-resolution.ts). Printing it would read as a real
+// address nobody recognises, so it says what it is instead - this is the one
+// column where "no email" is the useful fact.
+const PLACEHOLDER_EMAIL_SUFFIX = "@no-login.invalid";
+
+function UserEmail({ email }: { email: string | null }) {
+  if (!email || email.endsWith(PLACEHOLDER_EMAIL_SUFFIX)) {
+    return <span className="text-sm text-gray-400">לא הוגדר</span>;
+  }
+  return (
+    <span dir="ltr" className="block text-right text-sm text-gray-700">
+      {email}
+    </span>
+  );
+}
+
+export function UsersTable({
+  users,
+  emails,
+}: {
+  users: Profile[];
+  // profile id -> the address in auth.users, where email actually lives.
+  // Resolved on the server (see page.tsx) because reading it needs the
+  // service role, which never reaches a client component.
+  emails: Record<string, string | null>;
+}) {
   return (
     <section className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       <table className="w-full text-sm">
@@ -23,6 +49,7 @@ export function UsersTable({ users }: { users: Profile[] }) {
           <tr>
             <th className="w-1 p-0" aria-hidden />
             <th className="px-4 py-3 font-semibold text-indigo-900">שם</th>
+            <th className="px-4 py-3 font-semibold text-indigo-900">אימייל</th>
             <th className="px-4 py-3 font-semibold text-indigo-900">תפקיד</th>
             <th className="px-4 py-3 font-semibold text-indigo-900">סטטוס</th>
             <th className="px-4 py-3 font-semibold text-indigo-900"></th>
@@ -46,6 +73,9 @@ export function UsersTable({ users }: { users: Profile[] }) {
                   >
                     <NamedAvatar name={u.full_name} />
                   </Link>
+                </td>
+                <td className="px-4 py-3.5">
+                  <UserEmail email={emails[u.id] ?? null} />
                 </td>
                 <td className="px-4 py-3.5">
                   <Badge tone={ROLE_TONE[u.role]}>{ROLE_LABELS[u.role]}</Badge>

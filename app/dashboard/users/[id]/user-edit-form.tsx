@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateUserProfile } from "../actions";
+import { looksLikeEmail } from "@/lib/auth-errors";
 import type { Profile, UserRole } from "@/types/database";
 import { Badge, TONE_HEX } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
@@ -46,6 +47,10 @@ export function UserEditForm({ user, email }: { user: Profile; email: string }) 
       setError("אימייל לא יכול להיות ריק");
       return;
     }
+    if (!looksLikeEmail(emailValue)) {
+      setError("כתובת האימייל אינה תקינה");
+      return;
+    }
     const trimmedUdkanitId = udkanitId.trim();
     if (trimmedUdkanitId && !/^\d+$/.test(trimmedUdkanitId)) {
       setError("מזהה עדכנית חייב להיות מספר");
@@ -53,7 +58,12 @@ export function UserEditForm({ user, email }: { user: Profile; email: string }) 
     }
     startTransition(async () => {
       try {
-        await updateUserProfile(
+        // The action reports its failures in its return value rather than by
+        // throwing: Next redacts anything thrown out of a Server Action in a
+        // production build, so a real reason like "that address is already
+        // in use" arrived here as a generic message. The catch stays for
+        // what actually is exceptional - the request never completing.
+        const result = await updateUserProfile(
           user.id,
           fullName.trim(),
           emailValue.trim(),
@@ -61,10 +71,14 @@ export function UserEditForm({ user, email }: { user: Profile; email: string }) 
           isActive,
           trimmedUdkanitId ? Number(trimmedUdkanitId) : null,
         );
+        if (result?.error) {
+          setError(result.error);
+          return;
+        }
         setSaved(true);
         router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "שגיאה בשמירה");
+      } catch {
+        setError("השמירה לא הושלמה - בדקו את החיבור ונסו שוב");
       }
     });
   }
