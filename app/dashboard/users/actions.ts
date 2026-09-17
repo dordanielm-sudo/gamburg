@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveOrCreateHandler } from "@/lib/handler-resolution";
+import { authErrorMessage, looksLikeEmail } from "@/lib/auth-errors";
 import type { UserRole } from "@/types/database";
 
 async function requireManager() {
@@ -58,6 +59,9 @@ export async function createUser(
   if (!fullName || !email) {
     return { error: "יש למלא שם ואימייל" };
   }
+  if (!looksLikeEmail(email)) {
+    return { error: "כתובת האימייל אינה תקינה" };
+  }
 
   const tempPassword = generateTempPassword();
   const admin = createAdminClient();
@@ -70,7 +74,7 @@ export async function createUser(
   });
 
   if (error) {
-    return { error: error.message };
+    return { error: authErrorMessage(error) };
   }
 
   revalidatePath("/dashboard/users");
@@ -86,6 +90,10 @@ export async function createUser(
 // auth.users (profiles has no email column), so it's Admin-API only -
 // email_confirm: true sets it immediately with no confirmation-link
 // round-trip, same as at account creation.
+export interface UpdateUserResult {
+  error?: string;
+}
+
 export async function updateUserProfile(
   userId: string,
   fullName: string,
@@ -93,14 +101,37 @@ export async function updateUserProfile(
   role: UserRole,
   isActive: boolean,
   udkanitUserId: number | null,
-) {
+): Promise<UpdateUserResult> {
   const supabase = await requireManager();
+
+  // Returned, never thrown. Next redacts anything thrown out of a Server
+  // Action in a production build, so the caller receives a generic message
+  // instead of the real one - which is how "this address already belongs to
+  // someone else" reached a manager as "שגיאה כללית".
+  if (!looksLikeEmail(email)) {
+    return { error: "כתובת האימייל אינה תקינה" };
+  }
+
+  // The auth update goes first because it is the one that realistically
+  // fails - a duplicate address. Doing it last meant the name and role were
+  // already saved by the time it did, leaving the form reporting an error
+  // over a record that had partly changed.
+  //
+  // is_active only gates access to our tables via RLS - banning the Auth
+  // user as well is what stops a deactivated person signing in at all.
+  const admin = createAdminClient();
+  const { error: authError } = await admin.auth.admin.updateUserById(userId, {
+    email,
+    email_confirm: true,
+    ban_duration: isActive ? "none" : "876000h",
+  });
+  if (authError) return { error: authErrorMessage(authError) };
 
   const { error: nameError } = await supabase
     .from("profiles")
     .update({ full_name: fullName })
     .eq("id", userId);
-  if (nameError) throw new Error(nameError.message);
+  if (nameError) return { error: nameError.message };
 
   // not part of the update above: 0004 granted authenticated UPDATE on
   // full_name only, so touching any other column is refused at the column
@@ -110,24 +141,14 @@ export async function updateUserProfile(
     target_id: userId,
     new_id: udkanitUserId,
   });
-  if (udkanitError) throw new Error(udkanitError.message);
+  if (udkanitError) return { error: udkanitError.message };
 
   const { error } = await supabase.rpc("admin_set_user_status", {
     target_id: userId,
     new_role: role,
     new_active: isActive,
   });
-  if (error) throw new Error(error.message);
-
-  // is_active only gates access to our tables via RLS - also disable/enable
-  // the actual Supabase Auth login so a deactivated user can't sign in at all.
-  const admin = createAdminClient();
-  const { error: authError } = await admin.auth.admin.updateUserById(userId, {
-    email,
-    email_confirm: true,
-    ban_duration: isActive ? "none" : "876000h",
-  });
-  if (authError) throw new Error(authError.message);
+  if (error) return { error: error.message };
 
   // auto_created (0047) marks a profile the sync provisioned with a
   // placeholder address because handler_name matched nobody yet. Setting a
@@ -140,10 +161,11 @@ export async function updateUserProfile(
     .from("profiles")
     .update({ auto_created: false })
     .eq("id", userId);
-  if (autoCreatedError) throw new Error(autoCreatedError.message);
+  if (autoCreatedError) return { error: autoCreatedError.message };
 
   revalidatePath("/dashboard/users");
   revalidatePath(`/dashboard/users/${userId}`);
+  return {};
 }
 
 export interface ResetPasswordState {
