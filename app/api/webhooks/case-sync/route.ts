@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runIncomingWebhook } from "@/lib/webhook-handler";
-import { readBatch, summarize, type BatchOutcome } from "@/lib/webhook-batch";
+import {
+  readBatch,
+  summarize,
+  mapWithConcurrency,
+  type BatchOutcome,
+} from "@/lib/webhook-batch";
 import { resolveOrCreateHandler } from "@/lib/handler-resolution";
 import type { SpouseDetails } from "@/types/database";
 
@@ -81,9 +86,52 @@ interface SyncResult extends BatchOutcome {
   httpStatus: number;
 }
 
+// Handler names resolved once per distinct name before the records run, not
+// once per record. Resolution can create a profile, so two records naming
+// the same missing person at the same time would each find nobody and each
+// create one - doing it up front and deduplicated is what makes the records
+// themselves safe to run several at a time.
+interface HandlerLookup {
+  ids: Map<string, string | null>;
+  warnings: Map<string, string>;
+}
+
+async function resolveHandlers(
+  records: CaseSyncPayload[],
+  admin: SupabaseClient,
+): Promise<HandlerLookup> {
+  const names = [
+    ...new Set(
+      records
+        .map((r) => r.handler_name?.trim())
+        .filter((n): n is string => Boolean(n)),
+    ),
+  ];
+
+  const ids = new Map<string, string | null>();
+  const warnings = new Map<string, string>();
+  for (const name of names) {
+    const resolved = await resolveOrCreateHandler(admin, name);
+    ids.set(name, resolved.id);
+    if (resolved.error) {
+      warnings.set(
+        name,
+        `handler_name "${name}": ${resolved.error} - handler_id left unset`,
+      );
+    } else if (resolved.created) {
+      warnings.set(
+        name,
+        `created a new profile for handler_name "${name}" - no login until a manager sets a real email`,
+      );
+    }
+  }
+  return { ids, warnings };
+}
+
 async function syncOne(
   body: CaseSyncPayload,
   admin: SupabaseClient,
+  handlers: HandlerLookup,
 ): Promise<SyncResult> {
   const warnings: string[] = [];
   const caseNumber = body.case_number?.trim();
@@ -99,17 +147,9 @@ async function syncOne(
   let handlerId: string | null = null;
   const handlerName = body.handler_name?.trim();
   if (handlerName) {
-    const resolved = await resolveOrCreateHandler(admin, handlerName);
-    handlerId = resolved.id;
-    if (resolved.error) {
-      warnings.push(
-        `handler_name "${handlerName}": ${resolved.error} - handler_id left unset`,
-      );
-    } else if (resolved.created) {
-      warnings.push(
-        `created a new profile for handler_name "${handlerName}" - no login until a manager sets a real email`,
-      );
-    }
+    handlerId = handlers.ids.get(handlerName) ?? null;
+    const warning = handlers.warnings.get(handlerName);
+    if (warning) warnings.push(warning);
   }
 
   const sourceFields = {
@@ -171,13 +211,15 @@ export async function POST(request: Request) {
         readBatch<CaseSyncPayload>(rawBody);
       if (error) return { status: 400, json: { error } };
 
-      // Sequential: each record may create a handler profile, and two
-      // records naming the same missing handler in parallel would both find
-      // nobody and both create one.
-      const results: SyncResult[] = [];
-      for (const record of records) {
-        results.push(await syncOne(record, admin));
-      }
+      const handlers = await resolveHandlers(records, admin);
+
+      // The part that had to be sequential is done. An update and possibly
+      // an insert per case are independent, so several run at once - a
+      // hundred records in strict sequence does not fit inside the forty
+      // seconds Make waits.
+      const results = await mapWithConcurrency(records, 8, (record) =>
+        syncOne(record, admin, handlers),
+      );
 
       // One record answers exactly as before, so the scenario sending that
       // shape today needs no change.
