@@ -1,4 +1,6 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { runIncomingWebhook } from "@/lib/webhook-handler";
+import { readBatch, summarize, type BatchOutcome } from "@/lib/webhook-batch";
 import { resolveOrCreateHandler } from "@/lib/handler-resolution";
 import type { SpouseDetails } from "@/types/database";
 
@@ -73,91 +75,136 @@ function openingStage(caseNature: string | null | undefined): string | null {
   return null;
 }
 
+interface SyncResult extends BatchOutcome {
+  case_id?: string;
+  warnings: string[];
+  httpStatus: number;
+}
+
+async function syncOne(
+  body: CaseSyncPayload,
+  admin: SupabaseClient,
+): Promise<SyncResult> {
+  const warnings: string[] = [];
+  const caseNumber = body.case_number?.trim();
+  const ref = caseNumber ?? "?";
+
+  if (!caseNumber) {
+    return { ref, status: "error", httpStatus: 400, warnings, message: "case_number is required" };
+  }
+  if (!body.case_name?.trim()) {
+    return { ref, status: "error", httpStatus: 400, warnings, message: "case_name is required" };
+  }
+
+  let handlerId: string | null = null;
+  const handlerName = body.handler_name?.trim();
+  if (handlerName) {
+    const resolved = await resolveOrCreateHandler(admin, handlerName);
+    handlerId = resolved.id;
+    if (resolved.error) {
+      warnings.push(
+        `handler_name "${handlerName}": ${resolved.error} - handler_id left unset`,
+      );
+    } else if (resolved.created) {
+      warnings.push(
+        `created a new profile for handler_name "${handlerName}" - no login until a manager sets a real email`,
+      );
+    }
+  }
+
+  const sourceFields = {
+    case_name: body.case_name.trim(),
+    opened_date: body.opened_date ?? null,
+    case_type: body.case_type ?? null,
+    case_nature: body.case_nature ?? null,
+    handler_id: handlerId,
+    external_ref: body.external_ref ?? null,
+    status: body.status ?? null,
+    team: body.team ?? null,
+    client_id_number: body.client_id_number ?? null,
+    client_phone: body.client_phone ?? null,
+    client_email: body.client_email ?? null,
+    client_address: body.client_address ?? null,
+    spouse_details: body.spouse_details ?? null,
+    source_updated_at: body.source_updated_at ?? new Date().toISOString(),
+    status_changed_at: body.status_changed_at ?? null,
+  };
+
+  const { data: updated, error: updateError } = await admin
+    .from("cases")
+    .update(sourceFields)
+    .eq("case_number", caseNumber)
+    .select("id");
+
+  if (updateError) {
+    return { ref, status: "error", httpStatus: 500, warnings, message: updateError.message };
+  }
+
+  if (updated && updated.length > 0) {
+    return { ref, status: "ok", httpStatus: 200, warnings, case_id: updated[0].id };
+  }
+
+  const { data: inserted, error: insertError } = await admin
+    .from("cases")
+    .insert({
+      case_number: caseNumber,
+      ...sourceFields,
+      case_stage: openingStage(sourceFields.case_nature),
+    })
+    .select("id")
+    .single();
+
+  if (insertError) {
+    return { ref, status: "error", httpStatus: 500, warnings, message: insertError.message };
+  }
+
+  return { ref, status: "ok", httpStatus: 200, warnings, case_id: inserted.id };
+}
+
 export async function POST(request: Request) {
   return runIncomingWebhook(
     "case_sync",
     request,
     process.env.MAKE_CASE_SYNC_WEBHOOK_SECRET,
     async (rawBody, admin) => {
-      const body = rawBody as CaseSyncPayload;
+      const { records, batched, warnings, error } =
+        readBatch<CaseSyncPayload>(rawBody);
+      if (error) return { status: 400, json: { error } };
 
-      const caseNumber = body.case_number?.trim();
-      if (!caseNumber) {
-        return { status: 400, json: { error: "case_number is required" } };
-      }
-      if (!body.case_name?.trim()) {
-        return { status: 400, json: { error: "case_name is required" } };
+      // Sequential: each record may create a handler profile, and two
+      // records naming the same missing handler in parallel would both find
+      // nobody and both create one.
+      const results: SyncResult[] = [];
+      for (const record of records) {
+        results.push(await syncOne(record, admin));
       }
 
-      const warnings: string[] = [];
-      let handlerId: string | null = null;
-      const handlerName = body.handler_name?.trim();
-      if (handlerName) {
-        const resolved = await resolveOrCreateHandler(admin, handlerName);
-        handlerId = resolved.id;
-        if (resolved.error) {
-          warnings.push(
-            `handler_name "${handlerName}": ${resolved.error} - handler_id left unset`,
-          );
-        } else if (resolved.created) {
-          warnings.push(
-            `created a new profile for handler_name "${handlerName}" - no login until a manager sets a real email`,
-          );
+      // One record answers exactly as before, so the scenario sending that
+      // shape today needs no change.
+      if (!batched) {
+        const only = results[0];
+        if (only.status === "error") {
+          return { status: only.httpStatus, json: { error: only.message } };
         }
-      }
-
-      const sourceFields = {
-        case_name: body.case_name.trim(),
-        opened_date: body.opened_date ?? null,
-        case_type: body.case_type ?? null,
-        case_nature: body.case_nature ?? null,
-        handler_id: handlerId,
-        external_ref: body.external_ref ?? null,
-        status: body.status ?? null,
-        team: body.team ?? null,
-        client_id_number: body.client_id_number ?? null,
-        client_phone: body.client_phone ?? null,
-        client_email: body.client_email ?? null,
-        client_address: body.client_address ?? null,
-        spouse_details: body.spouse_details ?? null,
-        source_updated_at: body.source_updated_at ?? new Date().toISOString(),
-        status_changed_at: body.status_changed_at ?? null,
-      };
-
-      const { data: updated, error: updateError } = await admin
-        .from("cases")
-        .update(sourceFields)
-        .eq("case_number", caseNumber)
-        .select("id");
-
-      if (updateError) {
-        return { status: 500, json: { error: updateError.message } };
-      }
-
-      if (updated && updated.length > 0) {
         return {
           status: 200,
-          json: { status: "ok", case_id: updated[0].id, warnings },
+          json: { status: "ok", case_id: only.case_id, warnings: only.warnings },
         };
       }
 
-      const { data: inserted, error: insertError } = await admin
-        .from("cases")
-        .insert({
-          case_number: caseNumber,
-          ...sourceFields,
-          case_stage: openingStage(sourceFields.case_nature),
-        })
-        .select("id")
-        .single();
-
-      if (insertError) {
-        return { status: 500, json: { error: insertError.message } };
-      }
-
+      const failures = results.filter((r) => r.status === "error");
       return {
         status: 200,
-        json: { status: "ok", case_id: inserted.id, warnings },
+        json: {
+          status: "ok",
+          ...summarize(results),
+          // every record's warnings, flattened - a created handler profile
+          // is the thing worth noticing in a sweep, and burying it per-row
+          // would mean nobody ever reads it
+          warnings: [...warnings, ...results.flatMap((r) => r.warnings)],
+          failures: failures.map((f) => ({ ref: f.ref, message: f.message })),
+        },
+        logBody: { batch: records.length },
       };
     },
   );
