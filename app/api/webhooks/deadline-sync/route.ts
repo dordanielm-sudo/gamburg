@@ -3,6 +3,7 @@ import { runIncomingWebhook } from "@/lib/webhook-handler";
 import {
   readBatch,
   summarize,
+  mapWithConcurrency,
   type BatchOutcome,
 } from "@/lib/webhook-batch";
 
@@ -40,6 +41,7 @@ interface SyncResult extends BatchOutcome {
 async function syncOne(
   body: DeadlineSyncPayload,
   admin: SupabaseClient,
+  caseIds: Map<string, string>,
 ): Promise<SyncResult> {
   const caseNumber = body.case_number?.trim();
   const sourceFieldName = body.source_field_name?.trim();
@@ -60,13 +62,8 @@ async function syncOne(
     return { ref, status: "skipped", message: "no due_date" };
   }
 
-  const { data: caseRow, error: caseError } = await admin
-    .from("cases")
-    .select("id")
-    .eq("case_number", caseNumber)
-    .maybeSingle();
-  if (caseError) return { ref, status: "error", message: caseError.message };
-  if (!caseRow) {
+  const caseId = caseIds.get(caseNumber);
+  if (!caseId) {
     return {
       ref,
       status: "error",
@@ -80,7 +77,7 @@ async function syncOne(
   const { data: updated, error: updateError } = await admin
     .from("case_deadlines")
     .update({ label, due_date: dueDate, page_name: pageName })
-    .eq("case_id", caseRow.id)
+    .eq("case_id", caseId)
     .eq("source_field_name", sourceFieldName)
     .select("id");
   if (updateError) {
@@ -93,7 +90,7 @@ async function syncOne(
   const { data: inserted, error: insertError } = await admin
     .from("case_deadlines")
     .insert({
-      case_id: caseRow.id,
+      case_id: caseId,
       source_field_name: sourceFieldName,
       page_name: pageName,
       label,
@@ -118,14 +115,33 @@ export async function POST(request: Request) {
         readBatch<DeadlineSyncPayload>(rawBody);
       if (error) return { status: 400, json: { error } };
 
-      // Sequential on purpose. Each record reads its case and then writes,
-      // and a hundred of those in parallel is a hundred connections against
-      // one small Postgres instance for no gain - the sweep is not waiting
-      // on us, it runs on a schedule.
-      const results: SyncResult[] = [];
-      for (const record of records) {
-        results.push(await syncOne(record, admin));
+      // Every record's case is looked up once, here, instead of once per
+      // record: a batch is usually many fields of the same few cases, so
+      // this is a handful of ids rather than a hundred round trips.
+      const caseNumbers = [
+        ...new Set(
+          records
+            .map((r) => r.case_number?.trim())
+            .filter((n): n is string => Boolean(n)),
+        ),
+      ];
+      const caseIds = new Map<string, string>();
+      if (caseNumbers.length > 0) {
+        const { data } = await admin
+          .from("cases")
+          .select("id, case_number")
+          .in("case_number", caseNumbers)
+          .returns<{ id: string; case_number: string }[]>();
+        for (const row of data ?? []) caseIds.set(row.case_number, row.id);
       }
+
+      // What is left per record is an update and possibly an insert, which
+      // are independent of one another - so several run at once rather than
+      // one after another. Make gives up waiting at forty seconds, and a
+      // hundred records in strict sequence does not fit inside that.
+      const results = await mapWithConcurrency(records, 8, (record) =>
+        syncOne(record, admin, caseIds),
+      );
 
       // One record keeps the original reply exactly, so the scenario that
       // sends that shape today needs no change at all.

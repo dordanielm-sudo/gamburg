@@ -116,3 +116,36 @@ export function summarize(outcomes: BatchOutcome[]) {
     failed: outcomes.filter((o) => o.status === "error").length,
   };
 }
+
+// Runs an async operation over many items with a ceiling on how many are in
+// flight at once.
+//
+// A batch endpoint that awaits each record in turn spends the whole call
+// waiting on round trips: at four or five queries per record, a hundred
+// records is five hundred sequential trips, and Make gives up at forty
+// seconds. Unbounded parallelism is the other extreme - a hundred records
+// at once is a hundred connections against one small Postgres instance.
+//
+// Order of results matches the order of items, so a caller can still pair
+// them with what it sent.
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+
+  async function worker() {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+  return results;
+}

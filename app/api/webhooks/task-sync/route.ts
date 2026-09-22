@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runIncomingWebhook } from "@/lib/webhook-handler";
-import { readBatch, summarize, type BatchOutcome } from "@/lib/webhook-batch";
+import {
+  readBatch,
+  summarize,
+  mapWithConcurrency,
+  type BatchOutcome,
+} from "@/lib/webhook-batch";
 import { resolveOrCreateHandler } from "@/lib/handler-resolution";
 
 // Import of tasks (משימות) from עדכנית, mirroring case-sync. The
@@ -55,9 +60,21 @@ interface SyncResult extends BatchOutcome {
   httpStatus: number;
 }
 
+// Everything a record needs that is the same for every record in the batch,
+// or shared between several of them. Resolved once before the loop rather
+// than re-queried per record: at four or five round trips each, a hundred
+// records took longer than Make waits.
+interface BatchContext {
+  caseIds: Map<string, string>;
+  handlerIds: Map<string, string | null>;
+  handlerWarnings: Map<string, string>;
+  managerId: string | null;
+}
+
 async function syncOne(
   body: TaskSyncPayload,
   admin: SupabaseClient,
+  ctx: BatchContext,
 ): Promise<SyncResult> {
   const warnings: string[] = [];
   const sourceTaskId = body.source_task_id?.trim();
@@ -74,15 +91,8 @@ async function syncOne(
     };
   }
 
-  const { data: caseRow, error: caseError } = await admin
-    .from("cases")
-    .select("id")
-    .eq("case_number", caseNumber)
-    .maybeSingle();
-  if (caseError) {
-    return { ref, status: "error", httpStatus: 500, warnings, message: caseError.message };
-  }
-  if (!caseRow) {
+  const caseId = ctx.caseIds.get(caseNumber);
+  if (!caseId) {
     return {
       ref,
       status: "error",
@@ -95,22 +105,11 @@ async function syncOne(
   const handlerName = body.handler_name?.trim().split(",")[0]?.trim();
   let assignedTo: string | null = null;
   if (handlerName) {
-    const resolved = await resolveOrCreateHandler(admin, handlerName);
-    assignedTo = resolved.id;
-    if (resolved.error) {
-      warnings.push(
-        `handler_name "${handlerName}": ${resolved.error} - falling back to manager`,
-      );
-    } else if (resolved.created) {
-      warnings.push(
-        `created a new profile for handler_name "${handlerName}" - no login until a manager sets a real email`,
-      );
-    }
+    assignedTo = ctx.handlerIds.get(handlerName) ?? null;
+    const warning = ctx.handlerWarnings.get(handlerName);
+    if (warning) warnings.push(warning);
   }
-  if (!assignedTo) {
-    const managerResolution = await resolveOrCreateHandler(admin, "מנהל");
-    assignedTo = managerResolution.id;
-  }
+  if (!assignedTo) assignedTo = ctx.managerId;
   if (!assignedTo) {
     return {
       ref,
@@ -121,12 +120,7 @@ async function syncOne(
     };
   }
 
-  const { data: manager } = await admin
-    .from("profiles")
-    .select("id")
-    .eq("role", "manager")
-    .maybeSingle();
-  const createdBy = manager?.id ?? assignedTo;
+  const createdBy = ctx.managerId ?? assignedTo;
 
   const statusName = body.status_name?.trim();
   const status = (statusName && STATUS_MAP[statusName]) || "open";
@@ -143,7 +137,7 @@ async function syncOne(
   const taskFields = {
     subject: subject ?? text ?? sourceTaskId,
     text: subject ? text : null,
-    case_id: caseRow.id,
+    case_id: caseId,
     assigned_to: assignedTo,
     created_by: createdBy,
     status,
@@ -181,6 +175,68 @@ async function syncOne(
   return { ref, status: "ok", httpStatus: 200, warnings, task_id: inserted.id };
 }
 
+// One query per kind of lookup instead of one per record. The handler
+// resolution stays sequential and deduplicated by name: two records naming
+// the same missing person in parallel would each find nobody and each create
+// a profile, which is the race the per-record loop was guarding against.
+async function buildContext(
+  records: TaskSyncPayload[],
+  admin: SupabaseClient,
+): Promise<BatchContext> {
+  const caseNumbers = [
+    ...new Set(
+      records
+        .map((r) => r.case_number?.trim())
+        .filter((n): n is string => Boolean(n)),
+    ),
+  ];
+
+  const caseIds = new Map<string, string>();
+  if (caseNumbers.length > 0) {
+    const { data } = await admin
+      .from("cases")
+      .select("id, case_number")
+      .in("case_number", caseNumbers)
+      .returns<{ id: string; case_number: string }[]>();
+    for (const row of data ?? []) caseIds.set(row.case_number, row.id);
+  }
+
+  const { data: manager } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("role", "manager")
+    .maybeSingle();
+  const managerId = (manager?.id as string | undefined) ?? null;
+
+  const handlerNames = [
+    ...new Set(
+      records
+        .map((r) => r.handler_name?.trim().split(",")[0]?.trim())
+        .filter((n): n is string => Boolean(n)),
+    ),
+  ];
+
+  const handlerIds = new Map<string, string | null>();
+  const handlerWarnings = new Map<string, string>();
+  for (const name of handlerNames) {
+    const resolved = await resolveOrCreateHandler(admin, name);
+    handlerIds.set(name, resolved.id);
+    if (resolved.error) {
+      handlerWarnings.set(
+        name,
+        `handler_name "${name}": ${resolved.error} - falling back to manager`,
+      );
+    } else if (resolved.created) {
+      handlerWarnings.set(
+        name,
+        `created a new profile for handler_name "${name}" - no login until a manager sets a real email`,
+      );
+    }
+  }
+
+  return { caseIds, handlerIds, handlerWarnings, managerId };
+}
+
 export async function POST(request: Request) {
   return runIncomingWebhook(
     "task_sync",
@@ -191,13 +247,17 @@ export async function POST(request: Request) {
         readBatch<TaskSyncPayload>(rawBody);
       if (error) return { status: 400, json: { error } };
 
-      // Sequential: each record may create a handler profile, and two
-      // records naming the same missing handler in parallel would both find
-      // nobody and both create one.
-      const results: SyncResult[] = [];
-      for (const record of records) {
-        results.push(await syncOne(record, admin));
-      }
+      const ctx = await buildContext(records, admin);
+
+      // The handler resolution that had to be sequential already happened,
+      // once per distinct name, inside buildContext. What is left per record
+      // is an update and possibly an insert, which are independent - so they
+      // run several at a time rather than one after another. Eight is enough
+      // to stay well inside Make's forty-second wait without opening a
+      // connection per record against one small Postgres instance.
+      const results = await mapWithConcurrency(records, 8, (record) =>
+        syncOne(record, admin, ctx),
+      );
 
       if (!batched) {
         const only = results[0];
