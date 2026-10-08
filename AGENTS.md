@@ -98,6 +98,31 @@ Values shared by both sides go in their own module - see
 same query run directly against PostgREST returns the row, suspect the
 filter value before suspecting the database.
 
+## "The list isn't empty" is not a sanity check on a destructive sweep
+`task-reconcile` closes every synced task that is open here but absent from
+the list of ids עדכנית says are still open. It guarded against the obvious
+disaster - an empty list meaning "close everything" - and rejected one. The
+first real run still closed all 1462 open tasks, because Make sent the ids
+as a single comma-joined element: `["12,34,56,..."]`. Length 1. Not empty.
+Matched nothing.
+
+Length is the wrong measure. What a destructive sweep has to check is how
+much of the data it is about to change: `task-reconcile` now refuses when
+more than half the open synced tasks would close, and reports the parsed id
+count in the refusal so the caller can see whether the list arrived as
+hundreds of ids or as one blob. A legitimate mass close needs
+`allow_mass_close: true`, sent on a second call after reading that number.
+
+Recovery, if it happens again on any sweep of this shape: a single run
+stamps every row it touches with the same `completed_at`, and the filter was
+`status = 'open'`, so previously-closed rows are untouched. Group by
+`completed_at` to find the run and reverse exactly it - nothing wider.
+
+Related: this was the third time Make delivered an array as a comma-joined
+string. `readBatch` in `lib/webhook-batch.ts` and `readIds` in the reconcile
+route both now accept it and warn. Assume any new field Make maps as a list
+will arrive in one of those wrong shapes at least once.
+
 ## An export view that lacks a column silently sends nothing, not an error
 684 cases sat with no handler for weeks. The auto-provisioning in
 `lib/handler-resolution.ts` was not failing - it was never called, because
