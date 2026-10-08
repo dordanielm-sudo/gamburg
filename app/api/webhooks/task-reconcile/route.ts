@@ -39,15 +39,54 @@ interface TaskReconcilePayload {
 // the list arrived broken, not that the firm finished its work.
 const MASS_CLOSE_RATIO = 0.5;
 
+// Keys an id has arrived under. An Array aggregator in Make emits whole
+// bundles - [{"Counter":1332}, ...] - not bare values, so the field name
+// has to be recognised.
+const ID_KEYS = ["Counter", "source_task_id", "task_id", "id", "value"];
+
+// One element of the list, reduced to the id string it carries, or null if
+// it carries no readable one. Null matters a great deal here: an id this
+// function fails to read is a task that IS open in עדכנית but looks absent
+// to the reconcile, and would be wrongly closed. So the caller refuses the
+// whole call on any null rather than quietly dropping it.
+function entryToId(entry: unknown): string | null {
+  if (entry === null || entry === undefined) return null;
+
+  if (typeof entry === "object" && !Array.isArray(entry)) {
+    const obj = entry as Record<string, unknown>;
+    for (const key of ID_KEYS) {
+      const v = obj[key];
+      if (v !== undefined && v !== null && String(v).trim().length > 0) {
+        return String(v).trim();
+      }
+    }
+    // A single-field bundle under some other name still has exactly one
+    // value to take, and taking it beats refusing over a column alias.
+    const values = Object.values(obj).filter(
+      (v) => v !== null && v !== undefined && String(v).trim().length > 0,
+    );
+    if (values.length === 1) return String(values[0]).trim();
+    return null;
+  }
+
+  const id = String(entry).trim();
+  return id.length > 0 ? id : null;
+}
+
 // Make sends this field in whatever shape the aggregator happened to
-// produce, and three scenarios so far have each found a different wrong
-// one. Same tolerance as readBatch in lib/webhook-batch.ts: the data is
-// there and usable, so read it and warn, rather than reject a correct
-// list for its punctuation.
+// produce, and every attempt so far has found a different wrong one: a
+// comma-joined string, one element holding all the ids, and an array of
+// whole bundles. Same tolerance as readBatch in lib/webhook-batch.ts - the
+// data is there and usable, so read it and warn, rather than reject a
+// correct list for its packaging.
 //
 // Splitting elements on commas is safe here because a source task id is
 // עדכנית's numeric Counter - it never contains one.
-function readIds(input: unknown): { ids: string[]; warnings: string[] } {
+function readIds(input: unknown): {
+  ids: string[];
+  warnings: string[];
+  unreadable: number;
+} {
   const warnings: string[] = [];
   let value = input;
 
@@ -60,7 +99,7 @@ function readIds(input: unknown): { ids: string[]; warnings: string[] } {
           "open_source_task_ids arrived as a JSON string rather than an array - the mapped field is wrapped in quotes in the request body",
         );
       } catch {
-        return { ids: [], warnings };
+        return { ids: [], warnings, unreadable: 0 };
       }
     } else {
       value = trimmed.split(",");
@@ -70,17 +109,34 @@ function readIds(input: unknown): { ids: string[]; warnings: string[] } {
     }
   }
 
-  if (!Array.isArray(value)) return { ids: [], warnings };
+  if (!Array.isArray(value)) return { ids: [], warnings, unreadable: 0 };
 
   const ids: string[] = [];
   let splitAny = false;
+  let unwrappedAny = false;
+  let unreadable = 0;
+
   for (const entry of value) {
-    const parts = String(entry).split(",");
+    const isObject = typeof entry === "object" && entry !== null && !Array.isArray(entry);
+    const raw = entryToId(entry);
+    if (raw === null) {
+      unreadable++;
+      continue;
+    }
+    if (isObject) unwrappedAny = true;
+
+    const parts = raw.split(",");
     if (parts.length > 1) splitAny = true;
     for (const part of parts) {
       const id = part.trim();
       if (id.length > 0) ids.push(id);
     }
+  }
+
+  if (unwrappedAny) {
+    warnings.push(
+      'open_source_task_ids held objects rather than ids - the id was read out of each one, but an Array aggregator emits whole bundles; use map(array; "Counter") to send a flat list',
+    );
   }
   if (splitAny) {
     warnings.push(
@@ -88,7 +144,7 @@ function readIds(input: unknown): { ids: string[]; warnings: string[] } {
     );
   }
 
-  return { ids: [...new Set(ids)], warnings };
+  return { ids: [...new Set(ids)], warnings, unreadable };
 }
 
 export async function POST(request: Request) {
@@ -99,8 +155,22 @@ export async function POST(request: Request) {
     async (rawBody, admin) => {
       const body = rawBody as TaskReconcilePayload;
 
-      const { ids, warnings } = readIds(body.open_source_task_ids);
+      const { ids, warnings, unreadable } = readIds(body.open_source_task_ids);
       const openIds = new Set(ids);
+
+      // An element we could not read an id out of is not a row to skip: it
+      // is a task that is open in עדכנית and would be treated as absent,
+      // and closed. Better to fail the whole call and fix the mapping.
+      if (unreadable > 0) {
+        return {
+          status: 400,
+          json: {
+            error: `${unreadable} of ${unreadable + openIds.size} entries in open_source_task_ids carried no readable id - refusing, because each unreadable entry is a task that would be wrongly closed. Send a flat list of ids.`,
+            warnings,
+          },
+        };
+      }
+
       if (openIds.size === 0) {
         return {
           status: 400,
