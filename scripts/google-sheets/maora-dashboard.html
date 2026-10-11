@@ -9,10 +9,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700&display=swap" rel="stylesheet">
 <script>
   // ------------------------------------------------------------------ הגדרות
-  // קישור ה-CSV של הלשונית "נתונים לאתר": קובץ ← שיתוף ← פרסום באינטרנט ←
-  // בוחרים את הלשונית "נתונים לאתר" ואת הפורמט CSV ← פרסום ← מעתיקים לכאן.
-  // ריק = נתוני דוגמה.
-  const CSV_URL = '';
+  // קישור ה-CSV של "נתונים לאתר", מוצפן בשם המשתמש והסיסמה. לא מדביקים
+  // כאן את הקישור עצמו: פותחים את הדף כשהשדה ריק, ממלאים את מסך ההגדרה,
+  // ומדביקים כאן את הקוד שהוא מייצר. הסיסמה עצמה לא נשמרת בקובץ.
+  const ENCRYPTED_SOURCE = '';
   const TITLE = 'דשבורד קמפיינים';
   const TOP_KEYWORDS = 15;
 </script>
@@ -135,17 +135,62 @@
   #tip b { display: block; margin-bottom: 2px; }
 
   .loading { opacity: 0.55; transition: opacity 0.2s; }
+
+  .gate { max-width: 400px; margin: 10vh auto 0; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px 24px; }
+  .gate h1 { font-size: 22px; margin-bottom: 4px; }
+  .gate p { margin: 0 0 18px; color: var(--text-2); font-size: 14px; }
+  .gate label { display: block; font-size: 13px; color: var(--text-2); font-weight: 500; margin-bottom: 12px; }
+  .gate input[type=text], .gate input[type=password], .gate input[type=url], .gate textarea {
+    display: block; width: 100%; margin-top: 4px; font: inherit; font-size: 15px; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+  }
+  .gate textarea { direction: ltr; font-family: ui-monospace, monospace; font-size: 12px; height: 92px; resize: vertical; }
+  .gate .row { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+  .gate .row input { margin: 0; }
+  button {
+    font: inherit; font-size: 15px; font-weight: 500; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 16px;
+  }
+  .gate button { width: 100%; margin-top: 6px; }
+  button.ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border); font-size: 13px; padding: 6px 12px; }
+  .err { color: #c62f2f; font-size: 13px; min-height: 20px; margin-top: 8px; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <div class="wrap">
+  <form class="gate" id="login" hidden autocomplete="on">
+    <h1 class="title"></h1>
+    <p>יש להתחבר כדי לצפות בדשבורד</p>
+    <label>שם משתמש<input type="text" id="user" name="username" autocomplete="username" required></label>
+    <label>סיסמה<input type="password" id="pass" name="password" autocomplete="current-password" required></label>
+    <label class="row"><input type="checkbox" id="remember"> לזכור אותי במכשיר הזה</label>
+    <button type="submit" id="loginBtn">כניסה</button>
+    <div class="err" id="loginErr"></div>
+  </form>
+
+  <form class="gate" id="setup" hidden>
+    <h1>הגדרת גישה לדשבורד</h1>
+    <p>המסך הזה מופיע רק כל עוד <code>ENCRYPTED_SOURCE</code> בקובץ ריק.</p>
+    <label>קישור ה-CSV המפורסם של "נתונים לאתר"<input type="url" id="sUrl" required></label>
+    <label>שם משתמש לכניסה<input type="text" id="sUser" required></label>
+    <label>סיסמה לכניסה<input type="password" id="sPass" required></label>
+    <button type="submit">צור קוד</button>
+    <label id="sOutWrap" hidden style="margin-top:16px">הדבק את הקוד הזה בין הגרשיים של <code>ENCRYPTED_SOURCE</code> בראש הקובץ:
+      <textarea id="sOut" readonly></textarea></label>
+    <div class="err" id="setupErr"></div>
+    <button type="button" class="ghost" id="showDemo">הצג נתוני דוגמה</button>
+  </form>
+
+<div id="dash" hidden>
   <header>
     <div>
       <h1 id="title"></h1>
       <div class="meta" id="updated">טוען נתונים...</div>
     </div>
+    <button type="button" class="ghost" id="logout">התנתקות</button>
   </header>
-  <div class="demo" id="demo">מוצגים נתוני דוגמה. כדי לחבר את הנתונים האמיתיים, הדבק את קישור ה-CSV בשדה <code>CSV_URL</code> בראש הקובץ.</div>
+  <div class="demo" id="demo">מוצגים נתוני דוגמה.</div>
 
   <div class="filters">
     <label>מחודש<select id="from"></select></label>
@@ -177,12 +222,13 @@
     </div>
   </div>
 </div>
+</div>
 <div id="tip"></div>
 
 <script>
 const ALL = '__all__';
 const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-const CACHE_KEY = 'maora-dashboard:' + CSV_URL;
+let cacheKey = '';
 const $ = id => document.getElementById(id);
 
 // ------------------------------------------------------------------ פורמטים
@@ -239,10 +285,10 @@ function toDataset(rows) {
 }
 
 function readCache() {
-  try { const c = JSON.parse(localStorage.getItem(CACHE_KEY)); return c && c.records ? c : null; } catch { return null; }
+  try { const c = JSON.parse(localStorage.getItem(cacheKey)); return c && c.records ? c : null; } catch { return null; }
 }
 function writeCache(ds) {
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(ds)); } catch {}
+  try { localStorage.setItem(cacheKey, JSON.stringify(ds)); } catch {}
 }
 
 // ------------------------------------------------------------------ חישובים (אותן הגדרות כמו בגיליון)
@@ -459,14 +505,46 @@ $('title').textContent = TITLE;
 document.title = TITLE;
 ['from', 'to', 'campaign'].forEach(id => $(id).addEventListener('change', render));
 
-if (!CSV_URL) {
-  $('demo').classList.add('on');
-  setData(demoData());
-} else {
+// ------------------------------------------------------------------ סיסמה
+// הקישור לנתונים שמור בקובץ רק כשהוא מוצפן (AES-GCM) במפתח שנגזר משם המשתמש
+// והסיסמה. בלי הסיסמה אי אפשר לדעת מהקוד מאיפה הנתונים מגיעים, ושם משתמש
+// או סיסמה שגויים פשוט נכשלים בפענוח - אין השוואה לסיסמה ששמורה בקובץ.
+const AUTH_KEY = 'maora-dashboard:auth';
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
+
+async function deriveKey(user, pass, salt) {
+  const material = await crypto.subtle.importKey('raw',
+    new TextEncoder().encode(user.trim().toLowerCase() + '\u0000' + pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' },
+    material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+
+async function encryptSource(url, user, pass) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(user, pass, salt);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(url));
+  return [b64(salt), b64(iv), b64(ct)].join('.');
+}
+
+async function decryptSource(blob, user, pass) {
+  const [salt, iv, ct] = blob.split('.').map(unb64);
+  const key = await deriveKey(user, pass, salt);
+  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct));
+}
+
+function storedUrl() {
+  try { return sessionStorage.getItem(AUTH_KEY) || localStorage.getItem(AUTH_KEY); } catch { return null; }
+}
+
+function start(url) {
+  $('login').hidden = true; $('setup').hidden = true; $('dash').hidden = false;
+  cacheKey = 'maora-dashboard:data:' + url;
   // מציגים מיד את הנתונים מהביקור הקודם, ומחליפים כשהטריים מגיעים.
   const cached = readCache();
   if (cached) setData(cached);
-  fetch(CSV_URL, { cache: 'no-cache' })
+  fetch(url, { cache: 'no-cache' })
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
     .then(text => { const ds = toDataset(parseCSV(text)); writeCache(ds); setData(ds); })
     .catch(err => {
@@ -474,6 +552,64 @@ if (!CSV_URL) {
         ? `לא ניתן לרענן כרגע - מוצגים הנתונים האחרונים (${cached.updated})`
         : 'שגיאה בטעינת הנתונים: ' + err.message;
     });
+}
+
+function startDemo() {
+  $('login').hidden = true; $('setup').hidden = true; $('dash').hidden = false;
+  $('demo').classList.add('on');
+  $('logout').hidden = true;
+  setData(demoData());
+}
+
+$('login').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('loginErr').textContent = '';
+  $('loginBtn').disabled = true;
+  try {
+    const url = await decryptSource(ENCRYPTED_SOURCE, $('user').value, $('pass').value);
+    try {
+      ($('remember').checked ? localStorage : sessionStorage).setItem(AUTH_KEY, url);
+    } catch {}
+    start(url);
+  } catch {
+    $('loginErr').textContent = 'שם משתמש או סיסמה שגויים';
+    $('pass').select();
+  } finally {
+    $('loginBtn').disabled = false;
+  }
+});
+
+$('logout').addEventListener('click', () => {
+  try {
+    sessionStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(AUTH_KEY);
+    if (cacheKey) localStorage.removeItem(cacheKey);
+  } catch {}
+  location.reload();
+});
+
+$('setup').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('setupErr').textContent = '';
+  try {
+    const code = await encryptSource($('sUrl').value.trim(), $('sUser').value, $('sPass').value);
+    $('sOut').value = code;
+    $('sOutWrap').hidden = false;
+    $('sOut').select();
+  } catch (err) {
+    $('setupErr').textContent = 'יצירת הקוד נכשלה: ' + err.message;
+  }
+});
+$('showDemo').addEventListener('click', startDemo);
+
+document.querySelectorAll('.gate .title').forEach(el => { el.textContent = TITLE; });
+if (!ENCRYPTED_SOURCE) {
+  $('setup').hidden = false;
+} else if (storedUrl()) {
+  start(storedUrl());
+} else {
+  $('login').hidden = false;
+  $('user').focus();
 }
 </script>
 </body>
