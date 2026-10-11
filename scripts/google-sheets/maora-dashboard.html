@@ -550,7 +550,8 @@ function start(url) {
     .catch(err => {
       $('updated').textContent = cached
         ? `לא ניתן לרענן כרגע - מוצגים הנתונים האחרונים (${cached.updated})`
-        : 'שגיאה בטעינת הנתונים: ' + err.message;
+        : 'שגיאה בטעינת הנתונים (' + err.message + '). בדוק שהלשונית "נתונים לאתר" מפורסמת באינטרנט בפורמט CSV '
+          + 'ושהקוד ב-ENCRYPTED_SOURCE נוצר מקישור הפרסום, לא מכתובת הגיליון.';
     });
 }
 
@@ -592,7 +593,16 @@ $('setup').addEventListener('submit', async e => {
   e.preventDefault();
   $('setupErr').textContent = '';
   try {
-    const code = await encryptSource($('sUrl').value.trim(), $('sUser').value, $('sPass').value);
+    const url = $('sUrl').value.trim();
+    // הטעות הנפוצה: הדבקת הכתובת משורת הכתובת של הגיליון (/edit) במקום
+    // הקישור מחלון "פרסום באינטרנט". Google לא מאפשרת לאתר אחר לקרוא אותה,
+    // והדפדפן מדווח רק "Failed to fetch".
+    if (!/\/spreadsheets\/d\/e\/[^/]+\/pub\?/.test(url) || !/output=csv/.test(url)) {
+      $('setupErr').textContent = 'זה לא קישור "פרסום באינטרנט" בפורמט CSV. הקישור הנכון נראה כך: '
+        + 'https://docs.google.com/spreadsheets/d/e/2PACX-.../pub?gid=...&single=true&output=csv';
+      return;
+    }
+    const code = await encryptSource(url, $('sUser').value, $('sPass').value);
     $('sOut').value = code;
     $('sOutWrap').hidden = false;
     $('sOut').select();
