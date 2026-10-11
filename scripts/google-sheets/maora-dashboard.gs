@@ -50,6 +50,7 @@ const CONFIG = {
 
 const ALL_CAMPAIGNS = 'כל הקמפיינים';
 const FILTER_ROW = 3;
+const SITE_DATA_SHEET_NAME = 'נתונים לאתר';
 const CHART_COLUMN = 12; // L - משמאל לטבלאות (הגיליון מימין לשמאל)
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי',
   'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
@@ -120,12 +121,59 @@ function refreshDashboard() {
     const costs = readCosts();
     ss.toast('בונה את הדשבורד...', 'דשבורד', -1);
     const data = indexData(leads, costs);
+    writeSiteData(ss, data);
     const filters = resolveFilters(readFilters(sheet), data);
     render(sheet, data, filters);
     ss.toast(`הדשבורד עודכן (${leads.rows.length} לידים)`, 'דשבורד', 5);
   } finally {
     lock.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------- נתונים לאתר
+
+/**
+ * כותב ללשונית "נתונים לאתר" סיכום קטן (שורה לכל חודש+קמפיין+מילת מפתח+נציג)
+ * שהאתר (maora-dashboard.html) טוען כ-CSV מפורסם. האתר מסנן ומחשב הכל
+ * בדפדפן, כך שהוא לא מחכה ל-Apps Script ולא נוגע בטבלת הלידים עצמה.
+ * בלשונית אין שמות או ת"ז - רק ספירות וסכומים.
+ */
+function writeSiteData(ss, data) {
+  const groups = new Map();
+  const keywordNames = new Map();
+  const keywordName = kw => {
+    if (!kw) return '';
+    const key = matchKey(kw);
+    if (!keywordNames.has(key)) keywordNames.set(key, kw);
+    return keywordNames.get(key);
+  };
+  const group = (type, month, campaignKey, keyword, rep) => {
+    const id = [type, month, campaignKey, keyword, rep].join('|');
+    if (!groups.has(id)) {
+      groups.set(id, [type, Number(month.replace('-', '')), data.campaignNames.get(campaignKey),
+        keyword, rep, 0, 0, 0, 0]);
+    }
+    return groups.get(id);
+  };
+
+  data.leads.forEach(l => {
+    const g = group('lead', l.month, l.campaignKey, keywordName(l.keyword), l.rep);
+    g[5]++;
+    if (l.sale) g[6]++;
+    g[7] += l.premium;
+  });
+  data.costs.forEach(c => {
+    group('cost', c.month, c.campaignKey, keywordName(c.keyword), '')[8] += c.cost;
+  });
+
+  const tz = Session.getScriptTimeZone();
+  const rows = [['type', 'month', 'campaign', 'keyword', 'rep', 'leads', 'sales', 'premium', 'cost']]
+    .concat([['meta', 0, Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm'), '', '', 0, 0, 0, 0]])
+    .concat(Array.from(groups.values()));
+
+  const sheet = ss.getSheetByName(SITE_DATA_SHEET_NAME) || ss.insertSheet(SITE_DATA_SHEET_NAME);
+  sheet.clearContents();
+  sheet.getRange(1, 1, rows.length, rows[0].length).setNumberFormat('@').setValues(rows);
 }
 
 // ---------------------------------------------------------------- קריאת המקורות
