@@ -114,11 +114,15 @@ function refreshDashboard() {
     const sheet = ss.getSheetByName(CONFIG.DASHBOARD_SHEET_NAME)
       || ss.insertSheet(CONFIG.DASHBOARD_SHEET_NAME, 0);
 
+    ss.toast('קורא את טבלת הלידים...', 'דשבורד', -1);
     const leads = readLeads();
+    ss.toast('קורא את גיליון העלויות...', 'דשבורד', -1);
     const costs = readCosts();
+    ss.toast('בונה את הדשבורד...', 'דשבורד', -1);
     const data = indexData(leads, costs);
     const filters = resolveFilters(readFilters(sheet), data);
     render(sheet, data, filters);
+    ss.toast(`הדשבורד עודכן (${leads.rows.length} לידים)`, 'דשבורד', 5);
   } finally {
     lock.releaseLock();
   }
@@ -631,8 +635,7 @@ function parsePeriod(v) {
   if (v instanceof Date && !isNaN(v)) {
     // לפי אזור הזמן של הקובץ, לא של הסקריפט: ליד מ-01/07 00:02 שעון ישראל
     // הוא עדיין 30/06 ב-UTC.
-    const tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
-    return { month: Utilities.formatDate(v, tz, 'yyyy-MM'), range: null };
+    return { month: Utilities.formatDate(v, spreadsheetTimeZone(), 'yyyy-MM'), range: null };
   }
   const s = normalizeText(v);
   if (!s) return null;
@@ -652,6 +655,14 @@ function parsePeriod(v) {
     return month ? { month, range: null } : null;
   }
   return null;
+}
+
+// נקרא פעם אחת ונשמר: קריאה לשירות של Google לכל שורת ליד הופכת אלפי
+// שורות לדקות של המתנה.
+let cachedTimeZone = null;
+function spreadsheetTimeZone() {
+  if (!cachedTimeZone) cachedTimeZone = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  return cachedTimeZone;
 }
 
 function monthLabel(key) {
