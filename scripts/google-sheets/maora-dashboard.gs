@@ -209,23 +209,40 @@ function siteKey() {
   return key;
 }
 
+// ScriptApp.getService().getUrl() מחזיר לעיתים קרובות את כתובת הבדיקה (/dev),
+// שעובדת רק לעורכי הסקריפט כשהם מחוברים - כל אחד אחר מקבל "לא ניתן לפתוח את
+// הקובץ". לכן מבקשים פעם אחת את כתובת ה-/exec מחלון הפריסה ושומרים אותה.
 function showSiteLink() {
   const ui = SpreadsheetApp.getUi();
-  const base = ScriptApp.getService().getUrl();
+  const props = PropertiesService.getScriptProperties();
+  let base = props.getProperty('WEBAPP_URL');
   if (!base) {
-    ui.alert('הסקריפט עוד לא פורסם כאפליקציית אינטרנט',
-      'ב-Apps Script: פריסה ← פריסה חדשה ← סוג: אפליקציית אינטרנט ← הפעלה בתור: אני ← '
-      + 'למי יש גישה: כל אחד ← פריסה. אחר כך חזור לכאן.', ui.ButtonSet.OK);
-    return;
+    const res = ui.prompt('כתובת אפליקציית האינטרנט',
+      'ב-Apps Script: פריסה ← ניהול פריסות ← מעתיקים את "כתובת URL" שמתחת ל"אפליקציית אינטרנט" '
+      + '(מסתיימת ב-/exec) ומדביקים כאן:', ui.ButtonSet.OK_CANCEL);
+    if (res.getSelectedButton() !== ui.Button.OK) return;
+    base = res.getResponseText().trim().split('?')[0];
+    if (!/^https:\/\/script\.google\.com\/.*\/exec$/.test(base)) {
+      ui.alert('זו לא הכתובת הנכונה', 'הכתובת צריכה להתחיל ב-https://script.google.com/ '
+        + 'ולהסתיים ב-/exec. כתובת שמסתיימת ב-/dev היא כתובת בדיקה ולא תעבוד באתר.', ui.ButtonSet.OK);
+      return;
+    }
+    props.setProperty('WEBAPP_URL', base);
   }
   const url = `${base}?key=${siteKey()}`;
   const html = HtmlService.createHtmlOutput(
     '<div dir="rtl" style="font-family:Arial;font-size:14px">'
-    + '<p>הדבק את הקישור הזה במסך ההגדרה של האתר:</p>'
-    + `<textarea style="width:100%;height:90px;direction:ltr" onclick="this.select()" readonly>${url}</textarea>`
-    + '<p style="color:#777">זה הקישור לנתונים - אל תשלח אותו ללקוח, רק את כתובת האתר.</p></div>')
-    .setWidth(520).setHeight(230);
+    + '<p>1. פתח את הקישור בחלון גלישה בסתר - צריך להופיע טקסט שמתחיל ב-<b>type,month</b>.</p>'
+    + '<p>2. הדבק אותו במסך ההגדרה של האתר.</p>'
+    + `<textarea style="width:100%;height:80px;direction:ltr" onclick="this.select()" readonly>${url}</textarea>`
+    + '<p style="color:#777">אל תשלח את הקישור הזה ללקוח - רק את כתובת האתר. '
+    + 'כתובת שגויה? <a href="#" onclick="google.script.run.withSuccessHandler(google.script.host.close).resetSiteLink();return false">איפוס</a></p></div>')
+    .setWidth(540).setHeight(260);
   ui.showModalDialog(html, 'קישור לאתר');
+}
+
+function resetSiteLink() {
+  PropertiesService.getScriptProperties().deleteProperty('WEBAPP_URL');
 }
 
 // ---------------------------------------------------------------- קריאת המקורות
