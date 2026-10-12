@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700&display=swap" rel="stylesheet">
 <script>
   // ------------------------------------------------------------------ הגדרות
-  // קישור ה-CSV של "נתונים לאתר", מוצפן בשם המשתמש והסיסמה. לא מדביקים
+  // הקישור לנתונים (מתפריט "קישור לאתר" בגיליון), מוצפן בשם המשתמש והסיסמה. לא מדביקים
   // כאן את הקישור עצמו: פותחים את הדף כשהשדה ריק, ממלאים את מסך ההגדרה,
   // ומדביקים כאן את הקוד שהוא מייצר. הסיסמה עצמה לא נשמרת בקובץ.
   const ENCRYPTED_SOURCE = '';
@@ -179,7 +179,7 @@
   <form class="gate" id="setup" hidden>
     <h1>הגדרת גישה לדשבורד</h1>
     <p>המסך הזה מופיע רק כל עוד <code>ENCRYPTED_SOURCE</code> בקובץ ריק.</p>
-    <label>קישור ה-CSV המפורסם של "נתונים לאתר"<input type="url" id="sUrl" required></label>
+    <label>הקישור מתפריט "📊 דשבורד ← קישור לאתר"<input type="url" id="sUrl" required></label>
     <label>שם משתמש לכניסה<input type="text" id="sUser" required></label>
     <label>סיסמה לכניסה<input type="password" id="sPass" required></label>
     <button type="submit">צור קוד</button>
@@ -618,12 +618,15 @@ function start(url) {
   if (cached) setData(cached);
   fetch(url, { cache: 'no-cache' })
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-    .then(text => { const ds = toDataset(parseCSV(text)); writeCache(ds); setData(ds); })
+    .then(text => {
+      if (text.trim() === 'forbidden') throw new Error('המפתח בקישור לא תקין - צור קישור חדש מתפריט "קישור לאתר"');
+      const ds = toDataset(parseCSV(text)); writeCache(ds); setData(ds);
+    })
     .catch(err => {
       $('updated').textContent = cached
         ? `לא ניתן לרענן כרגע - מוצגים הנתונים האחרונים (${cached.updated})`
-        : 'שגיאה בטעינת הנתונים (' + err.message + '). בדוק שהלשונית "נתונים לאתר" מפורסמת באינטרנט בפורמט CSV '
-          + 'ושהקוד ב-ENCRYPTED_SOURCE נוצר מקישור הפרסום, לא מכתובת הגיליון.';
+        : 'שגיאה בטעינת הנתונים (' + err.message + '). בדוק שהסקריפט פורסם כאפליקציית אינטרנט עם גישה ל"כל אחד" '
+          + 'ושהקוד ב-ENCRYPTED_SOURCE נוצר מהקישור שבתפריט "קישור לאתר".';
     });
 }
 
@@ -666,12 +669,13 @@ $('setup').addEventListener('submit', async e => {
   $('setupErr').textContent = '';
   try {
     const url = $('sUrl').value.trim();
-    // הטעות הנפוצה: הדבקת הכתובת משורת הכתובת של הגיליון (/edit) במקום
-    // הקישור מחלון "פרסום באינטרנט". Google לא מאפשרת לאתר אחר לקרוא אותה,
-    // והדפדפן מדווח רק "Failed to fetch".
-    if (!/\/spreadsheets\/d\/e\/[^/]+\/pub\?/.test(url) || !/output=csv/.test(url)) {
-      $('setupErr').textContent = 'זה לא קישור "פרסום באינטרנט" בפורמט CSV. הקישור הנכון נראה כך: '
-        + 'https://docs.google.com/spreadsheets/d/e/2PACX-.../pub?gid=...&single=true&output=csv';
+    // הטעות הנפוצה: הדבקת הכתובת משורת הכתובת של הגיליון (/edit). Google
+    // לא מאפשרת לאתר אחר לקרוא אותה, והדפדפן מדווח רק "Failed to fetch".
+    const isScript = /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec\?key=\w+/.test(url);
+    const isPublished = /\/spreadsheets\/d\/e\/[^/]+\/pub\?/.test(url) && /output=csv/.test(url);
+    if (!isScript && !isPublished) {
+      $('setupErr').textContent = 'זה לא הקישור הנכון. בקובץ הדשבורד: תפריט 📊 דשבורד ← קישור לאתר, '
+        + 'והקישור משם מתחיל ב-https://script.google.com/macros/s/';
       return;
     }
     const code = await encryptSource(url, $('sUser').value, $('sPass').value);

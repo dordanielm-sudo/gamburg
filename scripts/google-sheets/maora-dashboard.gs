@@ -81,6 +81,7 @@ const FMT = {
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('📊 דשבורד')
     .addItem('רענן עכשיו', 'refreshDashboard')
+    .addItem('קישור לאתר', 'showSiteLink')
     .addSeparator()
     .addItem('התקנה (פעם אחת)', 'setup')
     .addToUi();
@@ -174,6 +175,57 @@ function writeSiteData(ss, data) {
   const sheet = ss.getSheetByName(SITE_DATA_SHEET_NAME) || ss.insertSheet(SITE_DATA_SHEET_NAME);
   sheet.clearContents();
   sheet.getRange(1, 1, rows.length, rows[0].length).setNumberFormat('@').setValues(rows);
+}
+
+/**
+ * האתר קורא את "נתונים לאתר" דרך הסקריפט עצמו (פריסה כאפליקציית אינטרנט),
+ * ולא דרך "פרסום באינטרנט": Google חוסמת לפעמים קריאה של CSV מפורסם מאתר
+ * אחר, ותשובות של Apps Script כן מותרות לקריאה מכל אתר.
+ * הכתובת כוללת מפתח אקראי - בלעדיו מוחזר רק "forbidden".
+ */
+function doGet(e) {
+  const key = e && e.parameter && e.parameter.key;
+  if (key !== siteKey()) {
+    return ContentService.createTextOutput('forbidden').setMimeType(ContentService.MimeType.TEXT);
+  }
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SITE_DATA_SHEET_NAME);
+  const values = sheet ? sheet.getDataRange().getDisplayValues() : [];
+  const csv = values.map(row => row.map(csvCell).join(',')).join('\n');
+  return ContentService.createTextOutput(csv).setMimeType(ContentService.MimeType.CSV);
+}
+
+function csvCell(v) {
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function siteKey() {
+  const props = PropertiesService.getScriptProperties();
+  let key = props.getProperty('SITE_KEY');
+  if (!key) {
+    key = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+    props.setProperty('SITE_KEY', key);
+  }
+  return key;
+}
+
+function showSiteLink() {
+  const ui = SpreadsheetApp.getUi();
+  const base = ScriptApp.getService().getUrl();
+  if (!base) {
+    ui.alert('הסקריפט עוד לא פורסם כאפליקציית אינטרנט',
+      'ב-Apps Script: פריסה ← פריסה חדשה ← סוג: אפליקציית אינטרנט ← הפעלה בתור: אני ← '
+      + 'למי יש גישה: כל אחד ← פריסה. אחר כך חזור לכאן.', ui.ButtonSet.OK);
+    return;
+  }
+  const url = `${base}?key=${siteKey()}`;
+  const html = HtmlService.createHtmlOutput(
+    '<div dir="rtl" style="font-family:Arial;font-size:14px">'
+    + '<p>הדבק את הקישור הזה במסך ההגדרה של האתר:</p>'
+    + `<textarea style="width:100%;height:90px;direction:ltr" onclick="this.select()" readonly>${url}</textarea>`
+    + '<p style="color:#777">זה הקישור לנתונים - אל תשלח אותו ללקוח, רק את כתובת האתר.</p></div>')
+    .setWidth(520).setHeight(230);
+  ui.showModalDialog(html, 'קישור לאתר');
 }
 
 // ---------------------------------------------------------------- קריאת המקורות
