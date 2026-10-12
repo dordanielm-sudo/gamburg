@@ -227,11 +227,13 @@ function readLeads() {
       if (campaign) skipped++;
       continue;
     }
+    const sale = saleStatuses.includes(normalizeText(row[cols.status]));
     rows.push({
       month: period.month,
       campaign: campaign || '(ללא מקור)',
-      sale: saleStatuses.includes(normalizeText(row[cols.status])),
-      premium: toNumber(row[cols.premium]) || 0,
+      sale,
+      // פרמיה נספרת רק ללקוח בסטטוס מכירה - בשאר השורות זו הצעה, לא הכנסה.
+      premium: sale ? toNumber(row[cols.premium]) || 0 : 0,
       keyword: cols.keyword >= 0 ? normalizeText(row[cols.keyword]) : '',
       rep: cols.rep >= 0 ? normalizeText(row[cols.rep]) : '',
     });
@@ -477,10 +479,13 @@ function render(sheet, data, filters) {
   const repRows = Array.from(agg.byRep.entries())
     .filter(([, b]) => b.sales || b.premium)
     .sort((a, b) => (b[1].premium - a[1].premium) || (b[1].sales - a[1].sales))
-    .map(([name, b]) => [name, b.sales, b.premium, dash(metrics(b).avgPremium)]);
+    .map(([name, b]) => {
+      const x = metrics(b);
+      return [name, b.leads, b.sales, dash(x.closeRate), b.premium, dash(x.avgPremium)];
+    });
   writeTable(sheet, row, 'נציגי מכירות',
-    ['נציג מכירות', 'מכירות', 'סה"כ פרמיה', 'פרמיה ממוצעת'],
-    repRows, [FMT.text, FMT.int, FMT.money, FMT.money]);
+    ['נציג מכירות', 'לידים', 'מכירות', 'אחוז סגירה', 'סה"כ פרמיה', 'פרמיה ממוצעת'],
+    repRows, [FMT.text, FMT.int, FMT.int, FMT.pct, FMT.money, FMT.money]);
 
   renderCharts(sheet, campaigns, campaignRows.length, monthly, monthRows.length);
 

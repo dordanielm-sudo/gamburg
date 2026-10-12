@@ -121,6 +121,13 @@
   td { text-align: center; padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
   th:first-child, td:first-child { text-align: right; }
   td:first-child { white-space: normal; min-width: 160px; }
+  th[data-i] { cursor: pointer; user-select: none; }
+  th[data-i]:hover, th.sorted { color: var(--text); }
+  .tfilter {
+    display: block; width: 100%; max-width: 280px; margin: -4px 0 10px; font: inherit; font-size: 14px;
+    color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  }
+  .tnote { font-size: 12px; color: var(--text-3); padding-top: 8px; }
   tr.total td { font-weight: 700; background: var(--totals); border-bottom: none; }
   .muted { color: var(--text-3); }
   .empty { color: var(--text-3); padding: 24px 0; text-align: center; }
@@ -356,14 +363,74 @@ function barList(el, items, fmt) {
     `<span class="v">${fmt(i.value)}</span></div>`).join('') + '</div>';
 }
 
-function table(el, headers, rows, totalsRow) {
-  if (!rows.length) { el.innerHTML = '<div class="empty">אין נתונים בתקופה שנבחרה</div>'; return; }
-  const tr = (cells, cls) => `<tr${cls ? ` class="${cls}"` : ''}>` + cells.map(c => {
-    const s = String(c);
+// טבלה עם חיפוש ומיון. השורות מגיעות כערכים גולמיים (מספרים / null), כך
+// שמיון לפי "עלות" ממיין מספרים ולא טקסט מעוצב. מצב החיפוש והמיון נשמר בין
+// שינויי מסננים.
+const tables = {};
+
+function table(el, cols, rows, totals, opts = {}) {
+  let t = tables[el.id];
+  if (!t) {
+    t = tables[el.id] = { sort: null, dir: -1, q: '' };
+    el.innerHTML = '<input class="tfilter" type="search" placeholder="חיפוש בטבלה..."><div class="tb"></div>';
+    el.querySelector('.tfilter').addEventListener('input', e => {
+      t.q = e.target.value.trim().toLowerCase();
+      drawTable(el);
+    });
+    el.addEventListener('click', e => {
+      const th = e.target.closest('th[data-i]');
+      if (!th) return;
+      const i = +th.dataset.i;
+      // לחיצה ראשונה: מהגבוה לנמוך (בעמודת השם: א-ת). לחיצה נוספת הופכת.
+      if (t.sort === i) t.dir = -t.dir; else { t.sort = i; t.dir = i === 0 ? 1 : -1; }
+      drawTable(el);
+    });
+  }
+  Object.assign(t, { cols, rows, totals, limit: opts.limit || 0 });
+  drawTable(el);
+}
+
+function cellText(col, v) {
+  return col.f ? col.f(v) : String(v ?? '');
+}
+
+function compare(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  return String(a).localeCompare(String(b), 'he');
+}
+
+function drawTable(el) {
+  const t = tables[el.id];
+  const box = el.querySelector('.tb');
+  let rows = t.rows;
+  if (t.q) rows = rows.filter(r => cellText(t.cols[0], r[0]).toLowerCase().includes(t.q));
+  if (t.sort !== null) {
+    const i = t.sort;
+    rows = [...rows].sort((a, b) => {
+      const x = a[i], y = b[i];
+      const xn = !ok(x) && typeof x !== 'string', yn = !ok(y) && typeof y !== 'string';
+      if (xn || yn) return xn === yn ? 0 : xn ? 1 : -1; // בלי ערך - תמיד בסוף
+      return compare(x, y) * t.dir;
+    });
+  }
+  const found = rows.length;
+  if (t.limit && !t.q) rows = rows.slice(0, t.limit);
+
+  if (!t.rows.length) { box.innerHTML = '<div class="empty">אין נתונים בתקופה שנבחרה</div>'; return; }
+  if (!found) { box.innerHTML = '<div class="empty">לא נמצאו תוצאות</div>'; return; }
+
+  const tr = (cells, cls) => `<tr${cls ? ` class="${cls}"` : ''}>` + cells.map((c, i) => {
+    const s = cellText(t.cols[i], c);
     return `<td${s === '—' ? ' class="muted"' : ''}>${esc(s)}</td>`;
   }).join('') + '</tr>';
-  el.innerHTML = `<table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
-    rows.map(r => tr(r)).join('') + (totalsRow ? tr(totalsRow, 'total') : '') + '</tbody></table>';
+  const head = t.cols.map((c, i) => {
+    const mark = t.sort === i ? (t.dir < 0 ? ' ▼' : ' ▲') : '';
+    return `<th data-i="${i}"${t.sort === i ? ' class="sorted"' : ''} title="לחץ למיון">${esc(c.h)}${mark}</th>`;
+  }).join('');
+  const note = t.limit && !t.q && found > t.limit
+    ? `<div class="tnote">מוצגות ${t.limit} מתוך ${found} - חפש כדי למצוא את השאר</div>` : '';
+  box.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>` + rows.map(r => tr(r)).join('') +
+    (t.totals && !t.q ? tr(t.totals, 'total') : '') + '</tbody></table>' + note;
 }
 
 // ------------------------------------------------------------------ ציור
@@ -418,40 +485,45 @@ function render() {
     tip: `לידים: ${F.int(b.leads)}<br>מכירות: ${F.int(b.sales)}<br>אחוז סגירה: ${F.pct(metrics(b).closeRate)}`,
   })), F.int);
 
+  const C = {
+    name: h => ({ h }), int: h => ({ h, f: F.int }), pct: h => ({ h, f: F.pct }),
+    money: h => ({ h, f: F.money }), money1: h => ({ h, f: F.money1 }), ratio: h => ({ h, f: F.ratio }),
+  };
   const campaignRow = (name, b) => {
     const m = metrics(b);
-    return [name, F.int(b.leads), F.int(b.sales), F.pct(m.closeRate), F.money(b.premium), F.money(m.avgPremium),
-      F.money(m.cost), F.money1(m.costPerLead), F.money(m.costPerSale), F.ratio(m.costToPremium)];
+    return [name, b.leads, b.sales, m.closeRate, b.premium, m.avgPremium, m.cost, m.costPerLead, m.costPerSale, m.costToPremium];
   };
   table($('tCampaigns'),
-    ['שם קמפיין', 'לידים', 'מכירות', 'אחוז סגירה', 'סה"כ פרמיה', 'פרמיה ממוצעת', 'עלות קמפיין', 'עלות לליד', 'עלות לסגירה', 'עלות פרמיה'],
+    [C.name('שם קמפיין'), C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'),
+      C.money('פרמיה ממוצעת'), C.money('עלות קמפיין'), C.money1('עלות לליד'), C.money('עלות לסגירה'), C.ratio('עלות פרמיה')],
     campaigns.map(([n, b]) => campaignRow(n, b)), campaignRow('סה"כ', t));
 
   table($('tMonths'),
-    ['חודש', 'לידים', 'מכירות', 'אחוז סגירה', 'סה"כ פרמיה', 'עלות קמפיינים', 'עלות לליד', 'עלות לסגירה'],
+    [{ h: 'חודש', f: monthLabel }, C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'),
+      C.money('עלות קמפיינים'), C.money1('עלות לליד'), C.money('עלות לסגירה')],
     [...a.byMonth.entries()].map(([m, b]) => {
       const k = metrics(b);
-      return [monthLabel(m), F.int(b.leads), F.int(b.sales), F.pct(k.closeRate), F.money(b.premium),
-        F.money(k.cost), F.money1(k.costPerLead), F.money(k.costPerSale)];
+      return [m, b.leads, b.sales, k.closeRate, b.premium, b.hasCost ? b.cost : null, k.costPerLead, k.costPerSale];
     }));
 
-  $('kwTitle').textContent = `מילות מפתח מובילות (${TOP_KEYWORDS} לפי לידים)`;
-  const kwHeaders = ['מילת מפתח', 'לידים', 'מכירות', 'אחוז סגירה', 'סה"כ פרמיה'];
-  if (state.hasKeywordCosts) kwHeaders.push('עלות', 'עלות לליד');
-  table($('tKeywords'), kwHeaders,
+  $('kwTitle').textContent = 'מילות מפתח';
+  const kwCols = [C.name('מילת מפתח'), C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה')];
+  if (state.hasKeywordCosts) kwCols.push(C.money('עלות'), C.money1('עלות לליד'));
+  table($('tKeywords'), kwCols,
     [...a.byKeyword.entries()].filter(([, b]) => b.leads > 0)
       .sort((p, q) => (q[1].leads - p[1].leads) || (q[1].premium - p[1].premium))
-      .slice(0, TOP_KEYWORDS).map(([k, b]) => {
+      .map(([k, b]) => {
         const m = metrics(b);
-        const r = [k, F.int(b.leads), F.int(b.sales), F.pct(m.closeRate), F.money(b.premium)];
-        if (state.hasKeywordCosts) r.push(F.money(m.cost), F.money1(m.costPerLead));
+        const r = [k, b.leads, b.sales, m.closeRate, b.premium];
+        if (state.hasKeywordCosts) r.push(m.cost, m.costPerLead);
         return r;
-      }));
+      }), null, { limit: TOP_KEYWORDS });
 
-  table($('tReps'), ['נציג מכירות', 'מכירות', 'סה"כ פרמיה', 'פרמיה ממוצעת'],
-    [...a.byRep.entries()].filter(([, b]) => b.sales || b.premium)
+  table($('tReps'),
+    [C.name('נציג מכירות'), C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'), C.money('פרמיה ממוצעת')],
+    [...a.byRep.entries()].filter(([, b]) => b.leads || b.sales)
       .sort((p, q) => (q[1].premium - p[1].premium) || (q[1].sales - p[1].sales))
-      .map(([n, b]) => [n, F.int(b.sales), F.money(b.premium), F.money(metrics(b).avgPremium)]));
+      .map(([n, b]) => { const m = metrics(b); return [n, b.leads, b.sales, m.closeRate, b.premium, m.avgPremium]; }));
 
   $('app').classList.remove('loading');
 }
