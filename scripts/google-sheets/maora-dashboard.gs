@@ -34,6 +34,7 @@ const CONFIG = {
   // הסקריפט מחפש את שורת הכותרות בעשר השורות הראשונות.
   LEADS_COLUMNS: {
     date: ['תאריך יצירה'],
+    saleDate: ['תאריך עדכון אחרון', 'תאריך עדכון'], // חודש המכירה
     campaign: ['מקור הליד / אופן הגעה', 'מקור הליד', 'שם קמפיין'],
     status: ['סטטוס תהליך'],
     premium: ['פרמיה חודשית'],
@@ -125,7 +126,7 @@ function refreshDashboard() {
     writeSiteData(ss, data);
     const filters = resolveFilters(readFilters(sheet), data);
     render(sheet, data, filters);
-    ss.toast(`הדשבורד עודכן (${leads.rows.length} לידים)`, 'דשבורד', 5);
+    ss.toast(`הדשבורד עודכן (${leads.rows.reduce((n, l) => n + l.leads, 0)} לידים)`, 'דשבורד', 5);
   } finally {
     lock.releaseLock();
   }
@@ -159,8 +160,8 @@ function writeSiteData(ss, data) {
 
   data.leads.forEach(l => {
     const g = group('lead', l.month, l.campaignKey, keywordName(l.keyword), l.rep);
-    g[5]++;
-    if (l.sale) g[6]++;
+    g[5] += l.leads;
+    g[6] += l.sales;
     g[7] += l.premium;
   });
   data.costs.forEach(c => {
@@ -291,21 +292,29 @@ function readLeads() {
   for (let r = headerRow + 1; r < values.length; r++) {
     const row = values[r];
     const campaign = normalizeText(row[cols.campaign]);
-    const period = parsePeriod(row[cols.date]);
-    if (!period) {
+    const created = parsePeriod(row[cols.date]);
+    if (!created) {
       if (campaign) skipped++;
       continue;
     }
-    const sale = saleStatuses.includes(normalizeText(row[cols.status]));
-    rows.push({
-      month: period.month,
+    const base = {
       campaign: campaign || '(ללא מקור)',
-      sale,
-      // פרמיה נספרת רק ללקוח בסטטוס מכירה - בשאר השורות זו הצעה, לא הכנסה.
-      premium: sale ? toNumber(row[cols.premium]) || 0 : 0,
       keyword: cols.keyword >= 0 ? normalizeText(row[cols.keyword]) : '',
       rep: cols.rep >= 0 ? normalizeText(row[cols.rep]) : '',
-    });
+    };
+    // הליד נספר בחודש היצירה, והמכירה (עם הפרמיה) בחודש של "תאריך עדכון
+    // אחרון" - שם נסגרה העסקה. מכירה בלי תאריך עדכון נופלת לחודש היצירה.
+    rows.push(Object.assign({ month: created.month, leads: 1, sales: 0, premium: 0 }, base));
+    if (saleStatuses.includes(normalizeText(row[cols.status]))) {
+      const closed = cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null;
+      rows.push(Object.assign({
+        month: (closed || created).month,
+        leads: 0,
+        sales: 1,
+        // פרמיה נספרת רק ללקוח בסטטוס מכירה - בשאר השורות זו הצעה, לא הכנסה.
+        premium: toNumber(row[cols.premium]) || 0,
+      }, base));
+    }
   }
   return { rows, skipped };
 }
@@ -408,8 +417,8 @@ function aggregate(data, filters) {
     }
     if (l.rep) buckets.push(bucketFor(byRep, l.rep));
     buckets.forEach(b => {
-      b.leads++;
-      if (l.sale) b.sales++;
+      b.leads += l.leads;
+      b.sales += l.sales;
       b.premium += l.premium;
     });
   });
