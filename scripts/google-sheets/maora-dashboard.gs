@@ -177,7 +177,9 @@ function writeSiteData(ss, data) {
   });
 
   const header = ['type', 'date', 'campaign', 'keyword', 'rep', 'leads', 'sales', 'premium', 'oldPremium', 'cost'];
-  const meta = ['meta', 0, Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm'), '', '', 0, 0, 0, 0, 0];
+  let updated = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm');
+  if (data.skippedSales) updated += ` · ${data.skippedSales} מכירות בלי תאריך עדכון אחרון לא נכללו`;
+  const meta = ['meta', 0, updated, '', '', 0, 0, 0, 0, 0];
   const body = Array.from(groups.values()).map(g => {
     g[9] = Math.round(g[9] * 100) / 100;
     return g;
@@ -338,6 +340,7 @@ function readLeads() {
 
   const rows = [];
   let skipped = 0;
+  let skippedSales = 0;
   for (let r = headerRow + 1; r < values.length; r++) {
     const row = values[r];
     const campaign = normalizeText(row[cols.campaign]);
@@ -352,12 +355,17 @@ function readLeads() {
       rep: cols.rep >= 0 ? normalizeText(row[cols.rep]) : '',
     };
     // הליד נספר בחודש היצירה, והמכירה (עם הפרמיה) בחודש של "תאריך עדכון
-    // אחרון" - שם נסגרה העסקה. מכירה בלי תאריך עדכון נופלת לחודש היצירה.
+    // אחרון" (עמודה M) בלבד - שם נסגרה העסקה. מכירה בלי תאריך עדכון לא
+    // נספרת, ומדווחת בשורת "עודכן" כדי שאפשר יהיה להשלים לה תאריך.
     rows.push(Object.assign({
       month: created.month, day: dayOf(created), leads: 1, sales: 0, premium: 0, oldPremium: 0,
     }, base));
     if (saleStatuses.includes(normalizeText(row[cols.status]))) {
-      const closed = (cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null) || created;
+      const closed = cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null;
+      if (!closed) {
+        skippedSales++;
+        continue;
+      }
       rows.push(Object.assign({
         month: closed.month,
         day: dayOf(closed),
@@ -369,7 +377,7 @@ function readLeads() {
       }, base));
     }
   }
-  return { rows, skipped };
+  return { rows, skipped, skippedSales };
 }
 
 function readCosts(campaignMap) {
@@ -511,6 +519,7 @@ function indexData(leads, costs) {
   return {
     leads: leads.rows,
     skippedLeads: leads.skipped,
+    skippedSales: leads.skippedSales,
     costs: costs.entries,
     hasKeywordCosts: costs.hasKeywords && costs.entries.some(c => c.keyword),
     months: Array.from(months).sort(),
@@ -626,6 +635,7 @@ function render(sheet, data, filters) {
   const tz = Session.getScriptTimeZone();
   let subtitle = `עודכן ${Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm')}`;
   if (data.skippedLeads) subtitle += ` · ${data.skippedLeads} לידים ללא תאריך יצירה תקין לא נכללו`;
+  if (data.skippedSales) subtitle += ` · ${data.skippedSales} מכירות בלי תאריך עדכון אחרון לא נכללו`;
   sheet.getRange(2, 1, 1, width).merge().setValue(subtitle)
     .setFontColor(COLORS.muted).setFontSize(9);
 
