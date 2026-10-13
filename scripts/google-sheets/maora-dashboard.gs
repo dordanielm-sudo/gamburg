@@ -38,6 +38,7 @@ const CONFIG = {
     campaign: ['מקור הליד / אופן הגעה', 'מקור הליד', 'שם קמפיין'],
     status: ['סטטוס תהליך'],
     premium: ['פרמיה חודשית'],
+    oldPremium: ['פרמיה חודשית תיק ישן'],
     keyword: ['מילת מפתח'],
     rep: ['נציג מכירות'],
   },
@@ -52,6 +53,9 @@ const CONFIG = {
 const ALL_CAMPAIGNS = 'כל הקמפיינים';
 const FILTER_ROW = 3;
 const SITE_DATA_SHEET_NAME = 'נתונים לאתר';
+// לשונית בקובץ הדשבורד: A = חשבון גוגל, B = שם קמפיין בגוגל, C = שם הקמפיין
+// בפלנדו (מקור הליד). עלויות שרשומות בשם הגוגלי נזקפות לשם שבפלנדו.
+const CAMPAIGN_MAP_SHEET_NAME = 'שמות קמפיינים';
 const CHART_COLUMN = 12; // L - משמאל לטבלאות (הגיליון מימין לשמאל)
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי',
   'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
@@ -120,7 +124,7 @@ function refreshDashboard() {
     ss.toast('קורא את טבלת הלידים...', 'דשבורד', -1);
     const leads = readLeads();
     ss.toast('קורא את גיליון העלויות...', 'דשבורד', -1);
-    const costs = readCosts();
+    const costs = readCosts(readCampaignMap(ss, leads));
     ss.toast('בונה את הדשבורד...', 'דשבורד', -1);
     const data = indexData(leads, costs);
     writeSiteData(ss, data);
@@ -135,8 +139,8 @@ function refreshDashboard() {
 // ---------------------------------------------------------------- נתונים לאתר
 
 /**
- * כותב ללשונית "נתונים לאתר" סיכום קטן (שורה לכל חודש+קמפיין+מילת מפתח+נציג)
- * שהאתר (maora-dashboard.html) טוען כ-CSV מפורסם. האתר מסנן ומחשב הכל
+ * כותב ללשונית "נתונים לאתר" סיכום (שורה לכל יום+קמפיין+מילת מפתח+נציג)
+ * שהאתר (maora-dashboard.html) טוען דרך doGet. האתר מסנן ומחשב הכל
  * בדפדפן, כך שהוא לא מחכה ל-Apps Script ולא נוגע בטבלת הלידים עצמה.
  * בלשונית אין שמות או ת"ז - רק ספירות וסכומים.
  */
@@ -149,33 +153,74 @@ function writeSiteData(ss, data) {
     if (!keywordNames.has(key)) keywordNames.set(key, kw);
     return keywordNames.get(key);
   };
-  const group = (type, month, campaignKey, keyword, rep) => {
-    const id = [type, month, campaignKey, keyword, rep].join('|');
+  const group = (type, day, campaignKey, keyword, rep) => {
+    const id = [type, day, campaignKey, keyword, rep].join('|');
     if (!groups.has(id)) {
-      groups.set(id, [type, Number(month.replace('-', '')), data.campaignNames.get(campaignKey),
-        keyword, rep, 0, 0, 0, 0]);
+      groups.set(id, [type, day, data.campaignNames.get(campaignKey), keyword, rep, 0, 0, 0, 0, 0]);
     }
     return groups.get(id);
   };
 
   data.leads.forEach(l => {
-    const g = group('lead', l.month, l.campaignKey, keywordName(l.keyword), l.rep);
+    const g = group('lead', l.day, l.campaignKey, keywordName(l.keyword), l.rep);
     g[5] += l.leads;
     g[6] += l.sales;
     g[7] += l.premium;
+    g[8] += l.oldPremium;
   });
+  const tz = Session.getScriptTimeZone();
+  const today = Number(Utilities.formatDate(new Date(), tz, 'yyyyMMdd'));
   data.costs.forEach(c => {
-    group('cost', c.month, c.campaignKey, keywordName(c.keyword), '')[8] += c.cost;
+    costDays(c, today).forEach(([day, amount]) => {
+      group('cost', day, c.campaignKey, keywordName(c.keyword), '')[9] += amount;
+    });
   });
 
-  const tz = Session.getScriptTimeZone();
-  const rows = [['type', 'month', 'campaign', 'keyword', 'rep', 'leads', 'sales', 'premium', 'cost']]
-    .concat([['meta', 0, Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm'), '', '', 0, 0, 0, 0]])
-    .concat(Array.from(groups.values()));
+  const header = ['type', 'date', 'campaign', 'keyword', 'rep', 'leads', 'sales', 'premium', 'oldPremium', 'cost'];
+  const meta = ['meta', 0, Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm'), '', '', 0, 0, 0, 0, 0];
+  const body = Array.from(groups.values()).map(g => {
+    g[9] = Math.round(g[9] * 100) / 100;
+    return g;
+  });
+  const rows = [header, meta].concat(body);
+
+  cacheSiteCsv(rows.map(r => r.map(csvCell).join(',')).join('\n'));
 
   const sheet = ss.getSheetByName(SITE_DATA_SHEET_NAME) || ss.insertSheet(SITE_DATA_SHEET_NAME);
   sheet.clearContents();
-  sheet.getRange(1, 1, rows.length, rows[0].length).setNumberFormat('@').setValues(rows);
+  if (sheet.getMaxRows() < rows.length) sheet.insertRowsAfter(sheet.getMaxRows(), rows.length - sheet.getMaxRows());
+  if (sheet.getMaxColumns() < header.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), header.length - sheet.getMaxColumns());
+  }
+  sheet.getRange(1, 1, rows.length, header.length).setNumberFormat('@').setValues(rows);
+}
+
+// האתר מבקש את הנתונים בכל כניסה. קריאה מהזיכרון המהיר של הסקריפט (Cache)
+// לוקחת עשיריות שנייה, לעומת שניות לקריאת אלפי שורות מהגיליון. ערך בודד
+// מוגבל ל-100KB, אז ה-CSV נשמר בחלקים. תוקף 6 שעות; הרענון השעתי מחדש אותו.
+const SITE_CACHE_CHUNK = 40000;
+
+function cacheSiteCsv(csv) {
+  const chunks = { site_csv_n: '0' };
+  const n = Math.ceil(csv.length / SITE_CACHE_CHUNK);
+  for (let i = 0; i < n; i++) chunks['site_csv_' + i] = csv.slice(i * SITE_CACHE_CHUNK, (i + 1) * SITE_CACHE_CHUNK);
+  chunks.site_csv_n = String(n);
+  try {
+    CacheService.getScriptCache().putAll(chunks, 21600);
+  } catch (err) {
+    // גדול מדי לזיכרון המהיר - doGet יקרא מהלשונית.
+  }
+}
+
+function cachedSiteCsv() {
+  const cache = CacheService.getScriptCache();
+  const n = Number(cache.get('site_csv_n'));
+  if (!n) return null;
+  const keys = [];
+  for (let i = 0; i < n; i++) keys.push('site_csv_' + i);
+  const got = cache.getAll(keys);
+  if (keys.some(k => got[k] === undefined || got[k] === null)) return null;
+  return keys.map(k => got[k]).join('');
 }
 
 /**
@@ -189,9 +234,13 @@ function doGet(e) {
   if (key !== siteKey()) {
     return ContentService.createTextOutput('forbidden').setMimeType(ContentService.MimeType.TEXT);
   }
-  const sheet = SpreadsheetApp.getActive().getSheetByName(SITE_DATA_SHEET_NAME);
-  const values = sheet ? sheet.getDataRange().getDisplayValues() : [];
-  const csv = values.map(row => row.map(csvCell).join(',')).join('\n');
+  let csv = cachedSiteCsv();
+  if (csv === null) {
+    const sheet = SpreadsheetApp.getActive().getSheetByName(SITE_DATA_SHEET_NAME);
+    const values = sheet ? sheet.getDataRange().getDisplayValues() : [];
+    csv = values.map(row => row.map(csvCell).join(',')).join('\n');
+    cacheSiteCsv(csv);
+  }
   return ContentService.createTextOutput(csv).setMimeType(ContentService.MimeType.CSV);
 }
 
@@ -304,22 +353,26 @@ function readLeads() {
     };
     // הליד נספר בחודש היצירה, והמכירה (עם הפרמיה) בחודש של "תאריך עדכון
     // אחרון" - שם נסגרה העסקה. מכירה בלי תאריך עדכון נופלת לחודש היצירה.
-    rows.push(Object.assign({ month: created.month, leads: 1, sales: 0, premium: 0 }, base));
+    rows.push(Object.assign({
+      month: created.month, day: dayOf(created), leads: 1, sales: 0, premium: 0, oldPremium: 0,
+    }, base));
     if (saleStatuses.includes(normalizeText(row[cols.status]))) {
-      const closed = cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null;
+      const closed = (cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null) || created;
       rows.push(Object.assign({
-        month: (closed || created).month,
+        month: closed.month,
+        day: dayOf(closed),
         leads: 0,
         sales: 1,
         // פרמיה נספרת רק ללקוח בסטטוס מכירה - בשאר השורות זו הצעה, לא הכנסה.
         premium: toNumber(row[cols.premium]) || 0,
+        oldPremium: cols.oldPremium >= 0 ? toNumber(row[cols.oldPremium]) || 0 : 0,
       }, base));
     }
   }
   return { rows, skipped };
 }
 
-function readCosts() {
+function readCosts(campaignMap) {
   const sheet = openSheet(CONFIG.COSTS_SPREADSHEET_ID, CONFIG.COSTS_SHEET_NAME);
   const values = sheet.getDataRange().getValues();
   const { headerRow, cols } = locateColumns(values, CONFIG.COSTS_COLUMNS,
@@ -331,11 +384,13 @@ function readCosts() {
   for (let r = headerRow + 1; r < values.length; r++) {
     const row = values[r];
     const cost = toNumber(row[cols.cost]);
-    const campaign = normalizeText(row[cols.campaign]);
+    const rawCampaign = normalizeText(row[cols.campaign]);
     const period = parsePeriod(row[cols.date]);
-    if (cost === null || !campaign || !period || isTotalLabel(campaign)) continue;
+    if (cost === null || !rawCampaign || !period || isTotalLabel(rawCampaign)) continue;
+    const campaign = campaignMap ? campaignMap(rawCampaign, firstDayOf(period)) : rawCampaign;
     entries.push({
       month: period.month,
+      day: period.day,
       campaign,
       keyword: cols.keyword >= 0 ? normalizeText(row[cols.keyword]) : '',
       cost,
@@ -359,6 +414,84 @@ function readCosts() {
     entries: plain.concat(Array.from(latest.values())),
     hasKeywords: cols.keyword >= 0,
   };
+}
+
+/**
+ * קורא את "שמות קמפיינים" ומחזיר פונקציה (שם בגוגל, יום) -> שם בפלנדו.
+ * שם שלא מופיע בטבלה חוזר כמו שהוא, כך שגיליון עלויות שכבר כתוב בשמות של
+ * פלנדו ממשיך לעבוד.
+ *
+ * הערה בעמודה H מהצורה "עד 13/10/2026 נכנסו לבדיקת תיק ביטוחי" מגדירה שם
+ * אחר לתקופה שלפני התאריך: מזוהה התאריך, ושם הקמפיין הוא שם קיים מטבלת
+ * הלידים שמופיע בתוך ההערה (הארוך ביותר שמתאים).
+ */
+function readCampaignMap(ss, leads) {
+  const sheet = ss.getSheetByName(CAMPAIGN_MAP_SHEET_NAME);
+  if (!sheet) return null;
+  const known = Array.from(new Set(leads.rows.map(l => l.campaign)))
+    .map(name => ({ name, key: matchKey(name) }))
+    .filter(k => k.key.length >= 4)
+    .sort((a, b) => b.key.length - a.key.length);
+  const rules = new Map();
+  sheet.getDataRange().getValues().forEach((row, i) => {
+    const google = normalizeText(row[1]);
+    const plando = normalizeText(row[2]);
+    if (i === 0 || !google) return;
+    let until = null, before = null;
+    const note = normalizeText(row[7]);
+    const dateMatch = note.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
+    if (dateMatch) {
+      // מפתח ההשוואה מסיר רווחים וסימנים, אז "ביטוחי" עדיין מכיל את "ביטוח".
+      const noteKey = matchKey(note);
+      const hit = known.find(k => noteKey.includes(k.key));
+      if (hit) {
+        until = +dateMatch[3] * 10000 + +dateMatch[2] * 100 + +dateMatch[1];
+        before = hit.name;
+      }
+    }
+    if (!plando && !before) return;
+    rules.set(matchKey(google), { plando: plando || before, until, before });
+  });
+  return (name, day) => {
+    const rule = rules.get(matchKey(name));
+    if (!rule) return name;
+    if (rule.until && day && day < rule.until) return rule.before;
+    return rule.plando;
+  };
+}
+
+// יום בפורמט yyyymmdd. כשהתאריך הוא רק חודש - היום הראשון בחודש.
+function dayOf(period) {
+  return period.day || firstDayOf(period);
+}
+
+function firstDayOf(period) {
+  if (period.day) return period.day;
+  const [y, m] = period.month.split('-').map(Number);
+  return y * 10000 + m * 100 + (period.range ? period.range.start : 1);
+}
+
+/**
+ * מפזר עלות על פני ימי התקופה שלה, כדי שאפשר יהיה לסנן לפי תאריכים מדויקים.
+ * חודש שלם מתחלק שווה בשווה בין ימיו (בחודש הנוכחי - רק עד היום, כי העלות
+ * שרשומה בו היא עד עכשיו); טווח "1-6/08" מתחלק בין ימי הטווח.
+ */
+function costDays(entry, today) {
+  if (entry.day) return [[entry.day, entry.cost]];
+  const [y, m] = entry.month.split('-').map(Number);
+  const monthDays = new Date(y, m, 0).getDate();
+  let start = 1, end = monthDays;
+  if (entry.range) {
+    start = Math.max(1, entry.range.start);
+    end = Math.min(monthDays, entry.range.end);
+  } else if (Math.floor(today / 100) === y * 100 + m) {
+    end = today % 100;
+  }
+  if (end < start) end = start;
+  const share = entry.cost / (end - start + 1);
+  const out = [];
+  for (let d = start; d <= end; d++) out.push([y * 10000 + m * 100 + d, share]);
+  return out;
 }
 
 // ---------------------------------------------------------------- עיבוד
@@ -758,7 +891,7 @@ function toNumber(v) {
 }
 
 /**
- * מחזיר { month: 'YYYY-MM', range: {start, end} | null }.
+ * מחזיר { month: 'YYYY-MM', day: yyyymmdd | undefined, range: {start, end} | null }.
  * מקבל: תאריך אמיתי, "01/01/2025 00:02", "07/2025", "1-6/08/2025".
  */
 function parsePeriod(v) {
@@ -766,7 +899,8 @@ function parsePeriod(v) {
   if (v instanceof Date && !isNaN(v)) {
     // לפי אזור הזמן של הקובץ, לא של הסקריפט: ליד מ-01/07 00:02 שעון ישראל
     // הוא עדיין 30/06 ב-UTC.
-    return { month: Utilities.formatDate(v, spreadsheetTimeZone(), 'yyyy-MM'), range: null };
+    const ymd = Utilities.formatDate(v, spreadsheetTimeZone(), 'yyyyMMdd');
+    return { month: `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}`, day: Number(ymd), range: null };
   }
   const s = normalizeText(v);
   if (!s) return null;
@@ -778,7 +912,8 @@ function parsePeriod(v) {
   m = s.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
   if (m) {
     const month = ym(+m[3], +m[2]);
-    return month ? { month, range: null } : null;
+    return month && +m[1] >= 1 && +m[1] <= 31
+      ? { month, day: +m[3] * 10000 + +m[2] * 100 + +m[1], range: null } : null;
   }
   m = s.match(/^(\d{1,2})[\/.](\d{4})$/);
   if (m) {

@@ -81,8 +81,7 @@
     font: inherit; font-size: 14px; color: var(--text); background: var(--surface);
     border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 150px;
   }
-  .filters .campaign select { min-width: 260px; max-width: 100%; }
-  .filters .campaign { flex: 1 1 260px; max-width: 420px; }
+  .filters .campaign { flex: 0 1 340px; }
 
   .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
   .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
@@ -162,6 +161,38 @@
   button.ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border); font-size: 13px; padding: 6px 12px; }
   .err { color: #c62f2f; font-size: 13px; min-height: 20px; margin-top: 8px; }
   [hidden] { display: none !important; }
+
+  .filters input[type=date] {
+    font: inherit; font-size: 14px; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  }
+  .filters { align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); font-weight: 500; }
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .presets button {
+    background: var(--surface); color: var(--text-2); border: 1px solid var(--border);
+    font-size: 13px; font-weight: 400; padding: 7px 11px;
+  }
+  .presets button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .ms { position: relative; }
+  .ms-btn {
+    display: flex; justify-content: space-between; gap: 10px; width: 100%; min-width: 240px; text-align: right;
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    font-size: 14px; font-weight: 400; padding: 7px 10px;
+  }
+  .ms-btn::after { content: '▾'; color: var(--text-3); }
+  .ms-pop {
+    position: absolute; z-index: 20; inset-inline-start: 0; top: calc(100% + 4px); width: max(100%, 320px); max-width: calc(100vw - 32px);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.14);
+  }
+  .ms-q { width: 100%; font: inherit; font-size: 14px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+  .ms-actions { display: flex; gap: 4px; margin: 6px 0; }
+  .ms-actions button { background: transparent; color: var(--accent); font-size: 13px; padding: 2px 6px; }
+  .ms-list { max-height: 280px; overflow: auto; }
+  .ms-list label { display: flex; gap: 8px; align-items: center; padding: 5px 6px; font-size: 14px; color: var(--text); font-weight: 400; cursor: pointer; border-radius: 6px; }
+  .ms-list label:hover { background: var(--bg); }
+  .subfilters { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 </style>
 </head>
 <body>
@@ -200,21 +231,28 @@
   <div class="demo" id="demo">מוצגים נתוני דוגמה.</div>
 
   <div class="filters">
-    <label>מחודש<select id="from"></select></label>
-    <label>עד חודש<select id="to"></select></label>
-    <label class="campaign">קמפיין<select id="campaign"></select></label>
+    <label>מתאריך<input type="date" id="from"></label>
+    <label>עד תאריך<input type="date" id="to"></label>
+    <div class="presets" id="presets">
+      <button type="button" data-p="month">החודש</button>
+      <button type="button" data-p="prev">חודש קודם</button>
+      <button type="button" data-p="30">30 יום</button>
+      <button type="button" data-p="year">השנה</button>
+      <button type="button" data-p="all">הכל</button>
+    </div>
+    <div class="field campaign"><span>קמפיינים</span><div id="campaign"></div></div>
   </div>
 
   <div id="app" class="loading">
     <div class="kpis" id="kpis"></div>
 
     <div class="grid2">
-      <div class="card"><h2>לידים לפי חודש</h2><div id="chLeads"></div></div>
-      <div class="card"><h2>מכירות לפי חודש</h2><div id="chSales"></div></div>
+      <div class="card"><h2 id="chLeadsT">לידים לפי חודש</h2><div id="chLeads"></div></div>
+      <div class="card"><h2 id="chSalesT">מכירות לפי חודש</h2><div id="chSales"></div></div>
     </div>
     <div class="grid2">
       <div class="card">
-        <h2>פרמיה מול עלות קמפיינים לפי חודש</h2>
+        <h2 id="chMoneyT">פרמיה מול עלות קמפיינים לפי חודש</h2>
         <div class="legend"><span><i style="background:var(--s1)"></i>סה"כ פרמיה</span><span><i style="background:var(--s2)"></i>עלות קמפיינים</span></div>
         <div id="chMoney"></div>
       </div>
@@ -223,17 +261,21 @@
 
     <section class="card"><h2>ביצועים לפי קמפיין</h2><div class="tbl" id="tCampaigns"></div></section>
     <section class="card"><h2>מגמה חודשית</h2><div class="tbl" id="tMonths"></div></section>
-    <div class="grid2">
-      <section class="card"><h2 id="kwTitle">מילות מפתח מובילות</h2><div class="tbl" id="tKeywords"></div></section>
-      <section class="card"><h2>נציגי מכירות</h2><div class="tbl" id="tReps"></div></section>
-    </div>
+    <section class="card"><h2>מילות מפתח</h2><div class="tbl" id="tKeywords"></div></section>
+    <section class="card">
+      <h2>נציגי מכירות</h2>
+      <div class="subfilters">
+        <div class="field"><span>קמפיינים</span><div id="repCampaigns"></div></div>
+        <div class="field"><span>נציגים</span><div id="repNames"></div></div>
+      </div>
+      <div class="tbl" id="tReps"></div>
+    </section>
   </div>
 </div>
 </div>
 <div id="tip"></div>
 
 <script>
-const ALL = '__all__';
 const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 let cacheKey = '';
 const $ = id => document.getElementById(id);
@@ -252,6 +294,13 @@ const F = {
 };
 const monthLabel = m => `${MONTHS[m % 100 - 1]} ${Math.floor(m / 100)}`;
 const monthShort = m => `${String(m % 100).padStart(2, '0')}/${String(Math.floor(m / 100)).slice(2)}`;
+const ymd = d => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+const fromYmd = n => new Date(Math.floor(n / 10000), Math.floor(n / 100) % 100 - 1, n % 100);
+const toInput = n => n ? `${Math.floor(n / 10000)}-${String(Math.floor(n / 100) % 100).padStart(2, '0')}-${String(n % 100).padStart(2, '0')}` : '';
+const fromInput = v => v ? Number(v.replace(/-/g, '')) : 0;
+const dayLabel = n => `${n % 100}/${Math.floor(n / 100) % 100}/${Math.floor(n / 10000)}`;
+const dayShort = n => `${n % 100}/${Math.floor(n / 100) % 100}`;
+const daysBetween = (a, b) => Math.round((fromYmd(b) - fromYmd(a)) / 864e5) + 1;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ------------------------------------------------------------------ טעינה
@@ -272,9 +321,9 @@ function parseCSV(text) {
 
 function toDataset(rows) {
   const h = rows[0].map(x => x.trim());
-  const idx = k => h.indexOf(k);
-  const I = Object.fromEntries(['type','month','campaign','keyword','rep','leads','sales','premium','cost'].map(k => [k, idx(k)]));
-  if (I.type < 0 || I.month < 0) throw new Error('הקישור לא מצביע על הלשונית "נתונים לאתר"');
+  const I = Object.fromEntries(['type', 'date', 'month', 'campaign', 'keyword', 'rep', 'leads', 'sales', 'premium',
+    'oldPremium', 'cost'].map(k => [k, h.indexOf(k)]));
+  if (I.type < 0 || (I.date < 0 && I.month < 0)) throw new Error('הקישור לא מחזיר את הנתונים לאתר');
   const num = v => { const n = parseFloat(String(v ?? '').replace(/[,₪\s]/g, '')); return isFinite(n) ? n : 0; };
   let updated = '';
   const records = [];
@@ -282,10 +331,13 @@ function toDataset(rows) {
     const type = (r[I.type] || '').trim();
     if (type === 'meta') { updated = r[I.campaign]; continue; }
     if (type !== 'lead' && type !== 'cost') continue;
+    // גרסה ישנה של הסקריפט שלחה חודש (yyyymm) במקום יום.
+    const date = I.date >= 0 ? num(r[I.date]) : num(r[I.month]) * 100 + 1;
     records.push({
-      type, month: num(r[I.month]), campaign: r[I.campaign] || '(ללא מקור)',
+      type, date, campaign: r[I.campaign] || '(ללא מקור)',
       keyword: (r[I.keyword] || '').trim(), rep: (r[I.rep] || '').trim(),
-      leads: num(r[I.leads]), sales: num(r[I.sales]), premium: num(r[I.premium]), cost: num(r[I.cost]),
+      leads: num(r[I.leads]), sales: num(r[I.sales]), premium: num(r[I.premium]),
+      oldPremium: I.oldPremium >= 0 ? num(r[I.oldPremium]) : 0, cost: num(r[I.cost]),
     });
   }
   return { records, updated };
@@ -299,9 +351,10 @@ function writeCache(ds) {
 }
 
 // ------------------------------------------------------------------ חישובים (אותן הגדרות כמו בגיליון)
-const bucket = () => ({ leads: 0, sales: 0, premium: 0, cost: 0, hasCost: false });
+const bucket = () => ({ leads: 0, sales: 0, premium: 0, oldPremium: 0, cost: 0, hasCost: false });
 const get = (map, k) => { if (!map.has(k)) map.set(k, bucket()); return map.get(k); };
 const div = (a, b) => b ? a / b : null;
+const inSet = (set, v) => !set.size || set.has(v); // בחירה ריקה = הכל
 function metrics(b) {
   const cost = b.hasCost ? b.cost : null;
   return {
@@ -309,25 +362,84 @@ function metrics(b) {
     costPerLead: cost === null ? null : div(cost, b.leads),
     costPerSale: cost === null ? null : div(cost, b.sales),
     costToPremium: cost === null ? null : div(cost, b.premium),
+    premiumChange: b.oldPremium ? (b.premium - b.oldPremium) / b.oldPremium : null,
   };
+}
+function add(b, r) {
+  if (r.type === 'lead') {
+    b.leads += r.leads; b.sales += r.sales; b.premium += r.premium; b.oldPremium += r.oldPremium;
+  } else {
+    b.cost += r.cost; b.hasCost = true;
+  }
 }
 
 function aggregate(records, f) {
-  const total = bucket(), byCampaign = new Map(), byMonth = new Map(), byKeyword = new Map(), byRep = new Map();
-  for (const m of state.months) if (m >= f.from && m <= f.to) byMonth.set(m, bucket());
+  const total = bucket(), byCampaign = new Map(), byMonth = new Map(), byDay = new Map(), byKeyword = new Map();
+  for (let m = Math.floor(f.from / 100); m <= Math.floor(f.to / 100); m = m % 100 === 12 ? m + 89 : m + 1) byMonth.set(m, bucket());
+  if (f.daily) for (let d = fromYmd(f.from); ymd(d) <= f.to; d.setDate(d.getDate() + 1)) byDay.set(ymd(d), bucket());
   for (const r of records) {
-    if (r.month < f.from || r.month > f.to) continue;
-    if (f.campaign !== ALL && r.campaign !== f.campaign) continue;
-    const bs = [total, get(byCampaign, r.campaign), get(byMonth, r.month)];
+    if (r.date < f.from || r.date > f.to || !inSet(f.campaigns, r.campaign)) continue;
+    const bs = [total, get(byCampaign, r.campaign), get(byMonth, Math.floor(r.date / 100))];
+    if (f.daily) bs.push(get(byDay, r.date));
     if (r.keyword) bs.push(get(byKeyword, r.keyword));
-    if (r.type === 'lead') {
-      if (r.rep) bs.push(get(byRep, r.rep));
-      for (const b of bs) { b.leads += r.leads; b.sales += r.sales; b.premium += r.premium; }
-    } else {
-      for (const b of bs) { b.cost += r.cost; b.hasCost = true; }
-    }
+    for (const b of bs) add(b, r);
   }
-  return { total, byCampaign, byMonth, byKeyword, byRep };
+  return { total, byCampaign, byMonth, byDay, byKeyword };
+}
+
+// נציגים מסוננים בנפרד: אותו טווח תאריכים, אבל קמפיינים ונציגים משלהם.
+function aggregateReps(records, f) {
+  const total = bucket(), byRep = new Map();
+  for (const r of records) {
+    if (r.type !== 'lead' || !r.rep || r.date < f.from || r.date > f.to) continue;
+    if (!inSet(f.campaigns, r.campaign) || !inSet(f.reps, r.rep)) continue;
+    add(total, r); add(get(byRep, r.rep), r);
+  }
+  return { total, byRep };
+}
+
+// בחירה מרובה עם חיפוש. בחירה ריקה פירושה "הכל".
+function multiSelect(el, allLabel, onChange) {
+  el.classList.add('ms');
+  el.innerHTML = '<button type="button" class="ms-btn"></button><div class="ms-pop" hidden>' +
+    '<input type="search" class="ms-q" placeholder="חיפוש..."><div class="ms-actions">' +
+    '<button type="button" data-a="all">הכל</button><button type="button" data-a="only">רק המסוננים</button></div>' +
+    '<div class="ms-list"></div></div>';
+  const btn = el.querySelector('.ms-btn'), pop = el.querySelector('.ms-pop');
+  const q = el.querySelector('.ms-q'), list = el.querySelector('.ms-list');
+  const ctl = { options: [], selected: new Set() };
+  const label = () => {
+    const n = ctl.selected.size;
+    btn.textContent = !n ? allLabel : n === 1 ? [...ctl.selected][0] : `${n} נבחרו`;
+    btn.title = n ? [...ctl.selected].join(', ') : '';
+  };
+  const visible = () => ctl.options.filter(o => o.toLowerCase().includes(q.value.trim().toLowerCase()));
+  const draw = () => {
+    list.innerHTML = visible().map(o =>
+      `<label><input type="checkbox" value="${esc(o)}"${ctl.selected.has(o) ? ' checked' : ''}> ${esc(o)}</label>`).join('')
+      || '<div class="empty">אין תוצאות</div>';
+  };
+  btn.addEventListener('click', () => { pop.hidden = !pop.hidden; if (!pop.hidden) { q.value = ''; draw(); q.focus(); } });
+  q.addEventListener('input', draw);
+  list.addEventListener('change', e => {
+    const v = e.target.value;
+    if (e.target.checked) ctl.selected.add(v); else ctl.selected.delete(v);
+    label(); onChange();
+  });
+  el.querySelector('.ms-actions').addEventListener('click', e => {
+    const a = e.target.dataset.a;
+    if (!a) return;
+    ctl.selected = a === 'all' ? new Set() : new Set(visible());
+    draw(); label(); onChange();
+  });
+  document.addEventListener('click', e => { if (!el.contains(e.target)) pop.hidden = true; });
+  ctl.setOptions = opts => {
+    ctl.options = opts;
+    ctl.selected = new Set([...ctl.selected].filter(o => opts.includes(o)));
+    label(); if (!pop.hidden) draw();
+  };
+  label();
+  return ctl;
 }
 
 // ------------------------------------------------------------------ רכיבים
@@ -434,30 +546,64 @@ function drawTable(el) {
 }
 
 // ------------------------------------------------------------------ ציור
-const state = { records: [], months: [], campaigns: [], hasKeywordCosts: false };
+const state = { records: [], minDate: 0, maxDate: 0 };
+let msCampaign, msRepCampaigns, msReps;
 
 function setData(ds) {
   state.records = ds.records;
-  state.months = [...new Set(ds.records.map(r => r.month))].filter(Boolean).sort((a, b) => a - b);
-  state.campaigns = [...new Set(ds.records.map(r => r.campaign))].sort((a, b) => a.localeCompare(b, 'he'));
-  state.hasKeywordCosts = ds.records.some(r => r.type === 'cost' && r.keyword);
+  const dates = ds.records.map(r => r.date).filter(Boolean);
+  state.minDate = dates.length ? Math.min(...dates) : ymd(new Date());
+  state.maxDate = dates.length ? Math.max(...dates) : ymd(new Date());
   $('updated').textContent = ds.updated ? `הנתונים עודכנו ${ds.updated}` : '';
-
-  const keep = { from: +$('from').value, to: +$('to').value, campaign: $('campaign').value };
-  const opts = state.months.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('');
-  $('from').innerHTML = opts; $('to').innerHTML = opts;
-  $('from').value = state.months.includes(keep.from) ? keep.from : state.months[0] ?? '';
-  $('to').value = state.months.includes(keep.to) ? keep.to : state.months[state.months.length - 1] ?? '';
-  $('campaign').innerHTML = `<option value="${ALL}">כל הקמפיינים</option>` +
-    state.campaigns.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
-  $('campaign').value = state.campaigns.includes(keep.campaign) ? keep.campaign : ALL;
+  const campaigns = [...new Set(ds.records.map(r => r.campaign))].sort((a, b) => a.localeCompare(b, 'he'));
+  msCampaign.setOptions(campaigns);
+  msRepCampaigns.setOptions(campaigns);
+  msReps.setOptions([...new Set(ds.records.filter(r => r.rep).map(r => r.rep))].sort((a, b) => a.localeCompare(b, 'he')));
+  if (!$('from').value || !$('to').value) { $('from').value = toInput(state.minDate); $('to').value = toInput(state.maxDate); }
   render();
 }
 
-function render() {
-  let from = +$('from').value, to = +$('to').value;
+function range() {
+  let from = fromInput($('from').value) || state.minDate, to = fromInput($('to').value) || state.maxDate;
   if (from > to) [from, to] = [to, from];
-  const a = aggregate(state.records, { from, to, campaign: $('campaign').value });
+  return { from, to };
+}
+
+function applyPreset(p) {
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+  let from, to = ymd(now);
+  if (p === 'month') from = ymd(new Date(y, m, 1));
+  if (p === 'prev') { from = ymd(new Date(y, m - 1, 1)); to = ymd(new Date(y, m, 0)); }
+  if (p === '30') from = ymd(new Date(y, m, d - 29));
+  if (p === 'year') from = ymd(new Date(y, 0, 1));
+  if (p === 'all') { from = state.minDate; to = state.maxDate; }
+  $('from').value = toInput(from); $('to').value = toInput(to);
+  render();
+}
+
+function markPreset(from, to) {
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth(), d = now.getDate(), t = ymd(now);
+  const presets = {
+    month: [ymd(new Date(y, m, 1)), t], prev: [ymd(new Date(y, m - 1, 1)), ymd(new Date(y, m, 0))],
+    30: [ymd(new Date(y, m, d - 29)), t], year: [ymd(new Date(y, 0, 1)), t], all: [state.minDate, state.maxDate],
+  };
+  document.querySelectorAll('#presets button').forEach(b => {
+    const [f, e] = presets[b.dataset.p];
+    b.classList.toggle('on', f === from && e === to);
+  });
+}
+
+const C = {
+  name: h => ({ h }), int: h => ({ h, f: F.int }), pct: h => ({ h, f: F.pct }),
+  money: h => ({ h, f: F.money }), money1: h => ({ h, f: F.money1 }), ratio: h => ({ h, f: F.ratio }),
+};
+
+function render() {
+  const { from, to } = range();
+  markPreset(from, to);
+  // טווח של עד חודשיים מוצג בגרפים לפי יום, ארוך יותר - לפי חודש.
+  const daily = daysBetween(from, to) <= 62;
+  const a = aggregate(state.records, { from, to, campaigns: msCampaign.selected, daily });
   const t = a.total, x = metrics(t);
   const active = [...a.byCampaign.values()].filter(b => b.leads > 0).length;
 
@@ -469,12 +615,16 @@ function render() {
     ['קמפיינים פעילים', F.int(active)],
   ].map(([l, v]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`).join('');
 
-  const months = [...a.byMonth.entries()].map(([m, b]) => ({
-    label: monthLabel(m), short: monthShort(m), leads: b.leads, sales: b.sales, premium: b.premium, cost: b.cost,
-  }));
-  columnChart($('chLeads'), months, [{ key: 'leads', name: 'לידים', color: 'var(--s1)', fmt: F.int }]);
-  columnChart($('chSales'), months, [{ key: 'sales', name: 'מכירות', color: 'var(--s1)', fmt: F.int }]);
-  columnChart($('chMoney'), months, [
+  const unit = daily ? 'יום' : 'חודש';
+  $('chLeadsT').textContent = `לידים לפי ${unit}`;
+  $('chSalesT').textContent = `מכירות לפי ${unit}`;
+  $('chMoneyT').textContent = `פרמיה מול עלות קמפיינים לפי ${unit}`;
+  const points = daily
+    ? [...a.byDay.entries()].map(([d, b]) => ({ label: dayLabel(d), short: dayShort(d), leads: b.leads, sales: b.sales, premium: b.premium, cost: b.cost }))
+    : [...a.byMonth.entries()].map(([m, b]) => ({ label: monthLabel(m), short: monthShort(m), leads: b.leads, sales: b.sales, premium: b.premium, cost: b.cost }));
+  columnChart($('chLeads'), points, [{ key: 'leads', name: 'לידים', color: 'var(--s1)', fmt: F.int }]);
+  columnChart($('chSales'), points, [{ key: 'sales', name: 'מכירות', color: 'var(--s1)', fmt: F.int }]);
+  columnChart($('chMoney'), points, [
     { key: 'premium', name: 'סה"כ פרמיה', color: 'var(--s1)', fmt: F.money },
     { key: 'cost', name: 'עלות קמפיינים', color: 'var(--s2)', fmt: F.money },
   ]);
@@ -485,47 +635,44 @@ function render() {
     tip: `לידים: ${F.int(b.leads)}<br>מכירות: ${F.int(b.sales)}<br>אחוז סגירה: ${F.pct(metrics(b).closeRate)}`,
   })), F.int);
 
-  const C = {
-    name: h => ({ h }), int: h => ({ h, f: F.int }), pct: h => ({ h, f: F.pct }),
-    money: h => ({ h, f: F.money }), money1: h => ({ h, f: F.money1 }), ratio: h => ({ h, f: F.ratio }),
-  };
-  const campaignRow = (name, b) => {
+  const perfCols = [C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'),
+    C.money('פרמיה ממוצעת'), C.money('עלות'), C.money1('עלות לליד'), C.money('עלות לסגירה'), C.ratio('עלות פרמיה')];
+  const perfRow = (name, b) => {
     const m = metrics(b);
     return [name, b.leads, b.sales, m.closeRate, b.premium, m.avgPremium, m.cost, m.costPerLead, m.costPerSale, m.costToPremium];
   };
-  table($('tCampaigns'),
-    [C.name('שם קמפיין'), C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'),
-      C.money('פרמיה ממוצעת'), C.money('עלות קמפיין'), C.money1('עלות לליד'), C.money('עלות לסגירה'), C.ratio('עלות פרמיה')],
-    campaigns.map(([n, b]) => campaignRow(n, b)), campaignRow('סה"כ', t));
+  table($('tCampaigns'), [C.name('שם קמפיין')].concat(perfCols),
+    campaigns.map(([n, b]) => perfRow(n, b)), perfRow('סה"כ', t));
 
   table($('tMonths'),
     [{ h: 'חודש', f: monthLabel }, C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'),
       C.money('עלות קמפיינים'), C.money1('עלות לליד'), C.money('עלות לסגירה')],
     [...a.byMonth.entries()].map(([m, b]) => {
       const k = metrics(b);
-      return [m, b.leads, b.sales, k.closeRate, b.premium, b.hasCost ? b.cost : null, k.costPerLead, k.costPerSale];
+      return [m, b.leads, b.sales, k.closeRate, b.premium, k.cost, k.costPerLead, k.costPerSale];
     }));
 
-  $('kwTitle').textContent = 'מילות מפתח';
-  const kwCols = [C.name('מילת מפתח'), C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה')];
-  if (state.hasKeywordCosts) kwCols.push(C.money('עלות'), C.money1('עלות לליד'));
-  table($('tKeywords'), kwCols,
+  table($('tKeywords'), [C.name('מילת מפתח')].concat(perfCols),
     [...a.byKeyword.entries()].filter(([, b]) => b.leads > 0)
       .sort((p, q) => (q[1].leads - p[1].leads) || (q[1].premium - p[1].premium))
-      .map(([k, b]) => {
-        const m = metrics(b);
-        const r = [k, b.leads, b.sales, m.closeRate, b.premium];
-        if (state.hasKeywordCosts) r.push(m.cost, m.costPerLead);
-        return r;
-      }), null, { limit: TOP_KEYWORDS });
+      .map(([k, b]) => perfRow(k, b)), null, { limit: TOP_KEYWORDS });
 
-  table($('tReps'),
-    [C.name('נציג מכירות'), C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'), C.money('פרמיה ממוצעת')],
-    [...a.byRep.entries()].filter(([, b]) => b.leads || b.sales)
-      .sort((p, q) => (q[1].premium - p[1].premium) || (q[1].sales - p[1].sales))
-      .map(([n, b]) => { const m = metrics(b); return [n, b.leads, b.sales, m.closeRate, b.premium, m.avgPremium]; }));
-
+  renderReps();
   $('app').classList.remove('loading');
+}
+
+function renderReps() {
+  const { from, to } = range();
+  const a = aggregateReps(state.records, { from, to, campaigns: msRepCampaigns.selected, reps: msReps.selected });
+  const row = (name, b) => {
+    const m = metrics(b);
+    return [name, b.leads, b.sales, m.closeRate, b.premium, m.avgPremium, b.oldPremium, m.premiumChange];
+  };
+  table($('tReps'),
+    [C.name('נציג מכירות'), C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'),
+      C.money('פרמיה ממוצעת'), C.money('פרמיה תיק ישן'), C.pct('אחוז שינוי בפרמיה')],
+    [...a.byRep.entries()].sort((p, q) => (q[1].premium - p[1].premium) || (q[1].sales - p[1].sales))
+      .map(([n, b]) => row(n, b)), row('סה"כ', a.total));
 }
 
 // ------------------------------------------------------------------ tooltip
@@ -547,27 +694,30 @@ function demoData() {
   let seed = 7;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const camps = [
-    ['בדיקת תיק ביטוח', 950, 0.016, 300, 13], ['בדיקת תיק ביטוח (כספים אבודים)', 800, 0.012, 340, 9],
-    ['קמפיין לידים פנסיוני', 60, 0.15, 380, 0], ['איתור קרנות פנסיה', 130, 0, 0, 10],
-    ['לקוח פנסיוני מאורה שתף', 25, 0.3, 370, 0], ['קמפיין שיחות נכנסות', 15, 0.3, 180, 60],
-    ['לקוח קיים', 20, 0.9, 400, 0], ['הפנייה לקוח', 6, 0.7, 270, 0],
+    ['בדיקת תיק ביטוח', 32, 0.016, 300, 13], ['בדיקת תיק ביטוח (כספים אבודים)', 27, 0.012, 340, 9],
+    ['קמפיין לידים פנסיוני', 2, 0.15, 380, 0], ['איתור קרנות פנסיה', 4, 0, 0, 10],
+    ['לקוח פנסיוני מאורה שתף', 1, 0.3, 370, 0], ['קמפיין שיחות נכנסות', 0.5, 0.3, 180, 60],
+    ['לקוח קיים', 0.7, 0.9, 400, 0], ['הפנייה לקוח', 0.2, 0.7, 270, 0],
   ];
   const kws = ['ביטוח', 'הר הביטוח', 'כספים אבודים', 'פנסיה', 'בדיקת ביטוח', 'קרן השתלמות'];
   const reps = ['נועה סויסה', 'ליאור קוריאט', 'מיכל אליאס', 'טליה ארוך'];
   const records = [];
-  for (let i = 0; i < 9; i++) {
-    const month = 202501 + i;
-    for (const [campaign, leads, rate, prem, cpl] of camps) {
-      const n = Math.round(leads * (0.75 + rnd() * 0.5));
-      const s = Math.round(n * rate * (0.6 + rnd() * 0.8));
-      for (let k = 0; k < 3; k++) {
-        const share = k === 0 ? 0.6 : 0.2;
-        const kl = Math.round(n * share), ks = Math.round(s * share);
-        records.push({ type: 'lead', month, campaign, keyword: kws[(i + k + campaign.length) % kws.length],
-          rep: ks ? reps[(k + i) % reps.length] : '', leads: kl, sales: ks, premium: ks * prem * (0.8 + rnd() * 0.4), cost: 0 });
+  const end = new Date();
+  for (let i = 270; i >= 0; i--) {
+    const date = ymd(new Date(end.getFullYear(), end.getMonth(), end.getDate() - i));
+    camps.forEach(([campaign, perDay, rate, prem, cpl], ci) => {
+      const n = Math.round(perDay * (0.6 + rnd() * 0.8) + (rnd() < perDay % 1 ? 1 : 0));
+      if (!n) return;
+      const keyword = kws[(ci + i) % kws.length];
+      const s = rnd() < n * rate * 1.5 ? 1 : 0;
+      records.push({ type: 'lead', date, campaign, keyword, rep: '', leads: n, sales: 0, premium: 0, oldPremium: 0, cost: 0 });
+      if (s) {
+        const p = prem * (0.8 + rnd() * 0.4);
+        records.push({ type: 'lead', date, campaign, keyword, rep: reps[(ci + i) % reps.length], leads: 0, sales: 1,
+          premium: p, oldPremium: p * (0.6 + rnd() * 0.5), cost: 0 });
       }
-      if (cpl) records.push({ type: 'cost', month, campaign, keyword: '', rep: '', leads: 0, sales: 0, premium: 0, cost: n * cpl * (0.8 + rnd() * 0.4) });
-    }
+      if (cpl) records.push({ type: 'cost', date, campaign, keyword: '', rep: '', leads: 0, sales: 0, premium: 0, oldPremium: 0, cost: n * cpl * (0.8 + rnd() * 0.4) });
+    });
   }
   return { records, updated: 'נתוני דוגמה' };
 }
@@ -575,7 +725,11 @@ function demoData() {
 // ------------------------------------------------------------------ אתחול
 $('title').textContent = TITLE;
 document.title = TITLE;
-['from', 'to', 'campaign'].forEach(id => $(id).addEventListener('change', render));
+['from', 'to'].forEach(id => $(id).addEventListener('change', render));
+$('presets').addEventListener('click', e => { if (e.target.dataset.p) applyPreset(e.target.dataset.p); });
+msCampaign = multiSelect($('campaign'), 'כל הקמפיינים', render);
+msRepCampaigns = multiSelect($('repCampaigns'), 'כל הקמפיינים', renderReps);
+msReps = multiSelect($('repNames'), 'כל הנציגים', renderReps);
 
 // ------------------------------------------------------------------ סיסמה
 // הקישור לנתונים שמור בקובץ רק כשהוא מוצפן (AES-GCM) במפתח שנגזר משם המשתמש
@@ -612,7 +766,7 @@ function storedUrl() {
 
 function start(url) {
   $('login').hidden = true; $('setup').hidden = true; $('dash').hidden = false;
-  cacheKey = 'maora-dashboard:data:' + url;
+  cacheKey = 'maora-dashboard:v2:' + url;
   // מציגים מיד את הנתונים מהביקור הקודם, ומחליפים כשהטריים מגיעים.
   const cached = readCache();
   if (cached) setData(cached);
