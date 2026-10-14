@@ -40,6 +40,9 @@ const CONFIG = {
   // יום עבודה ללידים של מחממות: מ-16:00 עד 16:00 למחרת; ליד מחמישי 16:00
   // עד ראשון 16:00 נספר ביום ראשון (ימי עבודה א'-ה').
   LEAD_DAY_CUTOFF_HOUR: 16,
+  // קמפיינים (עמודה D) שלא נספרים בעמודה "מכירות בלי לקוח קיים ושחלוף".
+  // התאמה לפי הכלה: "לקוח קיים משימור לקוחות" גם נחשב "לקוח קיים".
+  WARMER_EXCLUDED_CAMPAIGNS: ['לקוח קיים', 'שחלוף'],
 
   TOP_KEYWORDS: 15,
 
@@ -162,8 +165,8 @@ function refreshDashboard() {
  * בלשונית אין שמות או ת"ז - רק ספירות וסכומים.
  */
 const SITE_COLUMNS = ['type', 'date', 'campaign', 'keyword', 'rep', 'warmer',
-  'leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension'];
-const SITE_SUMS = ['leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension'];
+  'leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet'];
+const SITE_SUMS = ['leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet'];
 
 function writeSiteData(ss, data) {
   const groups = new Map();
@@ -186,12 +189,12 @@ function writeSiteData(ss, data) {
 
   data.leads.forEach(l => {
     const g = group('lead', l.day, l.campaignKey, keywordName(l.keyword), l.rep, '');
-    ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension'].forEach(k => { g[k] += l[k] || 0; });
+    ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension', 'salesNet'].forEach(k => { g[k] += l[k] || 0; });
   });
   // שורות 'warm' משמשות רק את טבלת המחממות באתר.
   data.warm.forEach(l => {
     const g = group('warm', l.day, l.campaignKey, '', '', l.warmer);
-    ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension'].forEach(k => { g[k] += l[k] || 0; });
+    ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension', 'salesNet'].forEach(k => { g[k] += l[k] || 0; });
   });
   const tz = Session.getScriptTimeZone();
   const today = Number(Utilities.formatDate(new Date(), tz, 'yyyyMMdd'));
@@ -203,6 +206,7 @@ function writeSiteData(ss, data) {
 
   let updated = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm');
   if (data.skippedSales) updated += ` · ${data.skippedSales} מכירות בלי תאריך עדכון אחרון לא נכללו`;
+  if (data.skippedWarm) updated += ` · ${data.skippedWarm} לידים של מחממות בלי תאריך עדכון אחרון לא נכללו`;
   const meta = SITE_COLUMNS.map(k => (k === 'type' ? 'meta' : k === 'campaign' ? updated : ''));
   const body = Array.from(groups.values()).map(g => {
     g.cost = Math.round(g.cost * 100) / 100;
@@ -367,11 +371,13 @@ function readLeads() {
   const warmerSaleStatuses = CONFIG.WARMER_SALE_STATUSES.map(normalizeText);
   const pensionStatuses = CONFIG.PENSION_STATUSES.map(normalizeText);
   const openedStatuses = CONFIG.OPENED_STATUSES.map(normalizeText);
+  const excludedKeys = CONFIG.WARMER_EXCLUDED_CAMPAIGNS.map(matchKey);
 
   const rows = [];
   const warm = []; // שורות לטבלת המחממות בלבד
   let skipped = 0;
   let skippedSales = 0;
+  let skippedWarm = 0;
   for (let r = headerRow + 1; r < values.length; r++) {
     const row = values[r];
     const campaign = normalizeText(row[cols.campaign]);
@@ -410,20 +416,31 @@ function readLeads() {
       if (closed) rows.push(saleRow()); else skippedSales++;
     }
 
-    // מחממות: ליד נספר ביום העבודה (16:00-16:00), "הר ביטוח" נחשב מכירה,
-    // ונספרות פתיחות לידים והעברות לפנסיה לפי הסטטוס.
+    // מחממות: כל הספירות לפי "תאריך עדכון אחרון" (עמודה M) בלבד, ביום
+    // העבודה שלו (16:00-16:00, חמישי 16:00 עד ראשון 16:00 = ראשון).
+    // "הר ביטוח" נחשב מכירה, ונספרות פתיחות לידים והעברות לפנסיה לפי הסטטוס.
     const warmer = cols.warmer >= 0 ? normalizeText(row[cols.warmer]) : '';
     if (warmer) {
-      const workDay = leadWorkDay(row[cols.date]) || dayOf(created);
-      warm.push(Object.assign({}, base, {
-        warmer, month: monthOfDay(workDay), day: workDay, leads: 1, sales: 0, premium: 0, oldPremium: 0,
-        opened: openedStatuses.includes(status) ? 1 : 0,
-        pension: pensionStatuses.includes(status) ? 1 : 0,
-      }));
-      if (closed && warmerSaleStatuses.includes(status)) warm.push(Object.assign(saleRow(), { warmer }));
+      const workDay = cols.saleDate >= 0 ? leadWorkDay(row[cols.saleDate]) : null;
+      if (!workDay) {
+        skippedWarm++;
+      } else {
+        const sale = warmerSaleStatuses.includes(status);
+        const excluded = excludedKeys.some(k => matchKey(base.campaign).includes(k));
+        warm.push(Object.assign({}, base, {
+          warmer, month: monthOfDay(workDay), day: workDay,
+          leads: 1,
+          sales: sale ? 1 : 0,
+          salesNet: sale && !excluded ? 1 : 0,
+          premium: sale ? toNumber(row[cols.premium]) || 0 : 0,
+          oldPremium: sale && cols.oldPremium >= 0 ? toNumber(row[cols.oldPremium]) || 0 : 0,
+          opened: openedStatuses.includes(status) ? 1 : 0,
+          pension: pensionStatuses.includes(status) ? 1 : 0,
+        }));
+      }
     }
   }
-  return { rows, warm, skipped, skippedSales };
+  return { rows, warm, skipped, skippedSales, skippedWarm };
 }
 
 function readCosts(campaignMap) {
@@ -593,6 +610,7 @@ function indexData(leads, costs) {
     warm: leads.warm,
     skippedLeads: leads.skipped,
     skippedSales: leads.skippedSales,
+    skippedWarm: leads.skippedWarm,
     costs: costs.entries,
     hasKeywordCosts: costs.hasKeywords && costs.entries.some(c => c.keyword),
     months: Array.from(months).sort(),

@@ -354,7 +354,7 @@ function parseCSV(text) {
 function toDataset(rows) {
   const h = rows[0].map(x => x.trim());
   const I = Object.fromEntries(['type', 'date', 'month', 'campaign', 'keyword', 'rep', 'warmer', 'leads', 'sales',
-    'premium', 'oldPremium', 'cost', 'opened', 'pension'].map(k => [k, h.indexOf(k)]));
+    'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet'].map(k => [k, h.indexOf(k)]));
   if (I.type < 0 || (I.date < 0 && I.month < 0)) throw new Error('הקישור לא מחזיר את הנתונים לאתר');
   const num = v => { const n = parseFloat(String(v ?? '').replace(/[,₪\s]/g, '')); return isFinite(n) ? n : 0; };
   const opt = (r, k) => (I[k] >= 0 ? num(r[I[k]]) : 0);
@@ -371,7 +371,7 @@ function toDataset(rows) {
       keyword: (r[I.keyword] || '').trim(), rep: (r[I.rep] || '').trim(),
       warmer: I.warmer >= 0 ? (r[I.warmer] || '').trim() : '',
       leads: num(r[I.leads]), sales: num(r[I.sales]), premium: num(r[I.premium]),
-      oldPremium: opt(r, 'oldPremium'), cost: num(r[I.cost]), opened: opt(r, 'opened'), pension: opt(r, 'pension'),
+      oldPremium: opt(r, 'oldPremium'), cost: num(r[I.cost]), opened: opt(r, 'opened'), pension: opt(r, 'pension'), salesNet: opt(r, 'salesNet'),
     });
   }
   return { records, updated };
@@ -385,7 +385,7 @@ function writeCache(ds) {
 }
 
 // ------------------------------------------------------------------ חישובים (אותן הגדרות כמו בגיליון)
-const bucket = () => ({ leads: 0, sales: 0, premium: 0, oldPremium: 0, cost: 0, hasCost: false, opened: 0, pension: 0 });
+const bucket = () => ({ leads: 0, sales: 0, premium: 0, oldPremium: 0, cost: 0, hasCost: false, opened: 0, pension: 0, salesNet: 0 });
 const get = (map, k) => { if (!map.has(k)) map.set(k, bucket()); return map.get(k); };
 const div = (a, b) => b ? a / b : null;
 const inSet = (set, v) => !set.size || set.has(v); // בחירה ריקה = הכל
@@ -402,7 +402,7 @@ function metrics(b) {
 function add(b, r) {
   if (r.type !== 'cost') {
     b.leads += r.leads; b.sales += r.sales; b.premium += r.premium; b.oldPremium += r.oldPremium;
-    b.opened += r.opened || 0; b.pension += r.pension || 0;
+    b.opened += r.opened || 0; b.pension += r.pension || 0; b.salesNet += r.salesNet || 0;
   } else {
     b.cost += r.cost; b.hasCost = true;
   }
@@ -752,11 +752,13 @@ function renderWarmers() {
   const a = aggregatePeople(state.records, 'warmer', { from, to, campaigns: msTable.tWarmers.selected, people: msPeople.tWarmers.selected });
   const row = (name, b) => {
     const m = metrics(b);
-    return [name, b.leads, b.opened, div(b.opened, b.leads), b.pension, b.sales, m.closeRate, b.premium, m.avgPremium];
+    return [name, b.leads, b.opened, div(b.opened, b.leads), b.pension, b.sales, b.salesNet, m.closeRate,
+      b.premium, m.avgPremium];
   };
   table($('tWarmers'),
     [C.name('מחממת'), C.int('לידים'), C.int('פתיחת לידים'), C.pct('אחוז פתיחה'), C.int('העברות לפנסיה'),
-      C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'), C.money('פרמיה ממוצעת')],
+      C.int('מכירות'), C.int('מכירות בלי לקוח קיים ושחלוף'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'),
+      C.money('פרמיה ממוצעת')],
     [...a.byPerson.entries()].sort((p, q) => (q[1].leads - p[1].leads) || (q[1].opened - p[1].opened))
       .map(([n, b]) => row(n, b)), row('סה"כ', a.total));
 }
@@ -800,11 +802,11 @@ function demoData() {
       const opened = Math.round(n * (0.3 + rnd() * 0.3)), pension = Math.round(n * rnd() * 0.08);
       records.push({ type: 'lead', date, campaign, keyword, rep: '', warmer: '', leads: n, sales: 0, premium: 0, oldPremium: 0, cost: 0 });
       records.push({ type: 'warm', date, campaign, keyword: '', rep: '', warmer: warmers[(ci + i) % warmers.length],
-        leads: n, sales: 0, premium: 0, oldPremium: 0, cost: 0, opened, pension });
+        leads: n, sales: 0, salesNet: 0, premium: 0, oldPremium: 0, cost: 0, opened, pension });
       if (s) {
         const p = prem * (0.8 + rnd() * 0.4);
         records.push({ type: 'warm', date, campaign, keyword: '', rep: '', warmer: warmers[(ci + i) % warmers.length],
-          leads: 0, sales: 1, premium: p, oldPremium: 0, cost: 0, opened: 0, pension: 0 });
+          leads: 0, sales: 1, salesNet: /לקוח קיים|שחלוף/.test(campaign) ? 0 : 1, premium: p, oldPremium: 0, cost: 0, opened: 0, pension: 0 });
         records.push({ type: 'lead', date, campaign, keyword, rep: reps[(ci + i) % reps.length],
           warmer: '', leads: 0, sales: 1,
           premium: p, oldPremium: p * (0.6 + rnd() * 0.5), cost: 0 });
