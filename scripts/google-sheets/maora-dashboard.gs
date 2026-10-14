@@ -190,7 +190,7 @@ function writeSiteData(ss, data) {
 
   data.leads.forEach(l => {
     const g = group('lead', l.day, l.campaignKey, keywordName(l.keyword), l.rep, '');
-    ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension', 'closeDays'].forEach(k => { g[k] += l[k] || 0; });
+    ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension', 'closeDays', 'salesNet'].forEach(k => { g[k] += l[k] || 0; });
   });
   // שורות 'warm' משמשות רק את טבלת המחממות באתר.
   data.warm.forEach(l => {
@@ -401,6 +401,7 @@ function readLeads() {
       warmer: '',
     };
     const status = normalizeText(row[cols.status]);
+    const excludedCampaign = excludedKeys.some(k => matchKey(base.campaign).includes(k));
     const closed = cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null;
     const saleRow = () => Object.assign({}, base, {
       month: closed.month,
@@ -429,7 +430,11 @@ function readLeads() {
     if (isSale) {
       if (closed) {
         // כמה ימים עברו מיצירת הליד (C) עד המכירה (M) - ל"מהירות סגירה".
-        rows.push(Object.assign(saleRow(), { closeDays: Math.max(0, daysDiff(createdDay, dayOf(closed))) }));
+        rows.push(Object.assign(saleRow(), {
+          closeDays: Math.max(0, daysDiff(createdDay, dayOf(closed))),
+          // לטבלת נציגי המכירות: מכירה שלא מקמפיין "לקוח קיים" / "שחלוף".
+          salesNet: excludedCampaign ? 0 : 1,
+        }));
       } else {
         skippedSales++;
       }
@@ -451,12 +456,11 @@ function readLeads() {
         skippedWarm++;
       } else {
         const sale = warmerSaleStatuses.includes(status);
-        const excluded = excludedKeys.some(k => matchKey(base.campaign).includes(k));
         warm.push(Object.assign({}, base, {
           warmer, month: monthOfDay(workDay), day: workDay,
           leads: 1,
           sales: sale ? 1 : 0,
-          salesNet: sale && !excluded ? 1 : 0,
+          salesNet: sale && !excludedCampaign ? 1 : 0,
           premium: sale ? toNumber(row[cols.premium]) || 0 : 0,
           oldPremium: sale && cols.oldPremium >= 0 ? toNumber(row[cols.oldPremium]) || 0 : 0,
           opened: openedStatuses.includes(status) ? 1 : 0,

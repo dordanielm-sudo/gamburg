@@ -777,10 +777,10 @@ function renderReps() {
   const a = aggregatePeople(state.records, 'rep', { from, to, campaigns: msTable.tReps.selected, people: msPeople.tReps.selected });
   const row = (name, b) => {
     const m = metrics(b);
-    return [name, b.leads, b.sales, m.closeRate, b.premium, m.avgPremium, b.oldPremium, m.premiumChange];
+    return [name, b.leads, b.sales, b.salesNet, m.closeRate, b.premium, m.avgPremium, b.oldPremium, m.premiumChange];
   };
   table($('tReps'),
-    [C.name('נציג מכירות'), C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'),
+    [C.name('נציג מכירות'), C.int('לידים'), C.int('מכירות'), C.int('מכירות בלי לקוח קיים ושחלוף'), C.pct('אחוז סגירה'), C.money('סה"כ פרמיה'),
       C.money('פרמיה ממוצעת'), C.money('פרמיה תיק ישן'), C.pct('אחוז שינוי בפרמיה')],
     [...a.byPerson.entries()].sort((p, q) => (q[1].premium - p[1].premium) || (q[1].sales - p[1].sales))
       .map(([n, b]) => row(n, b)), row('סה"כ', a.total));
@@ -1064,7 +1064,7 @@ function demoData() {
         records.push({ type: 'warm', date, campaign, keyword: '', rep: '', warmer: warmers[(ci + i) % warmers.length],
           leads: 0, sales: 1, salesNet: /לקוח קיים|שחלוף/.test(campaign) ? 0 : 1, premium: p, oldPremium: 0, cost: 0, opened: 0, pension: 0 });
         records.push({ type: 'lead', date, campaign, keyword, rep: reps[(ci + i) % reps.length],
-          warmer: '', leads: 0, sales: 1, closeDays: Math.round(2 + rnd() * (ci + 1) * 4),
+          warmer: '', leads: 0, sales: 1, salesNet: /לקוח קיים|שחלוף/.test(campaign) ? 0 : 1, closeDays: Math.round(2 + rnd() * (ci + 1) * 4),
           premium: p, oldPremium: p * (0.6 + rnd() * 0.5), cost: 0 });
       }
       if (cpl) records.push({ type: 'cost', date, campaign, keyword: '', rep: '', leads: 0, sales: 0, premium: 0, oldPremium: 0, cost: n * cpl * (0.8 + rnd() * 0.4) });
