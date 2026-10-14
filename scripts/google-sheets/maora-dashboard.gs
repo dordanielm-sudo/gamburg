@@ -434,11 +434,11 @@ function readLeads() {
         skippedSales++;
       }
     }
-    // שעה ויום בשבוע של יצירת הליד - ל"שעות וימים חזקים". המכירה נזקפת לשעת
-    // הכניסה של הליד, כדי לראות מאילו שעות לידים נסגרים יותר.
-    const parts = dateParts(row[cols.date]);
+    // שעה ויום של "תאריך עדכון אחרון" (עמודה M) - ל"שעות וימים חזקים":
+    // מתי מטפלים בלידים, ובאיזו שעה נסגרות המכירות. בעמודה C אין שעה.
+    const parts = cols.saleDate >= 0 ? dateParts(row[cols.saleDate]) : null;
     if (parts && parts.h !== null) {
-      hours.push({ day: createdDay, hour: parts.h, leads: 1, sales: isSale ? 1 : 0 });
+      hours.push({ day: parts.y * 10000 + parts.m * 100 + parts.d, hour: parts.h, leads: 1, sales: isSale ? 1 : 0 });
     }
 
     // מחממות: כל הספירות לפי "תאריך עדכון אחרון" (עמודה M) בלבד, ביום

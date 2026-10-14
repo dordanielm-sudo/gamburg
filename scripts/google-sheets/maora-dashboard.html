@@ -955,16 +955,26 @@ function renderInsights() {
     byDow[dw].leads += r.leads; byDow[dw].sales += r.sales;
   }
   const hourLeads = byHour.reduce((n, h) => n + h.leads, 0);
-  const peak = byHour.map((h, i) => ({ i, ...h })).sort((a, b) => b.leads - a.leads).slice(0, 3).sort((a, b) => a.i - b.i);
+  const hourSales = byHour.reduce((n, h) => n + h.sales, 0);
+  const top3 = key => byHour.map((h, i) => ({ i, ...h })).filter(h => h[key] > 0)
+    .sort((a, b) => b[key] - a[key]).slice(0, 3).sort((a, b) => a.i - b.i);
+  const peak = top3('leads'), salesPeak = top3('sales');
   const bestCloseHour = byHour.map((h, i) => ({ i, ...h, r: div(h.sales, h.leads) })).filter(h => h.leads >= 30).sort((a, b) => b.r - a.r)[0];
   const bestDow = byDow.map((d, i) => ({ i, ...d })).sort((a, b) => b.leads - a.leads)[0];
-  cards.push(insightCard(8, 'שעות וימים חזקים', missingField('hour') ? lines([STALE_SCRIPT]) : lines(hourLeads ? [
-    `שעות השיא בכניסת לידים: <b>${peak.map(h => `${h.i}:00`).join(', ')}</b> (${F.pct(share(peak.reduce((n, h) => n + h.leads, 0), hourLeads))} מהלידים).`,
-    bestCloseHour ? `לידים שנכנסים ב-<b>${bestCloseHour.i}:00</b> נסגרים הכי טוב - ${F.pct(bestCloseHour.r)} (ממוצע: ${F.pct(div(byHour.reduce((n, h) => n + h.sales, 0), hourLeads))}).` : '',
-    `היום החזק בלידים: <b>${WEEKDAYS[bestDow.i]}</b>.`,
-  ].filter(Boolean) : ['אין נתוני שעות בתקופה שנבחרה.']) +
-    '<div class="grid2" style="margin:12px 0 0"><div><h2 style="font-size:14px">לידים לפי שעה</h2><div id="insHours"></div></div>' +
-    '<div><h2 style="font-size:14px">לידים ואחוז סגירה לפי יום</h2><div id="insDays"></div></div></div>'));
+  const bestSalesDow = byDow.map((d, i) => ({ i, ...d })).sort((a, b) => b.sales - a.sales)[0];
+  const hrs = list => list.map(h => `${h.i}:00`).join(', ');
+  cards.push(insightCard(8, 'שעות וימים חזקים', missingField('hour') ? lines([STALE_SCRIPT]) : !hourLeads
+    ? lines(['אין בתקופה שנבחרה לידים עם שעה בעמודה M ("תאריך עדכון אחרון").'])
+    : '<p class="ins-intro">לפי השעה והיום של "תאריך עדכון אחרון" (עמודה M) - מתי מטפלים בלידים ומתי נסגרות מכירות.</p>' + lines([
+      `שעות השיא בטיפול בלידים: <b>${hrs(peak)}</b> (${F.pct(share(peak.reduce((n, h) => n + h.leads, 0), hourLeads))} מהעדכונים).`,
+      hourSales ? `השעות שבהן נסגרות הכי הרבה מכירות: <b>${hrs(salesPeak)}</b> (${F.pct(share(salesPeak.reduce((n, h) => n + h.sales, 0), hourSales))} מהמכירות).` : '',
+      bestCloseHour ? `השעה עם אחוז הסגירה הגבוה ביותר: <b>${bestCloseHour.i}:00</b> - ${F.pct(bestCloseHour.r)} (ממוצע: ${F.pct(div(hourSales, hourLeads))}).` : '',
+      `היום העמוס ביותר: <b>${WEEKDAYS[bestDow.i]}</b>${bestSalesDow.sales ? `; היום עם הכי הרבה מכירות: <b>${WEEKDAYS[bestSalesDow.i]}</b>` : ''}.`,
+    ].filter(Boolean)) +
+    '<div class="grid2" style="margin:12px 0 0"><div><h2 style="font-size:14px">לידים ומכירות לפי שעה</h2><div class="legend" style="margin:0 0 10px"><span><i style="background:var(--s1)"></i>לידים</span><span><i style="background:var(--s2)"></i>מכירות</span></div><div id="insHours"></div></div>' +
+    '<div><h2 style="font-size:14px">לידים ואחוז סגירה לפי יום</h2><div id="insDays"></div></div></div>' +
+    itable('insHourT', [{ h: 'שעה', f: v => `${v}:00` }, C.int('לידים'), C.int('מכירות'), C.pct('אחוז סגירה')],
+      byHour.map((h, i) => [i, h.leads, h.sales, div(h.sales, h.leads)]).filter(r => r[1]))));
 
   // 9. מהירות סגירה
   const avgDays = b => (b.sales ? b.closeDays / b.sales : null);
@@ -989,8 +999,8 @@ function renderInsights() {
   el.innerHTML = cards.join('');
   pendingTables.forEach(({ id, cols, rows }) => table($(id), cols, rows));
   if (hourLeads) {
-    columnChart($('insHours'), byHour.map((h, i) => ({ label: `${i}:00`, short: String(i), leads: h.leads, rate: div(h.sales, h.leads) })),
-      [{ key: 'leads', name: 'לידים', color: 'var(--s1)', fmt: F.int }]);
+    columnChart($('insHours'), byHour.map((h, i) => ({ label: `${i}:00`, short: String(i), leads: h.leads, sales: h.sales })),
+      [{ key: 'leads', name: 'לידים', color: 'var(--s1)', fmt: F.int }, { key: 'sales', name: 'מכירות', color: 'var(--s2)', fmt: F.int }]);
     barList($('insDays'), byDow.map((d, i) => ({ label: WEEKDAYS[i], value: d.leads,
       tip: `לידים: ${F.int(d.leads)}<br>אחוז סגירה: ${F.pct(div(d.sales, d.leads))}` })).filter(d => d.value), F.int);
   }
