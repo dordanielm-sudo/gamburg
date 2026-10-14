@@ -32,15 +32,18 @@ const CONFIG = {
 
   // כותרות העמודות (מספר שמות אפשריים לכל עמודה). המיקום לא משנה -
   // הסקריפט מחפש את שורת הכותרות בעשר השורות הראשונות.
-  LEADS_COLUMNS: {
-    date: ['תאריך יצירה'],
-    saleDate: ['תאריך עדכון אחרון', 'תאריך עדכון'], // חודש המכירה
-    campaign: ['מקור הליד / אופן הגעה', 'מקור הליד', 'שם קמפיין'],
-    status: ['סטטוס תהליך'],
-    premium: ['פרמיה חודשית'],
-    oldPremium: ['פרמיה חודשית תיק ישן'],
-    keyword: ['מילת מפתח'],
-    rep: ['נציג מכירות'],
+  // עמודות טבלת הלידים לפי אות. נקבע לפי אות ולא לפי כותרת: כותרת עם תו
+  // נסתר גרמה ל"פרמיה חודשית" להיתפס בעמודה I ("פרמיה חודשית תיק ישן"),
+  // ושתי עמודות הפרמיה הציגו את אותם מספרים. אם עמודה זזה - משנים כאן.
+  LEADS_COLUMN_LETTERS: {
+    date: 'C',       // תאריך יצירה - חודש/יום הליד
+    campaign: 'D',   // מקור הליד / אופן הגעה
+    status: 'E',     // סטטוס תהליך - "מכירה"
+    rep: 'H',        // נציג מכירות
+    oldPremium: 'I', // פרמיה חודשית תיק ישן
+    premium: 'J',    // פרמיה חודשית
+    keyword: 'L',    // מילת מפתח
+    saleDate: 'M',   // תאריך עדכון אחרון - יום המכירה
   },
   COSTS_COLUMNS: {
     date: ['תאריך', 'חודש', 'תקופה'],
@@ -334,8 +337,11 @@ function findHeader(headers, aliases) {
 function readLeads() {
   const sheet = openSheet(CONFIG.LEADS_SPREADSHEET_ID, CONFIG.LEADS_SHEET_NAME);
   const values = sheet.getDataRange().getValues();
-  const { headerRow, cols } = locateColumns(values, CONFIG.LEADS_COLUMNS,
-    ['date', 'campaign', 'status', 'premium'], 'טבלת הלידים');
+  const headerRow = 0;
+  const cols = {};
+  Object.keys(CONFIG.LEADS_COLUMN_LETTERS).forEach(key => {
+    cols[key] = columnIndex(CONFIG.LEADS_COLUMN_LETTERS[key]);
+  });
   const saleStatuses = CONFIG.SALE_STATUSES.map(normalizeText);
 
   const rows = [];
@@ -877,9 +883,15 @@ function renderCharts(sheet, campaigns, campaignCount, monthly, monthCount) {
 
 // ---------------------------------------------------------------- עזרים
 
+// 'A' -> 0, 'J' -> 9, 'AA' -> 26
+function columnIndex(letter) {
+  return String(letter).toUpperCase().split('').reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1;
+}
+
 function normalizeText(v) {
   if (v === null || v === undefined) return '';
-  return String(v).replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').trim();
+  // תווי כיווניות נסתרים (RLM/LRM וכו') שנכנסים בהעתקה מאתרים ומ-CRM.
+  return String(v).replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '').replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').trim();
 }
 
 // מפתח השוואה בין שני הגיליונות: אותו קמפיין נכתב לפעמים עם רווחים או
