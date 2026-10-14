@@ -408,7 +408,7 @@ function toDataset(rows) {
       hour: opt(r, 'hour'), closeDays: opt(r, 'closeDays'),
     });
   }
-  return { records, updated };
+  return { records, updated, fields: h };
 }
 
 function readCache() {
@@ -554,9 +554,12 @@ const tables = {};
 
 function table(el, cols, rows, totals, opts = {}) {
   let t = tables[el.id];
-  if (!t) {
-    t = tables[el.id] = { sort: null, dir: -1, q: '' };
+  // לשונית התובנות בונה את הטבלאות מחדש בכל ציור - אז גם אם המצב (מיון,
+  // חיפוש) כבר קיים, אלמנט חדש צריך מחדש את תיבת החיפוש והמאזינים.
+  if (!t || !el.querySelector('.tb')) {
+    t = tables[el.id] = t || { sort: null, dir: -1, q: '' };
     el.innerHTML = '<input class="tfilter" type="search" placeholder="חיפוש בטבלה..."><div class="tb"></div>';
+    el.querySelector('.tfilter').value = t.q;
     el.querySelector('.tfilter').addEventListener('input', e => {
       t.q = e.target.value.trim().toLowerCase();
       drawTable(el);
@@ -627,6 +630,7 @@ const PEOPLE = { tReps: { field: 'rep', all: 'כל הנציגים' }, tWarmers: 
 
 function setData(ds) {
   state.records = ds.records;
+  state.fields = ds.fields || [];
   const dates = ds.records.map(r => r.date).filter(Boolean);
   state.minDate = dates.length ? Math.min(...dates) : ymd(new Date());
   state.maxDate = dates.length ? Math.max(...dates) : ymd(new Date());
@@ -827,9 +831,23 @@ const mini = (headers, rows) => rows.length
     '</tbody></table></div>'
   : '<div class="empty">אין מספיק נתונים בתקופה שנבחרה</div>';
 
+// טבלת תובנות עם מיון וחיפוש - אותו רכיב כמו בדשבורד. הטבלה עצמה נבנית
+// אחרי שה-HTML של הכרטיסים נכנס לדף.
+let pendingTables = [];
+function itable(id, cols, rows) {
+  pendingTables.push({ id, cols, rows });
+  return `<div class="tbl" id="${id}"></div>`;
+}
+const fmtDays = v => (ok(v) ? nf1.format(v) : '—');
+// שדה שהאתר מצפה לו אבל הנתונים שהגיעו לא כוללים - הסקריפט ב-Google עוד לא עודכן.
+const missingField = f => state.fields && state.fields.length && !state.fields.includes(f);
+const STALE_SCRIPT = 'הנתונים שהגיעו מהסקריפט לא כוללים את המידע הזה. צריך להחליף את הקוד ב-Apps Script לגרסה האחרונה, ' +
+  'ללחוץ "📊 דשבורד ← רענן עכשיו", ולעדכן את הפריסה (פריסה ← ניהול פריסות ← גרסה חדשה).';
+
 function renderInsights() {
   const el = $('insights');
   if (el.hidden) return; // מחושב רק כשהלשונית פתוחה
+  pendingTables = [];
   const { from, to } = range();
   const prev = { from: addDays(from, -daysBetween(from, to)), to: addDays(from, -1) };
   const all = new Set();
@@ -863,8 +881,8 @@ function renderInsights() {
       : 'אין קמפיין שהוציא כסף בלי להביא מכירה בתקופה הזו.',
     expensive.length
       ? `${expensive.length} קמפיינים עולים יותר מפי 2 מהממוצע לסגירה (${F.money(avgCostPerSale)}).` : '',
-  ].filter(Boolean)) + mini(['קמפיין', 'עלות', 'לידים', 'מכירות', 'עלות לסגירה'],
-    burned.concat(expensive).slice(0, 10).map(([n, b]) => [n, F.money(b.cost), F.int(b.leads), F.int(b.sales), F.money(metrics(b).costPerSale)]))));
+  ].filter(Boolean)) + itable('insBurned', [C.name('קמפיין'), C.money('עלות'), C.int('לידים'), C.int('מכירות'), C.money('עלות לסגירה')],
+    burned.concat(expensive).map(([n, b]) => [n, b.cost, b.leads, b.sales, metrics(b).costPerSale]))));
 
   // 3. איפה כדאי להשקיע
   const efficient = campaigns.filter(([, b]) => b.hasCost && b.sales >= 2).sort((a, b) => metrics(a[1]).costPerSale - metrics(b[1]).costPerSale);
@@ -873,19 +891,20 @@ function renderInsights() {
   cards.push(insightCard(3, 'איפה כדאי להשקיע', lines([
     best ? `הקמפיין המשתלם ביותר: <b>${esc(best[0])}</b> - סגירה ב-${F.money(metrics(best[1]).costPerSale)} לעומת ${F.money(avgCostPerSale)} בממוצע.` : 'אין עדיין קמפיין עם עלות ולפחות 2 מכירות בתקופה.',
     kwBest[0] ? `מילת המפתח עם אחוז הסגירה הגבוה ביותר: <b>${esc(kwBest[0][0])}</b> (${F.pct(metrics(kwBest[0][1]).closeRate)} מתוך ${F.int(kwBest[0][1].leads)} לידים).` : '',
-  ].filter(Boolean)) + mini(['קמפיין', 'מכירות', 'אחוז סגירה', 'עלות לסגירה', 'עלות פרמיה'],
-    efficient.slice(0, 5).map(([n, b]) => { const m = metrics(b); return [n, F.int(b.sales), F.pct(m.closeRate), F.money(m.costPerSale), F.ratio(m.costToPremium)]; }))));
+  ].filter(Boolean)) + itable('insInvest', [C.name('קמפיין'), C.int('מכירות'), C.pct('אחוז סגירה'), C.money('עלות לסגירה'), C.ratio('עלות פרמיה')],
+    efficient.map(([n, b]) => { const m = metrics(b); return [n, b.sales, m.closeRate, m.costPerSale, m.costToPremium]; }))));
 
   // 4. כמות מול איכות
   const qq = campaigns.filter(([, b]) => share(b.leads, t.leads) >= 0.05).map(([n, b]) => {
     const ls = share(b.leads, t.leads), ss = share(b.sales, t.sales);
-    const tag = ss < ls / 2 ? '<span class="bad">כמות בלי איכות</span>' : ss > ls * 1.5 ? '<span class="good">איכותי</span>' : 'מאוזן';
+    const tag = ss < ls / 2 ? 'כמות בלי איכות' : ss > ls * 1.5 ? 'איכותי' : 'מאוזן';
     return { n, ls, ss, tag };
   }).sort((a, b) => b.ls - a.ls);
   const worstQ = qq.filter(q => q.ss < q.ls / 2)[0];
   cards.push(insightCard(4, 'כמות מול איכות', lines([
     worstQ ? `<b>${esc(worstQ.n)}</b> מביא ${F.pct(worstQ.ls)} מהלידים אבל רק ${F.pct(worstQ.ss)} מהמכירות.` : 'אין קמפיין גדול שמביא הרבה לידים ומעט מכירות.',
-  ]) + mini(['קמפיין', 'חלק מהלידים', 'חלק מהמכירות', 'מצב'], qq.map(q => [q.n, F.pct(q.ls), F.pct(q.ss), q.tag]))));
+  ]) + itable('insQQ', [C.name('קמפיין'), C.pct('חלק מהלידים'), C.pct('חלק מהמכירות'), C.name('מצב')],
+    qq.map(q => [q.n, q.ls, q.ss, q.tag]))));
 
   // 5. תחזית לסוף החודש (החודש הנוכחי, לפי הקצב עד היום)
   const now = new Date(), today = ymd(now);
@@ -923,8 +942,8 @@ function renderInsights() {
   const months = [...cur.byMonth.entries()].slice(-6);
   cards.push(insightCard(7, 'החזר השקעה', lines([
     ok(mt.costToPremium) ? `בתקופה הזו כל <b>₪1</b> של פרמיה חודשית עלה <b>${F.money1(mt.costToPremium)}</b> בקמפיינים${ok(mp.costToPremium) ? ` (לפני: ${F.money1(mp.costToPremium)})` : ''}.` : 'אין נתוני עלות או פרמיה לחישוב בתקופה הזו.',
-  ]) + mini(['חודש', 'עלות', 'פרמיה', 'עלות לכל ₪1 פרמיה'],
-    months.map(([m, b]) => { const k = metrics(b); return [monthLabel(m), F.money(k.cost), F.money(b.premium), F.money1(k.costToPremium)]; }))));
+  ]) + itable('insRoi', [{ h: 'חודש', f: monthLabel }, C.money('עלות'), C.money('פרמיה'), C.money1('עלות לכל ₪1 פרמיה')],
+    months.map(([m, b]) => { const k = metrics(b); return [m, k.cost, b.premium, k.costToPremium]; }))));
 
   // 8. שעות וימים חזקים
   const byHour = Array.from({ length: 24 }, () => ({ leads: 0, sales: 0 }));
@@ -939,7 +958,7 @@ function renderInsights() {
   const peak = byHour.map((h, i) => ({ i, ...h })).sort((a, b) => b.leads - a.leads).slice(0, 3).sort((a, b) => a.i - b.i);
   const bestCloseHour = byHour.map((h, i) => ({ i, ...h, r: div(h.sales, h.leads) })).filter(h => h.leads >= 30).sort((a, b) => b.r - a.r)[0];
   const bestDow = byDow.map((d, i) => ({ i, ...d })).sort((a, b) => b.leads - a.leads)[0];
-  cards.push(insightCard(8, 'שעות וימים חזקים', lines(hourLeads ? [
+  cards.push(insightCard(8, 'שעות וימים חזקים', missingField('hour') ? lines([STALE_SCRIPT]) : lines(hourLeads ? [
     `שעות השיא בכניסת לידים: <b>${peak.map(h => `${h.i}:00`).join(', ')}</b> (${F.pct(share(peak.reduce((n, h) => n + h.leads, 0), hourLeads))} מהלידים).`,
     bestCloseHour ? `לידים שנכנסים ב-<b>${bestCloseHour.i}:00</b> נסגרים הכי טוב - ${F.pct(bestCloseHour.r)} (ממוצע: ${F.pct(div(byHour.reduce((n, h) => n + h.sales, 0), hourLeads))}).` : '',
     `היום החזק בלידים: <b>${WEEKDAYS[bestDow.i]}</b>.`,
@@ -948,24 +967,27 @@ function renderInsights() {
     '<div><h2 style="font-size:14px">לידים ואחוז סגירה לפי יום</h2><div id="insDays"></div></div></div>'));
 
   // 9. מהירות סגירה
-  const speedRow = (n, b) => [n, F.int(b.sales), b.sales ? nf1.format(b.closeDays / b.sales) : '—'];
-  const speedCampaigns = campaigns.filter(([, b]) => b.sales >= 2).sort((a, b) => a[1].closeDays / a[1].sales - b[1].closeDays / b[1].sales);
-  cards.push(insightCard(9, 'מהירות סגירה', lines([
-    t.sales ? `בממוצע עוברים <b>${nf1.format(t.closeDays / t.sales)} ימים</b> מיצירת הליד עד המכירה${p.sales ? ` (לפני: ${nf1.format(p.closeDays / p.sales)})` : ''}.` : 'אין מכירות בתקופה שנבחרה.',
+  const avgDays = b => (b.sales ? b.closeDays / b.sales : null);
+  const speedCampaigns = campaigns.filter(([, b]) => b.sales >= 2).sort((a, b) => avgDays(a[1]) - avgDays(b[1]));
+  const speedCols = first => [C.name(first), C.int('מכירות'), { h: 'ימים בממוצע', f: fmtDays }];
+  cards.push(insightCard(9, 'מהירות סגירה', missingField('closeDays') ? lines([STALE_SCRIPT]) : lines([
+    t.sales ? `בממוצע עוברים <b>${fmtDays(avgDays(t))} ימים</b> מיצירת הליד עד המכירה${p.sales ? ` (לפני: ${fmtDays(avgDays(p))})` : ''}.` : 'אין מכירות בתקופה שנבחרה.',
     speedCampaigns.length > 1 ? `הכי מהיר: <b>${esc(speedCampaigns[0][0])}</b>; הכי איטי: <b>${esc(speedCampaigns[speedCampaigns.length - 1][0])}</b>.` : '',
   ].filter(Boolean)) + '<div class="grid2" style="margin:0">' +
-    `<div>${mini(['קמפיין', 'מכירות', 'ימים בממוצע'], speedCampaigns.map(([n, b]) => speedRow(n, b)))}</div>` +
-    `<div>${mini(['נציג', 'מכירות', 'ימים בממוצע'], [...reps.byPerson.entries()].filter(([, b]) => b.sales).sort((a, b) => a[1].closeDays / a[1].sales - b[1].closeDays / b[1].sales).map(([n, b]) => speedRow(n, b)))}</div></div>`));
+    `<div>${itable('insSpeedC', speedCols('קמפיין'), speedCampaigns.map(([n, b]) => [n, b.sales, avgDays(b)]))}</div>` +
+    `<div>${itable('insSpeedR', speedCols('נציג'), [...reps.byPerson.entries()].filter(([, b]) => b.sales).map(([n, b]) => [n, b.sales, avgDays(b)]))}</div></div>`));
 
   // 10. משפך לפי קמפיין
   cards.push(insightCard(10, 'משפך לפי קמפיין',
     '<p class="ins-intro">לידים ← פתיחת לידים ← העברות לפנסיה ← מכירות. האחוזים הם מתוך הלידים של הקמפיין.</p>' +
-    mini(['קמפיין', 'לידים', 'פתיחות', 'העברות לפנסיה', 'מכירות'],
-      campaigns.filter(([, b]) => b.leads > 0).sort((a, b) => b[1].leads - a[1].leads).map(([n, b]) => [n, F.int(b.leads),
-        `${F.int(b.opened)} (${F.pct(div(b.opened, b.leads))})`, `${F.int(b.pension)} (${F.pct(div(b.pension, b.leads))})`,
-        `${F.int(b.sales)} (${F.pct(div(b.sales, b.leads))})`]))));
+    (missingField('opened') ? lines([STALE_SCRIPT]) : itable('insFunnel',
+      [C.name('קמפיין'), C.int('לידים'), C.int('פתיחות'), C.pct('% פתיחה'), C.int('העברות לפנסיה'), C.pct('% העברה'),
+        C.int('מכירות'), C.pct('% סגירה')],
+      campaigns.filter(([, b]) => b.leads > 0).sort((a, b) => b[1].leads - a[1].leads).map(([n, b]) => [n, b.leads,
+        b.opened, div(b.opened, b.leads), b.pension, div(b.pension, b.leads), b.sales, div(b.sales, b.leads)])))));
 
   el.innerHTML = cards.join('');
+  pendingTables.forEach(({ id, cols, rows }) => table($(id), cols, rows));
   if (hourLeads) {
     columnChart($('insHours'), byHour.map((h, i) => ({ label: `${i}:00`, short: String(i), leads: h.leads, rate: div(h.sales, h.leads) })),
       [{ key: 'leads', name: 'לידים', color: 'var(--s1)', fmt: F.int }]);
