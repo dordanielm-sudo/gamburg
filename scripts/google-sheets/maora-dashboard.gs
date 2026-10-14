@@ -164,9 +164,9 @@ function refreshDashboard() {
  * בדפדפן, כך שהוא לא מחכה ל-Apps Script ולא נוגע בטבלת הלידים עצמה.
  * בלשונית אין שמות או ת"ז - רק ספירות וסכומים.
  */
-const SITE_COLUMNS = ['type', 'date', 'campaign', 'keyword', 'rep', 'warmer',
-  'leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet'];
-const SITE_SUMS = ['leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet'];
+const SITE_COLUMNS = ['type', 'date', 'campaign', 'keyword', 'rep', 'warmer', 'hour',
+  'leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet', 'closeDays'];
+const SITE_SUMS = ['leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet', 'closeDays'];
 
 function writeSiteData(ss, data) {
   const groups = new Map();
@@ -177,10 +177,11 @@ function writeSiteData(ss, data) {
     if (!keywordNames.has(key)) keywordNames.set(key, kw);
     return keywordNames.get(key);
   };
-  const group = (type, day, campaignKey, keyword, rep, warmer) => {
-    const id = [type, day, campaignKey, keyword, rep, warmer].join('|');
+  const group = (type, day, campaignKey, keyword, rep, warmer, hour) => {
+    const id = [type, day, campaignKey, keyword, rep, warmer, hour].join('|');
     if (!groups.has(id)) {
-      const g = { type, date: day, campaign: data.campaignNames.get(campaignKey), keyword, rep, warmer };
+      const g = { type, date: day, campaign: campaignKey ? data.campaignNames.get(campaignKey) : '', keyword, rep, warmer,
+        hour: hour === undefined ? '' : hour };
       SITE_SUMS.forEach(k => { g[k] = 0; });
       groups.set(id, g);
     }
@@ -189,12 +190,18 @@ function writeSiteData(ss, data) {
 
   data.leads.forEach(l => {
     const g = group('lead', l.day, l.campaignKey, keywordName(l.keyword), l.rep, '');
-    ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension', 'salesNet'].forEach(k => { g[k] += l[k] || 0; });
+    ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension', 'closeDays'].forEach(k => { g[k] += l[k] || 0; });
   });
   // שורות 'warm' משמשות רק את טבלת המחממות באתר.
   data.warm.forEach(l => {
     const g = group('warm', l.day, l.campaignKey, '', '', l.warmer);
     ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension', 'salesNet'].forEach(k => { g[k] += l[k] || 0; });
+  });
+  // שורות 'hour' משמשות רק את "שעות וימים חזקים" בלשונית התובנות.
+  data.hours.forEach(h => {
+    const g = group('hour', h.day, '', '', '', '', h.hour);
+    g.leads += h.leads;
+    g.sales += h.sales;
   });
   const tz = Session.getScriptTimeZone();
   const today = Number(Utilities.formatDate(new Date(), tz, 'yyyyMMdd'));
@@ -375,6 +382,7 @@ function readLeads() {
 
   const rows = [];
   const warm = []; // שורות לטבלת המחממות בלבד
+  const hours = []; // שעת יצירה של כל ליד - ללשונית התובנות
   let skipped = 0;
   let skippedSales = 0;
   let skippedWarm = 0;
@@ -409,11 +417,28 @@ function readLeads() {
     // הליד נספר ביום היצירה (עמודה C), והמכירה (עם הפרמיה) ביום של "תאריך
     // עדכון אחרון" (עמודה M) בלבד. מכירה בלי תאריך עדכון לא נספרת, ומדווחת
     // בשורת "עודכן" כדי שאפשר יהיה להשלים לה תאריך.
+    // פתיחות והעברות לפנסיה על השורות הרגילות משמשות רק את משפך הקמפיינים
+    // בלשונית התובנות; הטבלאות בדשבורד לא מציגות אותן.
+    const createdDay = dayOf(created);
     rows.push(Object.assign({}, base, {
-      month: created.month, day: dayOf(created), leads: 1, sales: 0, premium: 0, oldPremium: 0, opened: 0, pension: 0,
+      month: created.month, day: createdDay, leads: 1, sales: 0, premium: 0, oldPremium: 0,
+      opened: openedStatuses.includes(status) ? 1 : 0,
+      pension: pensionStatuses.includes(status) ? 1 : 0,
     }));
-    if (saleStatuses.includes(status)) {
-      if (closed) rows.push(saleRow()); else skippedSales++;
+    const isSale = saleStatuses.includes(status);
+    if (isSale) {
+      if (closed) {
+        // כמה ימים עברו מיצירת הליד (C) עד המכירה (M) - ל"מהירות סגירה".
+        rows.push(Object.assign(saleRow(), { closeDays: Math.max(0, daysDiff(createdDay, dayOf(closed))) }));
+      } else {
+        skippedSales++;
+      }
+    }
+    // שעה ויום בשבוע של יצירת הליד - ל"שעות וימים חזקים". המכירה נזקפת לשעת
+    // הכניסה של הליד, כדי לראות מאילו שעות לידים נסגרים יותר.
+    const parts = dateParts(row[cols.date]);
+    if (parts && parts.h !== null) {
+      hours.push({ day: createdDay, hour: parts.h, leads: 1, sales: isSale ? 1 : 0 });
     }
 
     // מחממות: כל הספירות לפי "תאריך עדכון אחרון" (עמודה M) בלבד, ביום
@@ -440,7 +465,7 @@ function readLeads() {
       }
     }
   }
-  return { rows, warm, skipped, skippedSales, skippedWarm };
+  return { rows, warm, hours, skipped, skippedSales, skippedWarm };
 }
 
 function readCosts(campaignMap) {
@@ -536,16 +561,28 @@ function readCampaignMap(ss, leads) {
  * הבא, ויום שנופל על שישי/שבת עובר לראשון. כך ראשון מקבל את חמישי 16:00 עד
  * ראשון 16:00, וכל יום אחר את 16:00 של אתמול עד 16:00 של היום.
  */
-function leadWorkDay(v) {
-  let y, m, d, h;
+// { y, m, d, h } מתאריך אמיתי או מטקסט "dd/mm/yyyy hh:mm". h = null כשאין שעה.
+function dateParts(v) {
   if (v instanceof Date && !isNaN(v)) {
-    const parts = Utilities.formatDate(v, spreadsheetTimeZone(), 'yyyy-MM-dd-HH').split('-').map(Number);
-    [y, m, d, h] = parts;
-  } else {
-    const match = normalizeText(v).match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})(?:\s+(\d{1,2}):\d{2})?/);
-    if (!match) return null;
-    [d, m, y, h] = [+match[1], +match[2], +match[3], match[4] === undefined ? 0 : +match[4]];
+    const [y, m, d, h] = Utilities.formatDate(v, spreadsheetTimeZone(), 'yyyy-MM-dd-HH').split('-').map(Number);
+    return { y, m, d, h };
   }
+  const match = normalizeText(v).match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})(?:\s+(\d{1,2}):\d{2})?/);
+  if (!match) return null;
+  return { y: +match[3], m: +match[2], d: +match[1], h: match[4] === undefined ? null : +match[4] };
+}
+
+// מספר הימים בין שני ימים בפורמט yyyymmdd.
+function daysDiff(fromDay, toDay) {
+  const t = n => Date.UTC(Math.floor(n / 10000), Math.floor(n / 100) % 100 - 1, n % 100);
+  return Math.round((t(toDay) - t(fromDay)) / 864e5);
+}
+
+function leadWorkDay(v) {
+  const p = dateParts(v);
+  if (!p) return null;
+  const { y, m, d } = p;
+  const h = p.h === null ? 0 : p.h;
   const date = new Date(Date.UTC(y, m - 1, d));
   if (h >= CONFIG.LEAD_DAY_CUTOFF_HOUR) date.setUTCDate(date.getUTCDate() + 1);
   while (date.getUTCDay() === 5 || date.getUTCDay() === 6) date.setUTCDate(date.getUTCDate() + 1);
@@ -608,6 +645,7 @@ function indexData(leads, costs) {
   return {
     leads: leads.rows,
     warm: leads.warm,
+    hours: leads.hours,
     skippedLeads: leads.skipped,
     skippedSales: leads.skippedSales,
     skippedWarm: leads.skippedWarm,

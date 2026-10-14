@@ -194,6 +194,32 @@
   .ms-list label:hover { background: var(--bg); }
   .subfilters { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
   .subfilters .clear, #clearAll { padding: 8px 12px; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  .tabs button {
+    background: transparent; color: var(--text-2); border-radius: 8px 8px 0 0; padding: 9px 18px;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 700; }
+
+  .ins-intro { color: var(--text-2); font-size: 14px; margin: -6px 0 16px; }
+  .ins-num {
+    display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 13px; margin-inline-end: 8px; vertical-align: 1px;
+  }
+  .ins-lines { margin: 0 0 12px; padding-inline-start: 18px; }
+  .ins-lines li { margin-bottom: 6px; }
+  .ins-lines b { font-variant-numeric: tabular-nums; }
+  .deltas { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  @media (max-width: 900px) { .deltas { grid-template-columns: repeat(2, 1fr); } }
+  .delta { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .delta .l { font-size: 12px; color: var(--text-2); }
+  .delta .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .delta .c { font-size: 13px; font-weight: 500; }
+  .good { color: #1f7a3e; }
+  .bad { color: #c62f2f; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .good { color: #5fc27e; } :root:not([data-theme="light"]) .bad { color: #ef7b7b; } }
+  .muted-note { color: var(--text-3); font-size: 12px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -243,6 +269,13 @@
     </div>
     <button type="button" class="ghost" id="clearAll">מחיקת כל הסינונים</button>
   </div>
+
+  <nav class="tabs" id="tabs">
+    <button type="button" data-tab="app" class="on">דשבורד</button>
+    <button type="button" data-tab="insights">תובנות</button>
+  </nav>
+
+  <div id="insights" hidden></div>
 
   <div id="app" class="loading">
     <div class="kpis" id="kpis"></div>
@@ -354,7 +387,7 @@ function parseCSV(text) {
 function toDataset(rows) {
   const h = rows[0].map(x => x.trim());
   const I = Object.fromEntries(['type', 'date', 'month', 'campaign', 'keyword', 'rep', 'warmer', 'leads', 'sales',
-    'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet'].map(k => [k, h.indexOf(k)]));
+    'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet', 'hour', 'closeDays'].map(k => [k, h.indexOf(k)]));
   if (I.type < 0 || (I.date < 0 && I.month < 0)) throw new Error('הקישור לא מחזיר את הנתונים לאתר');
   const num = v => { const n = parseFloat(String(v ?? '').replace(/[,₪\s]/g, '')); return isFinite(n) ? n : 0; };
   const opt = (r, k) => (I[k] >= 0 ? num(r[I[k]]) : 0);
@@ -363,7 +396,7 @@ function toDataset(rows) {
   for (const r of rows.slice(1)) {
     const type = (r[I.type] || '').trim();
     if (type === 'meta') { updated = r[I.campaign]; continue; }
-    if (type !== 'lead' && type !== 'cost' && type !== 'warm') continue;
+    if (!['lead', 'cost', 'warm', 'hour'].includes(type)) continue;
     // גרסה ישנה של הסקריפט שלחה חודש (yyyymm) במקום יום.
     const date = I.date >= 0 ? num(r[I.date]) : num(r[I.month]) * 100 + 1;
     records.push({
@@ -372,6 +405,7 @@ function toDataset(rows) {
       warmer: I.warmer >= 0 ? (r[I.warmer] || '').trim() : '',
       leads: num(r[I.leads]), sales: num(r[I.sales]), premium: num(r[I.premium]),
       oldPremium: opt(r, 'oldPremium'), cost: num(r[I.cost]), opened: opt(r, 'opened'), pension: opt(r, 'pension'), salesNet: opt(r, 'salesNet'),
+      hour: opt(r, 'hour'), closeDays: opt(r, 'closeDays'),
     });
   }
   return { records, updated };
@@ -385,7 +419,7 @@ function writeCache(ds) {
 }
 
 // ------------------------------------------------------------------ חישובים (אותן הגדרות כמו בגיליון)
-const bucket = () => ({ leads: 0, sales: 0, premium: 0, oldPremium: 0, cost: 0, hasCost: false, opened: 0, pension: 0, salesNet: 0 });
+const bucket = () => ({ leads: 0, sales: 0, premium: 0, oldPremium: 0, cost: 0, hasCost: false, opened: 0, pension: 0, salesNet: 0, closeDays: 0 });
 const get = (map, k) => { if (!map.has(k)) map.set(k, bucket()); return map.get(k); };
 const div = (a, b) => b ? a / b : null;
 const inSet = (set, v) => !set.size || set.has(v); // בחירה ריקה = הכל
@@ -402,7 +436,7 @@ function metrics(b) {
 function add(b, r) {
   if (r.type !== 'cost') {
     b.leads += r.leads; b.sales += r.sales; b.premium += r.premium; b.oldPremium += r.oldPremium;
-    b.opened += r.opened || 0; b.pension += r.pension || 0; b.salesNet += r.salesNet || 0;
+    b.opened += r.opened || 0; b.pension += r.pension || 0; b.salesNet += r.salesNet || 0; b.closeDays += r.closeDays || 0;
   } else {
     b.cost += r.cost; b.hasCost = true;
   }
@@ -413,7 +447,7 @@ function aggregate(records, f) {
   for (let m = Math.floor(f.from / 100); m <= Math.floor(f.to / 100); m = m % 100 === 12 ? m + 89 : m + 1) byMonth.set(m, bucket());
   if (f.daily) for (let d = fromYmd(f.from); ymd(d) <= f.to; d.setDate(d.getDate() + 1)) byDay.set(ymd(d), bucket());
   for (const r of records) {
-    if (r.type === 'warm') continue; // שורות של טבלת המחממות בלבד
+    if (r.type === 'warm' || r.type === 'hour') continue; // שורות של טבלת המחממות / התובנות בלבד
     if (r.date < f.from || r.date > f.to || !inSet(f.campaigns, r.campaign)) continue;
     const bs = [total, get(byCampaign, r.campaign), get(byMonth, Math.floor(r.date / 100))];
     if (f.daily) bs.push(get(byDay, r.date));
@@ -680,6 +714,7 @@ function render() {
   })), F.int);
 
   renderCampaigns(); renderMonths(); renderKeywords(); renderReps(); renderWarmers();
+  renderInsights();
   $('app').classList.remove('loading');
 }
 
@@ -763,6 +798,191 @@ function renderWarmers() {
       .map(([n, b]) => row(n, b)), row('סה"כ', a.total));
 }
 
+// ------------------------------------------------------------------ תובנות
+// כל התובנות מחושבות בקוד מאותם נתונים כמו הטבלאות, לפי טווח התאריכים שנבחר,
+// בהשוואה לתקופה הקודמת באותו אורך (למשל 1-15/9 מול 17-31/8).
+const addDays = (n, k) => { const d = fromYmd(n); d.setDate(d.getDate() + k); return ymd(d); };
+const WEEKDAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const pctChange = (now, before) => (before ? (now - before) / before : null);
+const share = (a, b) => (b ? a / b : 0);
+
+function deltaCard(label, now, before, fmt, higherIsBetter) {
+  const ch = pctChange(now, before);
+  let cls = '', text = 'אין נתון להשוואה';
+  if (ok(now) && ok(before) && ch !== null) {
+    const up = ch > 0;
+    cls = Math.abs(ch) < 0.005 ? '' : (up === higherIsBetter ? 'good' : 'bad');
+    text = `${up ? '▲' : ch < 0 ? '▼' : '■'} ${nf1.format(Math.abs(ch) * 100)}% (לפני: ${fmt(before)})`;
+  }
+  return `<div class="delta"><div class="l">${esc(label)}</div><div class="v">${fmt(now)}</div><div class="c ${cls}">${esc(text)}</div></div>`;
+}
+
+function insightCard(n, title, body) {
+  return `<section class="card"><h2><span class="ins-num">${n}</span>${esc(title)}</h2>${body}</section>`;
+}
+const lines = items => items.length ? `<ul class="ins-lines">${items.map(t => `<li>${t}</li>`).join('')}</ul>` : '';
+const mini = (headers, rows) => rows.length
+  ? `<div class="tbl"><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
+    rows.map(r => `<tr>${r.map(c => `<td${c === '—' ? ' class="muted"' : ''}>${typeof c === 'string' && c.startsWith('<') ? c : esc(c)}</td>`).join('')}</tr>`).join('') +
+    '</tbody></table></div>'
+  : '<div class="empty">אין מספיק נתונים בתקופה שנבחרה</div>';
+
+function renderInsights() {
+  const el = $('insights');
+  if (el.hidden) return; // מחושב רק כשהלשונית פתוחה
+  const { from, to } = range();
+  const prev = { from: addDays(from, -daysBetween(from, to)), to: addDays(from, -1) };
+  const all = new Set();
+  const cur = aggregate(state.records, { from, to, campaigns: all, daily: false });
+  const before = aggregate(state.records, { from: prev.from, to: prev.to, campaigns: all, daily: false });
+  const t = cur.total, p = before.total, mt = metrics(t), mp = metrics(p);
+  const cards = [];
+  const campaigns = [...cur.byCampaign.entries()];
+  const avgCostPerSale = mt.costPerSale;
+
+  // 1. שינוי מול התקופה הקודמת
+  cards.push(insightCard(1, 'שינוי לעומת התקופה הקודמת',
+    `<p class="ins-intro"><bdi>${dayLabel(from)}</bdi> עד <bdi>${dayLabel(to)}</bdi>, לעומת <bdi>${dayLabel(prev.from)}</bdi> עד <bdi>${dayLabel(prev.to)}</bdi></p><div class="deltas">` +
+    deltaCard('לידים', t.leads, p.leads, F.int, true) +
+    deltaCard('מכירות', t.sales, p.sales, F.int, true) +
+    deltaCard('אחוז סגירה', mt.closeRate, mp.closeRate, F.pct, true) +
+    deltaCard('סה"כ פרמיה', t.premium, p.premium, F.money, true) +
+    deltaCard('עלות קמפיינים', mt.cost, mp.cost, F.money, false) +
+    deltaCard('עלות לליד', mt.costPerLead, mp.costPerLead, F.money1, false) +
+    deltaCard('עלות לסגירה', mt.costPerSale, mp.costPerSale, F.money, false) +
+    deltaCard('עלות פרמיה', mt.costToPremium, mp.costToPremium, F.ratio, false) + '</div>'));
+
+  // 2. כסף שנשרף
+  const burned = campaigns.filter(([, b]) => b.hasCost && b.cost > 0 && b.sales === 0).sort((a, b) => b[1].cost - a[1].cost);
+  const expensive = campaigns.filter(([, b]) => b.hasCost && b.sales > 0 && avgCostPerSale && metrics(b).costPerSale > avgCostPerSale * 2)
+    .sort((a, b) => metrics(b[1]).costPerSale - metrics(a[1]).costPerSale);
+  const burnedTotal = burned.reduce((n, [, b]) => n + b.cost, 0);
+  cards.push(insightCard(2, 'כסף שנשרף', lines([
+    burned.length
+      ? `<b>${F.money(burnedTotal)}</b> (${F.pct(share(burnedTotal, mt.cost))} מהתקציב) הוצאו על ${burned.length} קמפיינים בלי אף מכירה.`
+      : 'אין קמפיין שהוציא כסף בלי להביא מכירה בתקופה הזו.',
+    expensive.length
+      ? `${expensive.length} קמפיינים עולים יותר מפי 2 מהממוצע לסגירה (${F.money(avgCostPerSale)}).` : '',
+  ].filter(Boolean)) + mini(['קמפיין', 'עלות', 'לידים', 'מכירות', 'עלות לסגירה'],
+    burned.concat(expensive).slice(0, 10).map(([n, b]) => [n, F.money(b.cost), F.int(b.leads), F.int(b.sales), F.money(metrics(b).costPerSale)]))));
+
+  // 3. איפה כדאי להשקיע
+  const efficient = campaigns.filter(([, b]) => b.hasCost && b.sales >= 2).sort((a, b) => metrics(a[1]).costPerSale - metrics(b[1]).costPerSale);
+  const kwBest = [...cur.byKeyword.entries()].filter(([, b]) => b.leads >= 20).sort((a, b) => metrics(b[1]).closeRate - metrics(a[1]).closeRate);
+  const best = efficient[0];
+  cards.push(insightCard(3, 'איפה כדאי להשקיע', lines([
+    best ? `הקמפיין המשתלם ביותר: <b>${esc(best[0])}</b> - סגירה ב-${F.money(metrics(best[1]).costPerSale)} לעומת ${F.money(avgCostPerSale)} בממוצע.` : 'אין עדיין קמפיין עם עלות ולפחות 2 מכירות בתקופה.',
+    kwBest[0] ? `מילת המפתח עם אחוז הסגירה הגבוה ביותר: <b>${esc(kwBest[0][0])}</b> (${F.pct(metrics(kwBest[0][1]).closeRate)} מתוך ${F.int(kwBest[0][1].leads)} לידים).` : '',
+  ].filter(Boolean)) + mini(['קמפיין', 'מכירות', 'אחוז סגירה', 'עלות לסגירה', 'עלות פרמיה'],
+    efficient.slice(0, 5).map(([n, b]) => { const m = metrics(b); return [n, F.int(b.sales), F.pct(m.closeRate), F.money(m.costPerSale), F.ratio(m.costToPremium)]; }))));
+
+  // 4. כמות מול איכות
+  const qq = campaigns.filter(([, b]) => share(b.leads, t.leads) >= 0.05).map(([n, b]) => {
+    const ls = share(b.leads, t.leads), ss = share(b.sales, t.sales);
+    const tag = ss < ls / 2 ? '<span class="bad">כמות בלי איכות</span>' : ss > ls * 1.5 ? '<span class="good">איכותי</span>' : 'מאוזן';
+    return { n, ls, ss, tag };
+  }).sort((a, b) => b.ls - a.ls);
+  const worstQ = qq.filter(q => q.ss < q.ls / 2)[0];
+  cards.push(insightCard(4, 'כמות מול איכות', lines([
+    worstQ ? `<b>${esc(worstQ.n)}</b> מביא ${F.pct(worstQ.ls)} מהלידים אבל רק ${F.pct(worstQ.ss)} מהמכירות.` : 'אין קמפיין גדול שמביא הרבה לידים ומעט מכירות.',
+  ]) + mini(['קמפיין', 'חלק מהלידים', 'חלק מהמכירות', 'מצב'], qq.map(q => [q.n, F.pct(q.ls), F.pct(q.ss), q.tag]))));
+
+  // 5. תחזית לסוף החודש (החודש הנוכחי, לפי הקצב עד היום)
+  const now = new Date(), today = ymd(now);
+  const monthStart = Math.floor(today / 100) * 100 + 1;
+  const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(), elapsed = now.getDate();
+  const mtd = aggregate(state.records, { from: monthStart, to: today, campaigns: all, daily: false }).total;
+  const lastMonth = aggregate(state.records, { from: addDays(monthStart, -1) - (addDays(monthStart, -1) % 100) + 1, to: addDays(monthStart, -1), campaigns: all, daily: false }).total;
+  const f = v => v * dim / elapsed;
+  cards.push(insightCard(5, `תחזית ל${MONTHS[now.getMonth()]} ${now.getFullYear()}`,
+    `<p class="ins-intro">לפי הקצב של ${elapsed} הימים הראשונים בחודש (מתוך ${dim}), בלי קשר לטווח שנבחר למעלה.</p>` +
+    mini(['', 'עד היום', 'צפי לסוף החודש', 'חודש קודם'], [
+      ['לידים', F.int(mtd.leads), F.int(f(mtd.leads)), F.int(lastMonth.leads)],
+      ['מכירות', F.int(mtd.sales), F.int(f(mtd.sales)), F.int(lastMonth.sales)],
+      ['סה"כ פרמיה', F.money(mtd.premium), F.money(f(mtd.premium)), F.money(lastMonth.premium)],
+      ['עלות קמפיינים', F.money(mtd.cost), F.money(f(mtd.cost)), F.money(lastMonth.cost)],
+    ])));
+
+  // 6. צוות
+  const reps = aggregatePeople(state.records, 'rep', { from, to, campaigns: all, people: all });
+  const warm = aggregatePeople(state.records, 'warmer', { from, to, campaigns: all, people: all });
+  const teamOpen = div(warm.total.opened, warm.total.leads);
+  const weakWarmers = [...warm.byPerson.entries()].filter(([, b]) => b.leads >= 20 && teamOpen && div(b.opened, b.leads) < teamOpen * 0.75);
+  const topRep = [...reps.byPerson.entries()].sort((a, b) => b[1].premium - a[1].premium)[0];
+  const topUpsell = [...reps.byPerson.entries()].filter(([, b]) => b.oldPremium > 0).sort((a, b) => metrics(b[1]).premiumChange - metrics(a[1]).premiumChange)[0];
+  const topWarmer = [...warm.byPerson.entries()].sort((a, b) => b[1].salesNet - a[1].salesNet)[0];
+  cards.push(insightCard(6, 'צוות', lines([
+    topRep ? `נציג המכירות המוביל בפרמיה: <b>${esc(topRep[0])}</b> - ${F.money(topRep[1].premium)} ב-${F.int(topRep[1].sales)} מכירות.` : '',
+    topUpsell ? `השיפור הגדול ביותר מול התיק הישן: <b>${esc(topUpsell[0])}</b> (${F.pct(metrics(topUpsell[1]).premiumChange)}).` : '',
+    topWarmer ? `המחממת עם הכי הרבה מכירות (בלי לקוח קיים ושחלוף): <b>${esc(topWarmer[0])}</b> - ${F.int(topWarmer[1].salesNet)}.` : '',
+    teamOpen ? `אחוז הפתיחה הממוצע של המחממות: <b>${F.pct(teamOpen)}</b>.` : '',
+    ...weakWarmers.map(([n, b]) => `<span class="bad">${esc(n)}</span> פותחת ${F.pct(div(b.opened, b.leads))} מהלידים - פחות מ-75% מממוצע הצוות.`),
+  ].filter(Boolean))));
+
+  // 7. החזר השקעה לאורך זמן
+  const months = [...cur.byMonth.entries()].slice(-6);
+  cards.push(insightCard(7, 'החזר השקעה', lines([
+    ok(mt.costToPremium) ? `בתקופה הזו כל <b>₪1</b> של פרמיה חודשית עלה <b>${F.money1(mt.costToPremium)}</b> בקמפיינים${ok(mp.costToPremium) ? ` (לפני: ${F.money1(mp.costToPremium)})` : ''}.` : 'אין נתוני עלות או פרמיה לחישוב בתקופה הזו.',
+  ]) + mini(['חודש', 'עלות', 'פרמיה', 'עלות לכל ₪1 פרמיה'],
+    months.map(([m, b]) => { const k = metrics(b); return [monthLabel(m), F.money(k.cost), F.money(b.premium), F.money1(k.costToPremium)]; }))));
+
+  // 8. שעות וימים חזקים
+  const byHour = Array.from({ length: 24 }, () => ({ leads: 0, sales: 0 }));
+  const byDow = Array.from({ length: 7 }, () => ({ leads: 0, sales: 0 }));
+  for (const r of state.records) {
+    if (r.type !== 'hour' || r.date < from || r.date > to) continue;
+    byHour[r.hour].leads += r.leads; byHour[r.hour].sales += r.sales;
+    const dw = fromYmd(r.date).getDay();
+    byDow[dw].leads += r.leads; byDow[dw].sales += r.sales;
+  }
+  const hourLeads = byHour.reduce((n, h) => n + h.leads, 0);
+  const peak = byHour.map((h, i) => ({ i, ...h })).sort((a, b) => b.leads - a.leads).slice(0, 3).sort((a, b) => a.i - b.i);
+  const bestCloseHour = byHour.map((h, i) => ({ i, ...h, r: div(h.sales, h.leads) })).filter(h => h.leads >= 30).sort((a, b) => b.r - a.r)[0];
+  const bestDow = byDow.map((d, i) => ({ i, ...d })).sort((a, b) => b.leads - a.leads)[0];
+  cards.push(insightCard(8, 'שעות וימים חזקים', lines(hourLeads ? [
+    `שעות השיא בכניסת לידים: <b>${peak.map(h => `${h.i}:00`).join(', ')}</b> (${F.pct(share(peak.reduce((n, h) => n + h.leads, 0), hourLeads))} מהלידים).`,
+    bestCloseHour ? `לידים שנכנסים ב-<b>${bestCloseHour.i}:00</b> נסגרים הכי טוב - ${F.pct(bestCloseHour.r)} (ממוצע: ${F.pct(div(byHour.reduce((n, h) => n + h.sales, 0), hourLeads))}).` : '',
+    `היום החזק בלידים: <b>${WEEKDAYS[bestDow.i]}</b>.`,
+  ].filter(Boolean) : ['אין נתוני שעות בתקופה שנבחרה.']) +
+    '<div class="grid2" style="margin:12px 0 0"><div><h2 style="font-size:14px">לידים לפי שעה</h2><div id="insHours"></div></div>' +
+    '<div><h2 style="font-size:14px">לידים ואחוז סגירה לפי יום</h2><div id="insDays"></div></div></div>'));
+
+  // 9. מהירות סגירה
+  const speedRow = (n, b) => [n, F.int(b.sales), b.sales ? nf1.format(b.closeDays / b.sales) : '—'];
+  const speedCampaigns = campaigns.filter(([, b]) => b.sales >= 2).sort((a, b) => a[1].closeDays / a[1].sales - b[1].closeDays / b[1].sales);
+  cards.push(insightCard(9, 'מהירות סגירה', lines([
+    t.sales ? `בממוצע עוברים <b>${nf1.format(t.closeDays / t.sales)} ימים</b> מיצירת הליד עד המכירה${p.sales ? ` (לפני: ${nf1.format(p.closeDays / p.sales)})` : ''}.` : 'אין מכירות בתקופה שנבחרה.',
+    speedCampaigns.length > 1 ? `הכי מהיר: <b>${esc(speedCampaigns[0][0])}</b>; הכי איטי: <b>${esc(speedCampaigns[speedCampaigns.length - 1][0])}</b>.` : '',
+  ].filter(Boolean)) + '<div class="grid2" style="margin:0">' +
+    `<div>${mini(['קמפיין', 'מכירות', 'ימים בממוצע'], speedCampaigns.map(([n, b]) => speedRow(n, b)))}</div>` +
+    `<div>${mini(['נציג', 'מכירות', 'ימים בממוצע'], [...reps.byPerson.entries()].filter(([, b]) => b.sales).sort((a, b) => a[1].closeDays / a[1].sales - b[1].closeDays / b[1].sales).map(([n, b]) => speedRow(n, b)))}</div></div>`));
+
+  // 10. משפך לפי קמפיין
+  cards.push(insightCard(10, 'משפך לפי קמפיין',
+    '<p class="ins-intro">לידים ← פתיחת לידים ← העברות לפנסיה ← מכירות. האחוזים הם מתוך הלידים של הקמפיין.</p>' +
+    mini(['קמפיין', 'לידים', 'פתיחות', 'העברות לפנסיה', 'מכירות'],
+      campaigns.filter(([, b]) => b.leads > 0).sort((a, b) => b[1].leads - a[1].leads).map(([n, b]) => [n, F.int(b.leads),
+        `${F.int(b.opened)} (${F.pct(div(b.opened, b.leads))})`, `${F.int(b.pension)} (${F.pct(div(b.pension, b.leads))})`,
+        `${F.int(b.sales)} (${F.pct(div(b.sales, b.leads))})`]))));
+
+  el.innerHTML = cards.join('');
+  if (hourLeads) {
+    columnChart($('insHours'), byHour.map((h, i) => ({ label: `${i}:00`, short: String(i), leads: h.leads, rate: div(h.sales, h.leads) })),
+      [{ key: 'leads', name: 'לידים', color: 'var(--s1)', fmt: F.int }]);
+    barList($('insDays'), byDow.map((d, i) => ({ label: WEEKDAYS[i], value: d.leads,
+      tip: `לידים: ${F.int(d.leads)}<br>אחוז סגירה: ${F.pct(div(d.sales, d.leads))}` })).filter(d => d.value), F.int);
+  }
+}
+
+$('tabs').addEventListener('click', e => {
+  const tab = e.target.dataset.tab;
+  if (!tab) return;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  $('app').hidden = tab !== 'app';
+  $('insights').hidden = tab !== 'insights';
+  if (tab === 'insights') renderInsights();
+});
+
 // ------------------------------------------------------------------ tooltip
 const tip = $('tip');
 document.addEventListener('mousemove', e => {
@@ -800,7 +1020,11 @@ function demoData() {
       const keyword = kws[(ci + i) % kws.length];
       const s = rnd() < n * rate * 1.5 ? 1 : 0;
       const opened = Math.round(n * (0.3 + rnd() * 0.3)), pension = Math.round(n * rnd() * 0.08);
-      records.push({ type: 'lead', date, campaign, keyword, rep: '', warmer: '', leads: n, sales: 0, premium: 0, oldPremium: 0, cost: 0 });
+      records.push({ type: 'lead', date, campaign, keyword, rep: '', warmer: '', leads: n, sales: 0, premium: 0, oldPremium: 0, cost: 0, opened, pension });
+      for (let k = 0; k < n; k++) {
+        const hour = [8, 9, 10, 10, 11, 11, 12, 13, 14, 15, 16, 17, 19, 21, 22][Math.floor(rnd() * 15)];
+        records.push({ type: 'hour', date, hour, leads: 1, sales: k === 0 && s ? 1 : 0, campaign: '', keyword: '', rep: '', warmer: '' });
+      }
       records.push({ type: 'warm', date, campaign, keyword: '', rep: '', warmer: warmers[(ci + i) % warmers.length],
         leads: n, sales: 0, salesNet: 0, premium: 0, oldPremium: 0, cost: 0, opened, pension });
       if (s) {
@@ -808,7 +1032,7 @@ function demoData() {
         records.push({ type: 'warm', date, campaign, keyword: '', rep: '', warmer: warmers[(ci + i) % warmers.length],
           leads: 0, sales: 1, salesNet: /לקוח קיים|שחלוף/.test(campaign) ? 0 : 1, premium: p, oldPremium: 0, cost: 0, opened: 0, pension: 0 });
         records.push({ type: 'lead', date, campaign, keyword, rep: reps[(ci + i) % reps.length],
-          warmer: '', leads: 0, sales: 1,
+          warmer: '', leads: 0, sales: 1, closeDays: Math.round(2 + rnd() * (ci + 1) * 4),
           premium: p, oldPremium: p * (0.6 + rnd() * 0.5), cost: 0 });
       }
       if (cpl) records.push({ type: 'cost', date, campaign, keyword: '', rep: '', leads: 0, sales: 0, premium: 0, oldPremium: 0, cost: n * cpl * (0.8 + rnd() * 0.4) });
