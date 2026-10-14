@@ -25,8 +25,17 @@ const CONFIG = {
   DASHBOARD_SHEET_NAME: 'דשבורד',
   DASHBOARD_TITLE: 'דשבורד קמפיינים',
 
-  // ערכי "סטטוס תהליך" שנספרים כמכירה.
-  SALE_STATUSES: ['מכירה'],
+  // ערכי "סטטוס תהליך" (עמודה E) שנספרים כמכירה.
+  SALE_STATUSES: ['מכירה', 'הר ביטוח'],
+  // סטטוסים שנספרים בעמודה "העברות לפנסיה".
+  PENSION_STATUSES: ['רלוונטי לפנסיוני', 'פיננסי תאיר'],
+  // סטטוסים שנספרים בעמודה "פתיחת לידים".
+  OPENED_STATUSES: ['הר ביטוח', 'תיק רלוונטי ממתין לנציג מכירות', 'פיננסי לוחי', 'מכירה', 'פיננסי תאיר',
+    'הועבר לרפאל', 'העבר לרפאל ע', 'העבר לרפאל ד', 'הועבר לקול מגדל', 'לא רלוונטי היסטוריה רפואית',
+    'לא רלוונטי מבוגרים', 'הצעת מחיר', 'רלוונטי לפנסיוני'],
+  // יום עבודה ללידים: מ-16:00 עד 16:00 למחרת; ליד מחמישי 16:00 עד ראשון
+  // 16:00 נספר ביום ראשון (ימי עבודה א'-ה').
+  LEAD_DAY_CUTOFF_HOUR: 16,
 
   TOP_KEYWORDS: 15,
 
@@ -39,6 +48,7 @@ const CONFIG = {
     date: 'C',       // תאריך יצירה - חודש/יום הליד
     campaign: 'D',   // מקור הליד / אופן הגעה
     status: 'E',     // סטטוס תהליך - "מכירה"
+    warmer: 'G',     // חימום (מחממת)
     rep: 'H',        // נציג מכירות
     oldPremium: 'I', // פרמיה חודשית תיק ישן
     premium: 'J',    // פרמיה חודשית
@@ -147,6 +157,10 @@ function refreshDashboard() {
  * בדפדפן, כך שהוא לא מחכה ל-Apps Script ולא נוגע בטבלת הלידים עצמה.
  * בלשונית אין שמות או ת"ז - רק ספירות וסכומים.
  */
+const SITE_COLUMNS = ['type', 'date', 'campaign', 'keyword', 'rep', 'warmer',
+  'leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension'];
+const SITE_SUMS = ['leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension'];
+
 function writeSiteData(ss, data) {
   const groups = new Map();
   const keywordNames = new Map();
@@ -156,48 +170,46 @@ function writeSiteData(ss, data) {
     if (!keywordNames.has(key)) keywordNames.set(key, kw);
     return keywordNames.get(key);
   };
-  const group = (type, day, campaignKey, keyword, rep) => {
-    const id = [type, day, campaignKey, keyword, rep].join('|');
+  const group = (type, day, campaignKey, keyword, rep, warmer) => {
+    const id = [type, day, campaignKey, keyword, rep, warmer].join('|');
     if (!groups.has(id)) {
-      groups.set(id, [type, day, data.campaignNames.get(campaignKey), keyword, rep, 0, 0, 0, 0, 0]);
+      const g = { type, date: day, campaign: data.campaignNames.get(campaignKey), keyword, rep, warmer };
+      SITE_SUMS.forEach(k => { g[k] = 0; });
+      groups.set(id, g);
     }
     return groups.get(id);
   };
 
   data.leads.forEach(l => {
-    const g = group('lead', l.day, l.campaignKey, keywordName(l.keyword), l.rep);
-    g[5] += l.leads;
-    g[6] += l.sales;
-    g[7] += l.premium;
-    g[8] += l.oldPremium;
+    const g = group('lead', l.day, l.campaignKey, keywordName(l.keyword), l.rep, l.warmer);
+    ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension'].forEach(k => { g[k] += l[k] || 0; });
   });
   const tz = Session.getScriptTimeZone();
   const today = Number(Utilities.formatDate(new Date(), tz, 'yyyyMMdd'));
   data.costs.forEach(c => {
     costDays(c, today).forEach(([day, amount]) => {
-      group('cost', day, c.campaignKey, keywordName(c.keyword), '')[9] += amount;
+      group('cost', day, c.campaignKey, keywordName(c.keyword), '', '').cost += amount;
     });
   });
 
-  const header = ['type', 'date', 'campaign', 'keyword', 'rep', 'leads', 'sales', 'premium', 'oldPremium', 'cost'];
   let updated = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm');
   if (data.skippedSales) updated += ` · ${data.skippedSales} מכירות בלי תאריך עדכון אחרון לא נכללו`;
-  const meta = ['meta', 0, updated, '', '', 0, 0, 0, 0, 0];
+  const meta = SITE_COLUMNS.map(k => (k === 'type' ? 'meta' : k === 'campaign' ? updated : ''));
   const body = Array.from(groups.values()).map(g => {
-    g[9] = Math.round(g[9] * 100) / 100;
-    return g;
+    g.cost = Math.round(g.cost * 100) / 100;
+    return SITE_COLUMNS.map(k => g[k]);
   });
-  const rows = [header, meta].concat(body);
+  const rows = [SITE_COLUMNS, meta].concat(body);
 
   cacheSiteCsv(rows.map(r => r.map(csvCell).join(',')).join('\n'));
 
   const sheet = ss.getSheetByName(SITE_DATA_SHEET_NAME) || ss.insertSheet(SITE_DATA_SHEET_NAME);
   sheet.clearContents();
   if (sheet.getMaxRows() < rows.length) sheet.insertRowsAfter(sheet.getMaxRows(), rows.length - sheet.getMaxRows());
-  if (sheet.getMaxColumns() < header.length) {
-    sheet.insertColumnsAfter(sheet.getMaxColumns(), header.length - sheet.getMaxColumns());
+  if (sheet.getMaxColumns() < SITE_COLUMNS.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), SITE_COLUMNS.length - sheet.getMaxColumns());
   }
-  sheet.getRange(1, 1, rows.length, header.length).setNumberFormat('@').setValues(rows);
+  sheet.getRange(1, 1, rows.length, SITE_COLUMNS.length).setNumberFormat('@').setValues(rows);
 }
 
 // האתר מבקש את הנתונים בכל כניסה. קריאה מהזיכרון המהיר של הסקריפט (Cache)
@@ -343,6 +355,8 @@ function readLeads() {
     cols[key] = columnIndex(CONFIG.LEADS_COLUMN_LETTERS[key]);
   });
   const saleStatuses = CONFIG.SALE_STATUSES.map(normalizeText);
+  const pensionStatuses = CONFIG.PENSION_STATUSES.map(normalizeText);
+  const openedStatuses = CONFIG.OPENED_STATUSES.map(normalizeText);
 
   const rows = [];
   let skipped = 0;
@@ -359,14 +373,19 @@ function readLeads() {
       campaign: campaign || '(ללא מקור)',
       keyword: cols.keyword >= 0 ? normalizeText(row[cols.keyword]) : '',
       rep: cols.rep >= 0 ? normalizeText(row[cols.rep]) : '',
+      warmer: cols.warmer >= 0 ? normalizeText(row[cols.warmer]) : '',
     };
-    // הליד נספר בחודש היצירה, והמכירה (עם הפרמיה) בחודש של "תאריך עדכון
+    const status = normalizeText(row[cols.status]);
+    const leadDay = leadWorkDay(row[cols.date]) || dayOf(created);
+    // הליד נספר ביום העבודה של היצירה, והמכירה (עם הפרמיה) בחודש של "תאריך עדכון
     // אחרון" (עמודה M) בלבד - שם נסגרה העסקה. מכירה בלי תאריך עדכון לא
     // נספרת, ומדווחת בשורת "עודכן" כדי שאפשר יהיה להשלים לה תאריך.
     rows.push(Object.assign({
-      month: created.month, day: dayOf(created), leads: 1, sales: 0, premium: 0, oldPremium: 0,
+      month: monthOfDay(leadDay), day: leadDay, leads: 1, sales: 0, premium: 0, oldPremium: 0,
+      opened: openedStatuses.includes(status) ? 1 : 0,
+      pension: pensionStatuses.includes(status) ? 1 : 0,
     }, base));
-    if (saleStatuses.includes(normalizeText(row[cols.status]))) {
+    if (saleStatuses.includes(status)) {
       const closed = cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null;
       if (!closed) {
         skippedSales++;
@@ -380,6 +399,8 @@ function readLeads() {
         // פרמיה נספרת רק ללקוח בסטטוס מכירה - בשאר השורות זו הצעה, לא הכנסה.
         premium: toNumber(row[cols.premium]) || 0,
         oldPremium: cols.oldPremium >= 0 ? toNumber(row[cols.oldPremium]) || 0 : 0,
+        opened: 0,
+        pension: 0,
       }, base));
     }
   }
@@ -472,6 +493,31 @@ function readCampaignMap(ss, leads) {
     if (rule.until && day && day < rule.until) return rule.before;
     return rule.plando;
   };
+}
+
+/**
+ * יום העבודה שאליו שייך ליד, לפי שעת היצירה: מ-16:00 והלאה הליד שייך ליום
+ * הבא, ויום שנופל על שישי/שבת עובר לראשון. כך ראשון מקבל את חמישי 16:00 עד
+ * ראשון 16:00, וכל יום אחר את 16:00 של אתמול עד 16:00 של היום.
+ */
+function leadWorkDay(v) {
+  let y, m, d, h;
+  if (v instanceof Date && !isNaN(v)) {
+    const parts = Utilities.formatDate(v, spreadsheetTimeZone(), 'yyyy-MM-dd-HH').split('-').map(Number);
+    [y, m, d, h] = parts;
+  } else {
+    const match = normalizeText(v).match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})(?:\s+(\d{1,2}):\d{2})?/);
+    if (!match) return null;
+    [d, m, y, h] = [+match[1], +match[2], +match[3], match[4] === undefined ? 0 : +match[4]];
+  }
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (h >= CONFIG.LEAD_DAY_CUTOFF_HOUR) date.setUTCDate(date.getUTCDate() + 1);
+  while (date.getUTCDay() === 5 || date.getUTCDay() === 6) date.setUTCDate(date.getUTCDate() + 1);
+  return date.getUTCFullYear() * 10000 + (date.getUTCMonth() + 1) * 100 + date.getUTCDate();
+}
+
+function monthOfDay(day) {
+  return `${Math.floor(day / 10000)}-${String(Math.floor(day / 100) % 100).padStart(2, '0')}`;
 }
 
 // יום בפורמט yyyymmdd. כשהתאריך הוא רק חודש - היום הראשון בחודש.
