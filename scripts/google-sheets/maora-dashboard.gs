@@ -26,15 +26,19 @@ const CONFIG = {
   DASHBOARD_TITLE: 'דשבורד קמפיינים',
 
   // ערכי "סטטוס תהליך" (עמודה E) שנספרים כמכירה.
-  SALE_STATUSES: ['מכירה', 'הר ביטוח'],
+  SALE_STATUSES: ['מכירה'],
+
+  // ---- טבלת המחממות בלבד (עמודה G). שאר הדשבורד לא מושפע מההגדרות האלה.
+  // סטטוסים שנספרים כמכירה של מחממת.
+  WARMER_SALE_STATUSES: ['מכירה', 'הר ביטוח'],
   // סטטוסים שנספרים בעמודה "העברות לפנסיה".
   PENSION_STATUSES: ['רלוונטי לפנסיוני', 'פיננסי תאיר'],
   // סטטוסים שנספרים בעמודה "פתיחת לידים".
   OPENED_STATUSES: ['הר ביטוח', 'תיק רלוונטי ממתין לנציג מכירות', 'פיננסי לוחי', 'מכירה', 'פיננסי תאיר',
     'הועבר לרפאל', 'העבר לרפאל ע', 'העבר לרפאל ד', 'הועבר לקול מגדל', 'לא רלוונטי היסטוריה רפואית',
     'לא רלוונטי מבוגרים', 'הצעת מחיר', 'רלוונטי לפנסיוני'],
-  // יום עבודה ללידים: מ-16:00 עד 16:00 למחרת; ליד מחמישי 16:00 עד ראשון
-  // 16:00 נספר ביום ראשון (ימי עבודה א'-ה').
+  // יום עבודה ללידים של מחממות: מ-16:00 עד 16:00 למחרת; ליד מחמישי 16:00
+  // עד ראשון 16:00 נספר ביום ראשון (ימי עבודה א'-ה').
   LEAD_DAY_CUTOFF_HOUR: 16,
 
   TOP_KEYWORDS: 15,
@@ -181,7 +185,12 @@ function writeSiteData(ss, data) {
   };
 
   data.leads.forEach(l => {
-    const g = group('lead', l.day, l.campaignKey, keywordName(l.keyword), l.rep, l.warmer);
+    const g = group('lead', l.day, l.campaignKey, keywordName(l.keyword), l.rep, '');
+    ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension'].forEach(k => { g[k] += l[k] || 0; });
+  });
+  // שורות 'warm' משמשות רק את טבלת המחממות באתר.
+  data.warm.forEach(l => {
+    const g = group('warm', l.day, l.campaignKey, '', '', l.warmer);
     ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension'].forEach(k => { g[k] += l[k] || 0; });
   });
   const tz = Session.getScriptTimeZone();
@@ -355,10 +364,12 @@ function readLeads() {
     cols[key] = columnIndex(CONFIG.LEADS_COLUMN_LETTERS[key]);
   });
   const saleStatuses = CONFIG.SALE_STATUSES.map(normalizeText);
+  const warmerSaleStatuses = CONFIG.WARMER_SALE_STATUSES.map(normalizeText);
   const pensionStatuses = CONFIG.PENSION_STATUSES.map(normalizeText);
   const openedStatuses = CONFIG.OPENED_STATUSES.map(normalizeText);
 
   const rows = [];
+  const warm = []; // שורות לטבלת המחממות בלבד
   let skipped = 0;
   let skippedSales = 0;
   for (let r = headerRow + 1; r < values.length; r++) {
@@ -373,38 +384,46 @@ function readLeads() {
       campaign: campaign || '(ללא מקור)',
       keyword: cols.keyword >= 0 ? normalizeText(row[cols.keyword]) : '',
       rep: cols.rep >= 0 ? normalizeText(row[cols.rep]) : '',
-      warmer: cols.warmer >= 0 ? normalizeText(row[cols.warmer]) : '',
+      warmer: '',
     };
     const status = normalizeText(row[cols.status]);
-    const leadDay = leadWorkDay(row[cols.date]) || dayOf(created);
-    // הליד נספר ביום העבודה של היצירה, והמכירה (עם הפרמיה) בחודש של "תאריך עדכון
-    // אחרון" (עמודה M) בלבד - שם נסגרה העסקה. מכירה בלי תאריך עדכון לא
-    // נספרת, ומדווחת בשורת "עודכן" כדי שאפשר יהיה להשלים לה תאריך.
-    rows.push(Object.assign({
-      month: monthOfDay(leadDay), day: leadDay, leads: 1, sales: 0, premium: 0, oldPremium: 0,
-      opened: openedStatuses.includes(status) ? 1 : 0,
-      pension: pensionStatuses.includes(status) ? 1 : 0,
-    }, base));
+    const closed = cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null;
+    const saleRow = () => Object.assign({}, base, {
+      month: closed.month,
+      day: dayOf(closed),
+      leads: 0,
+      sales: 1,
+      // פרמיה נספרת רק במכירה - בשאר השורות זו הצעה, לא הכנסה.
+      premium: toNumber(row[cols.premium]) || 0,
+      oldPremium: cols.oldPremium >= 0 ? toNumber(row[cols.oldPremium]) || 0 : 0,
+      opened: 0,
+      pension: 0,
+    });
+
+    // הליד נספר ביום היצירה (עמודה C), והמכירה (עם הפרמיה) ביום של "תאריך
+    // עדכון אחרון" (עמודה M) בלבד. מכירה בלי תאריך עדכון לא נספרת, ומדווחת
+    // בשורת "עודכן" כדי שאפשר יהיה להשלים לה תאריך.
+    rows.push(Object.assign({}, base, {
+      month: created.month, day: dayOf(created), leads: 1, sales: 0, premium: 0, oldPremium: 0, opened: 0, pension: 0,
+    }));
     if (saleStatuses.includes(status)) {
-      const closed = cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null;
-      if (!closed) {
-        skippedSales++;
-        continue;
-      }
-      rows.push(Object.assign({
-        month: closed.month,
-        day: dayOf(closed),
-        leads: 0,
-        sales: 1,
-        // פרמיה נספרת רק ללקוח בסטטוס מכירה - בשאר השורות זו הצעה, לא הכנסה.
-        premium: toNumber(row[cols.premium]) || 0,
-        oldPremium: cols.oldPremium >= 0 ? toNumber(row[cols.oldPremium]) || 0 : 0,
-        opened: 0,
-        pension: 0,
-      }, base));
+      if (closed) rows.push(saleRow()); else skippedSales++;
+    }
+
+    // מחממות: ליד נספר ביום העבודה (16:00-16:00), "הר ביטוח" נחשב מכירה,
+    // ונספרות פתיחות לידים והעברות לפנסיה לפי הסטטוס.
+    const warmer = cols.warmer >= 0 ? normalizeText(row[cols.warmer]) : '';
+    if (warmer) {
+      const workDay = leadWorkDay(row[cols.date]) || dayOf(created);
+      warm.push(Object.assign({}, base, {
+        warmer, month: monthOfDay(workDay), day: workDay, leads: 1, sales: 0, premium: 0, oldPremium: 0,
+        opened: openedStatuses.includes(status) ? 1 : 0,
+        pension: pensionStatuses.includes(status) ? 1 : 0,
+      }));
+      if (closed && warmerSaleStatuses.includes(status)) warm.push(Object.assign(saleRow(), { warmer }));
     }
   }
-  return { rows, skipped, skippedSales };
+  return { rows, warm, skipped, skippedSales };
 }
 
 function readCosts(campaignMap) {
@@ -566,10 +585,12 @@ function indexData(leads, costs) {
   };
 
   leads.rows.forEach(l => { months.add(l.month); l.campaignKey = register(l.campaign); });
+  leads.warm.forEach(l => { l.campaignKey = register(l.campaign); });
   costs.entries.forEach(c => { months.add(c.month); c.campaignKey = register(c.campaign); });
 
   return {
     leads: leads.rows,
+    warm: leads.warm,
     skippedLeads: leads.skipped,
     skippedSales: leads.skippedSales,
     costs: costs.entries,

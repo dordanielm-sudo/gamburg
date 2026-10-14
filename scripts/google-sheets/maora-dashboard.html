@@ -363,7 +363,7 @@ function toDataset(rows) {
   for (const r of rows.slice(1)) {
     const type = (r[I.type] || '').trim();
     if (type === 'meta') { updated = r[I.campaign]; continue; }
-    if (type !== 'lead' && type !== 'cost') continue;
+    if (type !== 'lead' && type !== 'cost' && type !== 'warm') continue;
     // גרסה ישנה של הסקריפט שלחה חודש (yyyymm) במקום יום.
     const date = I.date >= 0 ? num(r[I.date]) : num(r[I.month]) * 100 + 1;
     records.push({
@@ -400,7 +400,7 @@ function metrics(b) {
   };
 }
 function add(b, r) {
-  if (r.type === 'lead') {
+  if (r.type !== 'cost') {
     b.leads += r.leads; b.sales += r.sales; b.premium += r.premium; b.oldPremium += r.oldPremium;
     b.opened += r.opened || 0; b.pension += r.pension || 0;
   } else {
@@ -413,6 +413,7 @@ function aggregate(records, f) {
   for (let m = Math.floor(f.from / 100); m <= Math.floor(f.to / 100); m = m % 100 === 12 ? m + 89 : m + 1) byMonth.set(m, bucket());
   if (f.daily) for (let d = fromYmd(f.from); ymd(d) <= f.to; d.setDate(d.getDate() + 1)) byDay.set(ymd(d), bucket());
   for (const r of records) {
+    if (r.type === 'warm') continue; // שורות של טבלת המחממות בלבד
     if (r.date < f.from || r.date > f.to || !inSet(f.campaigns, r.campaign)) continue;
     const bs = [total, get(byCampaign, r.campaign), get(byMonth, Math.floor(r.date / 100))];
     if (f.daily) bs.push(get(byDay, r.date));
@@ -425,8 +426,9 @@ function aggregate(records, f) {
 // נציגים מסוננים בנפרד: אותו טווח תאריכים, אבל קמפיינים ונציגים משלהם.
 function aggregatePeople(records, field, f) {
   const total = bucket(), byPerson = new Map();
+  const type = field === 'warmer' ? 'warm' : 'lead';
   for (const r of records) {
-    if (r.type !== 'lead' || !r[field] || r.date < f.from || r.date > f.to) continue;
+    if (r.type !== type || !r[field] || r.date < f.from || r.date > f.to) continue;
     if (!inSet(f.campaigns, r.campaign) || !inSet(f.people, r[field])) continue;
     add(total, r); add(get(byPerson, r[field]), r);
   }
@@ -694,10 +696,9 @@ const tableAgg = id => {
 
 function renderCampaigns() {
   const a = tableAgg('tCampaigns');
-  const row = (n, b) => perfRow(n, b).concat([b.opened, b.pension]);
-  table($('tCampaigns'), [C.name('שם קמפיין')].concat(perfCols(), [C.int('פתיחת לידים'), C.int('העברות לפנסיה')]),
+  table($('tCampaigns'), [C.name('שם קמפיין')].concat(perfCols()),
     [...a.byCampaign.entries()].sort((p, q) => (q[1].leads - p[1].leads) || (q[1].cost - p[1].cost))
-      .map(([n, b]) => row(n, b)), row('סה"כ', a.total));
+      .map(([n, b]) => perfRow(n, b)), perfRow('סה"כ', a.total));
 }
 
 function renderMonths() {
@@ -797,12 +798,15 @@ function demoData() {
       const keyword = kws[(ci + i) % kws.length];
       const s = rnd() < n * rate * 1.5 ? 1 : 0;
       const opened = Math.round(n * (0.3 + rnd() * 0.3)), pension = Math.round(n * rnd() * 0.08);
-      records.push({ type: 'lead', date, campaign, keyword, rep: '', warmer: warmers[(ci + i) % warmers.length],
+      records.push({ type: 'lead', date, campaign, keyword, rep: '', warmer: '', leads: n, sales: 0, premium: 0, oldPremium: 0, cost: 0 });
+      records.push({ type: 'warm', date, campaign, keyword: '', rep: '', warmer: warmers[(ci + i) % warmers.length],
         leads: n, sales: 0, premium: 0, oldPremium: 0, cost: 0, opened, pension });
       if (s) {
         const p = prem * (0.8 + rnd() * 0.4);
+        records.push({ type: 'warm', date, campaign, keyword: '', rep: '', warmer: warmers[(ci + i) % warmers.length],
+          leads: 0, sales: 1, premium: p, oldPremium: 0, cost: 0, opened: 0, pension: 0 });
         records.push({ type: 'lead', date, campaign, keyword, rep: reps[(ci + i) % reps.length],
-          warmer: warmers[(ci + i) % warmers.length], leads: 0, sales: 1,
+          warmer: '', leads: 0, sales: 1,
           premium: p, oldPremium: p * (0.6 + rnd() * 0.5), cost: 0 });
       }
       if (cpl) records.push({ type: 'cost', date, campaign, keyword: '', rep: '', leads: 0, sales: 0, premium: 0, oldPremium: 0, cost: n * cpl * (0.8 + rnd() * 0.4) });
