@@ -418,11 +418,35 @@ function toDataset(rows) {
   return { records, updated, fields: h };
 }
 
+// בזיכרון הדפדפן נשמר הטקסט הדחוס כמו שהגיע (קטן בהרבה מהנתונים הפרושים),
+// כדי שייכנס למגבלת 5MB של localStorage ויוצג מיד בביקור הבא.
 function readCache() {
-  try { const c = JSON.parse(localStorage.getItem(cacheKey)); return c && c.records ? c : null; } catch { return null; }
+  try { return localStorage.getItem(cacheKey); } catch { return null; }
 }
-function writeCache(ds) {
-  try { localStorage.setItem(cacheKey, JSON.stringify(ds)); } catch {}
+function writeCache(text) {
+  try { localStorage.setItem(cacheKey, text); } catch {}
+}
+
+// הסקריפט שולח "gz:" + base64 של JSON דחוס (ראו buildSitePayload בסקריפט).
+// גרסאות ישנות של הסקריפט שלחו CSV - עדיין נתמך.
+async function decodePayload(text) {
+  text = (text || '').trim();
+  if (text === 'forbidden') throw new Error('המפתח בקישור לא תקין - צור קישור חדש מתפריט "קישור לאתר"');
+  if (!text.startsWith('gz:')) return toDataset(parseCSV(text));
+  const bytes = Uint8Array.from(atob(text.slice(3)), c => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const j = JSON.parse(await new Response(stream).text());
+  const D = j.dict, S = j.sums, T = j.types;
+  const name = (kind, i) => (i ? D[kind][i - 1] : '');
+  const records = j.rows.map(r => {
+    const o = {
+      type: T[r[0]], date: r[1], campaign: name('campaign', r[2]) || '(ללא מקור)', keyword: name('keyword', r[3]),
+      rep: name('rep', r[4]), warmer: name('warmer', r[5]), hour: r[6] < 0 ? null : r[6],
+    };
+    for (let i = 0; i < S.length; i++) o[S[i]] = r[7 + i] || 0;
+    return o;
+  });
+  return { records, updated: j.updated, fields: ['hour'].concat(S) };
 }
 
 // ------------------------------------------------------------------ חישובים (אותן הגדרות כמו בגיליון)
@@ -653,9 +677,11 @@ const PEOPLE = { tReps: { field: 'rep', all: 'כל הנציגים' }, tWarmers: 
 function setData(ds) {
   state.records = ds.records;
   state.fields = ds.fields || [];
-  const dates = ds.records.map(r => r.date).filter(Boolean);
-  state.minDate = dates.length ? Math.min(...dates) : ymd(new Date());
-  state.maxDate = dates.length ? Math.max(...dates) : ymd(new Date());
+  // לולאה ולא Math.min(...dates): עם מאות אלפי שורות הפריסה חורגת ממגבלת הדפדפן.
+  let minD = Infinity, maxD = 0;
+  for (const r of ds.records) if (r.date) { if (r.date < minD) minD = r.date; if (r.date > maxD) maxD = r.date; }
+  state.minDate = maxD ? minD : ymd(new Date());
+  state.maxDate = maxD || ymd(new Date());
   $('updated').textContent = ds.updated ? `הנתונים עודכנו ${ds.updated}` : '';
   const campaigns = [...new Set(ds.records.map(r => r.campaign))].sort((a, b) => a.localeCompare(b, 'he'));
   Object.values(msTable).forEach(ms => ms.setOptions(campaigns));
@@ -1154,24 +1180,34 @@ function storedUrl() {
   try { return sessionStorage.getItem(AUTH_KEY) || localStorage.getItem(AUTH_KEY); } catch { return null; }
 }
 
-function start(url) {
+async function start(url) {
   $('login').hidden = true; $('setup').hidden = true; $('dash').hidden = false;
-  cacheKey = 'maora-dashboard:v2:' + url;
+  cacheKey = 'maora-dashboard:v3:' + url;
   // מציגים מיד את הנתונים מהביקור הקודם, ומחליפים כשהטריים מגיעים.
   const cached = readCache();
-  if (cached) setData(cached);
-  fetch(url, { cache: 'no-cache' })
-    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-    .then(text => {
-      if (text.trim() === 'forbidden') throw new Error('המפתח בקישור לא תקין - צור קישור חדש מתפריט "קישור לאתר"');
-      const ds = toDataset(parseCSV(text)); writeCache(ds); setData(ds);
-    })
-    .catch(err => {
-      $('updated').textContent = cached
-        ? `לא ניתן לרענן כרגע - מוצגים הנתונים האחרונים (${cached.updated})`
-        : 'שגיאה בטעינת הנתונים (' + err.message + '). בדוק שהסקריפט פורסם כאפליקציית אינטרנט עם גישה ל"כל אחד" '
-          + 'ושהקוד ב-ENCRYPTED_SOURCE נוצר מהקישור שבתפריט "קישור לאתר".';
-    });
+  let cachedDs = null;
+  if (cached) {
+    try { cachedDs = await decodePayload(cached); setData(cachedDs); } catch { cachedDs = null; }
+  }
+  const status = $('updated').textContent;
+  $('updated').textContent = (cachedDs ? status + ' · ' : '') + 'מעדכן נתונים...';
+  try {
+    const r = await fetch(url, { cache: 'no-cache' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const text = await r.text();
+    if (cachedDs && text.trim() === cached.trim()) {
+      $('updated').textContent = status; // לא השתנה כלום - לא מציירים מחדש
+      return;
+    }
+    const ds = await decodePayload(text);
+    writeCache(text.trim());
+    setData(ds);
+  } catch (err) {
+    $('updated').textContent = cachedDs
+      ? `לא ניתן לרענן כרגע - מוצגים הנתונים האחרונים (${cachedDs.updated})`
+      : 'שגיאה בטעינת הנתונים (' + err.message + '). בדוק שהסקריפט פורסם כאפליקציית אינטרנט עם גישה ל"כל אחד" '
+        + 'ושהקוד ב-ENCRYPTED_SOURCE נוצר מהקישור שבתפריט "קישור לאתר".';
+  }
 }
 
 function startDemo() {

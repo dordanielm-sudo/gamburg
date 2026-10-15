@@ -164,8 +164,6 @@ function refreshDashboard() {
  * בדפדפן, כך שהוא לא מחכה ל-Apps Script ולא נוגע בטבלת הלידים עצמה.
  * בלשונית אין שמות או ת"ז - רק ספירות וסכומים.
  */
-const SITE_COLUMNS = ['type', 'date', 'campaign', 'keyword', 'rep', 'warmer', 'hour',
-  'leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet', 'closeDays'];
 const SITE_SUMS = ['leads', 'sales', 'premium', 'oldPremium', 'cost', 'opened', 'pension', 'salesNet', 'closeDays'];
 
 function writeSiteData(ss, data) {
@@ -214,71 +212,100 @@ function writeSiteData(ss, data) {
   let updated = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm');
   if (data.skippedSales) updated += ` · ${data.skippedSales} מכירות בלי תאריך עדכון אחרון לא נכללו`;
   if (data.skippedWarm) updated += ` · ${data.skippedWarm} לידים של מחממות בלי תאריך עדכון אחרון לא נכללו`;
-  const meta = SITE_COLUMNS.map(k => (k === 'type' ? 'meta' : k === 'campaign' ? updated : ''));
-  const body = Array.from(groups.values()).map(g => {
-    g.cost = Math.round(g.cost * 100) / 100;
-    return SITE_COLUMNS.map(k => g[k]);
-  });
-  const rows = [SITE_COLUMNS, meta].concat(body);
+  const payload = buildSitePayload(Array.from(groups.values()), updated);
+  cacheSitePayload(payload);
 
-  cacheSiteCsv(rows.map(r => r.map(csvCell).join(',')).join('\n'));
-
+  // הלשונית מציגה רק סטטוס. כתיבת כל השורות לגיליון (עשרות אלפי שורות)
+  // האטה כל רענון, והאתר ממילא לא קורא אותה.
   const sheet = ss.getSheetByName(SITE_DATA_SHEET_NAME) || ss.insertSheet(SITE_DATA_SHEET_NAME);
-  sheet.clearContents();
-  if (sheet.getMaxRows() < rows.length) sheet.insertRowsAfter(sheet.getMaxRows(), rows.length - sheet.getMaxRows());
-  if (sheet.getMaxColumns() < SITE_COLUMNS.length) {
-    sheet.insertColumnsAfter(sheet.getMaxColumns(), SITE_COLUMNS.length - sheet.getMaxColumns());
-  }
-  sheet.getRange(1, 1, rows.length, SITE_COLUMNS.length).setNumberFormat('@').setValues(rows);
+  sheet.clear();
+  sheet.getRange(1, 1, 4, 2).setValues([
+    ['עודכן', updated],
+    ['שורות נתונים', groups.size],
+    ['גודל דחוס לאתר (KB)', Math.round(payload.length / 1024)],
+    ['הערה', 'הנתונים לאתר נשמרים דחוסים בזיכרון של הסקריפט ונשלחים דרך doGet'],
+  ]);
 }
 
-// האתר מבקש את הנתונים בכל כניסה. קריאה מהזיכרון המהיר של הסקריפט (Cache)
-// לוקחת עשיריות שנייה, לעומת שניות לקריאת אלפי שורות מהגיליון. ערך בודד
-// מוגבל ל-100KB, אז ה-CSV נשמר בחלקים. תוקף 6 שעות; הרענון השעתי מחדש אותו.
-const SITE_CACHE_CHUNK = 40000;
+/**
+ * הנתונים לאתר בפורמט מקוצר ודחוס: שמות (קמפיין, מילת מפתח, נציג, מחממת)
+ * נשמרים פעם אחת במילון, כל שורה היא מערך מספרים, אפסים בסוף השורה נחתכים,
+ * והכל עובר gzip ו-base64. יוצא בערך פי 10 קטן מ-CSV - הורדה מהירה, ונכנס
+ * לזיכרון המהיר של הסקריפט ולזיכרון של הדפדפן.
+ */
+const SITE_TYPES = ['lead', 'cost', 'warm', 'hour'];
 
-function cacheSiteCsv(csv) {
-  const chunks = { site_csv_n: '0' };
-  const n = Math.ceil(csv.length / SITE_CACHE_CHUNK);
-  for (let i = 0; i < n; i++) chunks['site_csv_' + i] = csv.slice(i * SITE_CACHE_CHUNK, (i + 1) * SITE_CACHE_CHUNK);
-  chunks.site_csv_n = String(n);
-  try {
-    CacheService.getScriptCache().putAll(chunks, 21600);
-  } catch (err) {
-    // גדול מדי לזיכרון המהיר - doGet יקרא מהלשונית.
-  }
+function buildSitePayload(groups, updated) {
+  const dict = { campaign: [], keyword: [], rep: [], warmer: [] };
+  const index = { campaign: new Map(), keyword: new Map(), rep: new Map(), warmer: new Map() };
+  const id = (kind, value) => {
+    if (!value) return 0;
+    const map = index[kind];
+    if (!map.has(value)) { dict[kind].push(value); map.set(value, dict[kind].length); }
+    return map.get(value); // 1-based; 0 = ריק
+  };
+  const round = v => Math.round((v || 0) * 100) / 100;
+  const rows = groups.map(g => {
+    const r = [SITE_TYPES.indexOf(g.type), g.date, id('campaign', g.campaign), id('keyword', g.keyword),
+      id('rep', g.rep), id('warmer', g.warmer), g.hour === '' || g.hour === undefined ? -1 : g.hour]
+      .concat(SITE_SUMS.map(k => round(g[k])));
+    while (r.length > 7 && r[r.length - 1] === 0) r.pop();
+    return r;
+  });
+  const json = JSON.stringify({ v: 2, updated, types: SITE_TYPES, sums: SITE_SUMS, dict, rows });
+  const gz = Utilities.gzip(Utilities.newBlob(json, 'application/json'));
+  return 'gz:' + Utilities.base64Encode(gz.getBytes());
 }
 
-function cachedSiteCsv() {
+// האתר מבקש את הנתונים בכל כניסה; קריאה מהזיכרון המהיר (Cache) לוקחת
+// עשיריות שנייה. ערך בודד מוגבל ל-100KB, אז הנתונים נשמרים בחלקים. תוקף
+// 6 שעות; הרענון השעתי מחדש אותו.
+const SITE_CACHE_CHUNK = 90000;
+
+function cacheSitePayload(text) {
+  const chunks = {};
+  const n = Math.ceil(text.length / SITE_CACHE_CHUNK);
+  for (let i = 0; i < n; i++) chunks['site_v2_' + i] = text.slice(i * SITE_CACHE_CHUNK, (i + 1) * SITE_CACHE_CHUNK);
+  chunks.site_v2_n = String(n);
+  CacheService.getScriptCache().putAll(chunks, 21600);
+}
+
+function cachedSitePayload() {
   const cache = CacheService.getScriptCache();
-  const n = Number(cache.get('site_csv_n'));
+  const n = Number(cache.get('site_v2_n'));
   if (!n) return null;
   const keys = [];
-  for (let i = 0; i < n; i++) keys.push('site_csv_' + i);
+  for (let i = 0; i < n; i++) keys.push('site_v2_' + i);
   const got = cache.getAll(keys);
   if (keys.some(k => got[k] === undefined || got[k] === null)) return null;
   return keys.map(k => got[k]).join('');
 }
 
 /**
- * האתר קורא את "נתונים לאתר" דרך הסקריפט עצמו (פריסה כאפליקציית אינטרנט),
- * ולא דרך "פרסום באינטרנט": Google חוסמת לפעמים קריאה של CSV מפורסם מאתר
- * אחר, ותשובות של Apps Script כן מותרות לקריאה מכל אתר.
- * הכתובת כוללת מפתח אקראי - בלעדיו מוחזר רק "forbidden".
+ * האתר קורא את הנתונים דרך הסקריפט עצמו (פריסה כאפליקציית אינטרנט): Google
+ * חוסמת לפעמים קריאה של CSV מפורסם מאתר אחר, ותשובות של Apps Script כן
+ * מותרות לקריאה מכל אתר. הכתובת כוללת מפתח אקראי - בלעדיו מוחזר "forbidden".
  */
 function doGet(e) {
   const key = e && e.parameter && e.parameter.key;
   if (key !== siteKey()) {
     return ContentService.createTextOutput('forbidden').setMimeType(ContentService.MimeType.TEXT);
   }
-  let csv = cachedSiteCsv();
-  if (csv === null) {
-    const sheet = SpreadsheetApp.getActive().getSheetByName(SITE_DATA_SHEET_NAME);
-    const values = sheet ? sheet.getDataRange().getDisplayValues() : [];
-    csv = values.map(row => row.map(csvCell).join(',')).join('\n');
-    cacheSiteCsv(csv);
+  let payload = cachedSitePayload();
+  if (payload === null) {
+    // הזיכרון פג (למשל אחרי שהרענון השעתי לא רץ) - בונים מחדש פעם אחת.
+    refreshSiteData();
+    payload = cachedSitePayload() || '';
   }
-  return ContentService.createTextOutput(csv).setMimeType(ContentService.MimeType.CSV);
+  return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.TEXT);
+}
+
+// בונה רק את הנתונים לאתר, בלי לצייר את לשונית הדשבורד בגיליון.
+function refreshSiteData() {
+  const ss = SpreadsheetApp.getActive();
+  const leads = readLeads();
+  const costs = readCosts(readCampaignMap(ss, leads));
+  writeSiteData(ss, indexData(leads, costs));
 }
 
 function csvCell(v) {
