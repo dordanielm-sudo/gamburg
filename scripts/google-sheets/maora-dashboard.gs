@@ -189,12 +189,12 @@ function writeSiteData(ss, data) {
   };
 
   data.leads.forEach(l => {
-    const g = group('lead', l.day, l.campaignKey, keywordName(l.keyword), l.rep, '');
+    const g = group('lead', l.day, l.campaignKey, keywordName(l.keyword), l.rep, '', l.hour);
     ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension', 'closeDays', 'salesNet'].forEach(k => { g[k] += l[k] || 0; });
   });
   // שורות 'warm' משמשות רק את טבלת המחממות באתר.
   data.warm.forEach(l => {
-    const g = group('warm', l.day, l.campaignKey, '', '', l.warmer);
+    const g = group('warm', l.day, l.campaignKey, '', '', l.warmer, l.hour);
     ['leads', 'sales', 'premium', 'oldPremium', 'opened', 'pension', 'salesNet'].forEach(k => { g[k] += l[k] || 0; });
   });
   // שורות 'hour' משמשות רק את "שעות וימים חזקים" בלשונית התובנות.
@@ -403,6 +403,9 @@ function readLeads() {
     const status = normalizeText(row[cols.status]);
     const excludedCampaign = excludedKeys.some(k => matchKey(base.campaign).includes(k));
     const closed = cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null;
+    // שעת "תאריך עדכון אחרון" (M) - למסנן השעות באתר. '' כשאין שעה.
+    const parts = cols.saleDate >= 0 ? dateParts(row[cols.saleDate]) : null;
+    base.hour = parts && parts.h !== null ? parts.h : '';
     const saleRow = () => Object.assign({}, base, {
       month: closed.month,
       day: dayOf(closed),
@@ -441,7 +444,6 @@ function readLeads() {
     }
     // שעה ויום של "תאריך עדכון אחרון" (עמודה M) - ל"שעות וימים חזקים":
     // מתי מטפלים בלידים, ובאיזו שעה נסגרות המכירות. בעמודה C אין שעה.
-    const parts = cols.saleDate >= 0 ? dateParts(row[cols.saleDate]) : null;
     if (parts && parts.h !== null) {
       hours.push({ day: parts.y * 10000 + parts.m * 100 + parts.d, hour: parts.h, leads: 1, sales: isSale ? 1 : 0 });
     }

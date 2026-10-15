@@ -82,6 +82,7 @@
     border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 150px;
   }
   .filters .campaign { flex: 0 1 340px; }
+  #hourFrom, #hourTo { min-width: 96px; }
 
   .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
   .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
@@ -260,6 +261,8 @@
   <div class="filters">
     <label>מתאריך<input type="date" id="from"></label>
     <label>עד תאריך<input type="date" id="to"></label>
+    <label>משעה<select id="hourFrom"></select></label>
+    <label>עד שעה<select id="hourTo"></select></label>
     <div class="presets" id="presets">
       <button type="button" data-p="month">החודש</button>
       <button type="button" data-p="prev">חודש קודם</button>
@@ -269,6 +272,8 @@
     </div>
     <button type="button" class="ghost" id="clearAll">מחיקת כל הסינונים</button>
   </div>
+
+  <div class="muted-note" id="hourNote" hidden style="margin:-10px 0 14px">מסנן השעות לפי השעה של "תאריך עדכון אחרון" (עמודה M) - לידים בלי שעה לא נכללים. העלויות לא מחולקות לפי שעות, ולכן עמודות העלות מוצגות רק כשנבחרו כל השעות.</div>
 
   <nav class="tabs" id="tabs">
     <button type="button" data-tab="app" class="on">דשבורד</button>
@@ -405,7 +410,9 @@ function toDataset(rows) {
       warmer: I.warmer >= 0 ? (r[I.warmer] || '').trim() : '',
       leads: num(r[I.leads]), sales: num(r[I.sales]), premium: num(r[I.premium]),
       oldPremium: opt(r, 'oldPremium'), cost: num(r[I.cost]), opened: opt(r, 'opened'), pension: opt(r, 'pension'), salesNet: opt(r, 'salesNet'),
-      hour: opt(r, 'hour'), closeDays: opt(r, 'closeDays'),
+      // שעה ריקה = לא ידועה (אין שעה ב-M) - שונה משעה 0.
+      hour: I.hour >= 0 && String(r[I.hour] ?? '').trim() !== '' ? num(r[I.hour]) : null,
+      closeDays: opt(r, 'closeDays'),
     });
   }
   return { records, updated, fields: h };
@@ -442,13 +449,27 @@ function add(b, r) {
   }
 }
 
+// מסנן שעות (לפי שעת "תאריך עדכון אחרון"). null = כל השעות.
+function hourRange() {
+  const a = +$('hourFrom').value, b = +$('hourTo').value;
+  if (a === 0 && b === 23) return null;
+  return a <= b ? [a, b] : [b, a];
+}
+// שורה עוברת את מסנן השעות? עלויות (אין להן שעה) לא עוברות כשיש מסנן.
+function passHour(r, hr) {
+  if (!hr) return true;
+  if (r.type === 'cost' || r.hour === null || r.hour === undefined) return false;
+  return r.hour >= hr[0] && r.hour <= hr[1];
+}
+
 function aggregate(records, f) {
+  const hr = hourRange();
   const total = bucket(), byCampaign = new Map(), byMonth = new Map(), byDay = new Map(), byKeyword = new Map();
   for (let m = Math.floor(f.from / 100); m <= Math.floor(f.to / 100); m = m % 100 === 12 ? m + 89 : m + 1) byMonth.set(m, bucket());
   if (f.daily) for (let d = fromYmd(f.from); ymd(d) <= f.to; d.setDate(d.getDate() + 1)) byDay.set(ymd(d), bucket());
   for (const r of records) {
     if (r.type === 'warm' || r.type === 'hour') continue; // שורות של טבלת המחממות / התובנות בלבד
-    if (r.date < f.from || r.date > f.to || !inSet(f.campaigns, r.campaign)) continue;
+    if (r.date < f.from || r.date > f.to || !inSet(f.campaigns, r.campaign) || !passHour(r, hr)) continue;
     const bs = [total, get(byCampaign, r.campaign), get(byMonth, Math.floor(r.date / 100))];
     if (f.daily) bs.push(get(byDay, r.date));
     if (r.keyword) bs.push(get(byKeyword, r.keyword));
@@ -461,8 +482,9 @@ function aggregate(records, f) {
 function aggregatePeople(records, field, f) {
   const total = bucket(), byPerson = new Map();
   const type = field === 'warmer' ? 'warm' : 'lead';
+  const hr = hourRange();
   for (const r of records) {
-    if (r.type !== type || !r[field] || r.date < f.from || r.date > f.to) continue;
+    if (r.type !== type || !r[field] || r.date < f.from || r.date > f.to || !passHour(r, hr)) continue;
     if (!inSet(f.campaigns, r.campaign) || !inSet(f.people, r[field])) continue;
     add(total, r); add(get(byPerson, r[field]), r);
   }
@@ -681,6 +703,7 @@ const C = {
 
 function render() {
   const { from, to } = range();
+  $('hourNote').hidden = !hourRange();
   markPreset(from, to);
   // טווח של עד חודשיים מוצג בגרפים לפי יום, ארוך יותר - לפי חודש.
   const daily = daysBetween(from, to) <= 62;
@@ -949,7 +972,7 @@ function renderInsights() {
   const byHour = Array.from({ length: 24 }, () => ({ leads: 0, sales: 0 }));
   const byDow = Array.from({ length: 7 }, () => ({ leads: 0, sales: 0 }));
   for (const r of state.records) {
-    if (r.type !== 'hour' || r.date < from || r.date > to) continue;
+    if (r.type !== 'hour' || r.date < from || r.date > to || !passHour(r, hourRange())) continue;
     byHour[r.hour].leads += r.leads; byHour[r.hour].sales += r.sales;
     const dw = fromYmd(r.date).getDay();
     byDow[dw].leads += r.leads; byDow[dw].sales += r.sales;
@@ -1052,7 +1075,8 @@ function demoData() {
       const keyword = kws[(ci + i) % kws.length];
       const s = rnd() < n * rate * 1.5 ? 1 : 0;
       const opened = Math.round(n * (0.3 + rnd() * 0.3)), pension = Math.round(n * rnd() * 0.08);
-      records.push({ type: 'lead', date, campaign, keyword, rep: '', warmer: '', leads: n, sales: 0, premium: 0, oldPremium: 0, cost: 0, opened, pension });
+      const dh = [9, 10, 11, 12, 14, 16, 18][Math.floor(rnd() * 7)];
+      records.push({ type: 'lead', date, campaign, keyword, rep: '', warmer: '', hour: dh, leads: n, sales: 0, premium: 0, oldPremium: 0, cost: 0, opened, pension });
       for (let k = 0; k < n; k++) {
         const hour = [8, 9, 10, 10, 11, 11, 12, 13, 14, 15, 16, 17, 19, 21, 22][Math.floor(rnd() * 15)];
         records.push({ type: 'hour', date, hour, leads: 1, sales: k === 0 && s ? 1 : 0, campaign: '', keyword: '', rep: '', warmer: '' });
@@ -1070,19 +1094,24 @@ function demoData() {
       if (cpl) records.push({ type: 'cost', date, campaign, keyword: '', rep: '', leads: 0, sales: 0, premium: 0, oldPremium: 0, cost: n * cpl * (0.8 + rnd() * 0.4) });
     });
   }
+  records.forEach(r => { if (r.type !== 'cost' && r.hour === undefined) r.hour = 8 + Math.floor(rnd() * 12); });
   return { records, updated: 'נתוני דוגמה' };
 }
 
 // ------------------------------------------------------------------ אתחול
 $('title').textContent = TITLE;
 document.title = TITLE;
-['from', 'to'].forEach(id => $(id).addEventListener('change', render));
+const hourOpts = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
+$('hourFrom').innerHTML = hourOpts; $('hourTo').innerHTML = hourOpts;
+$('hourFrom').value = '0'; $('hourTo').value = '23';
+['from', 'to', 'hourFrom', 'hourTo'].forEach(id => $(id).addEventListener('change', render));
 $('presets').addEventListener('click', e => { if (e.target.dataset.p) applyPreset(e.target.dataset.p); });
 Object.keys(renderers).forEach(id => { msTable[id] = multiSelect($('fc-' + id), 'כל הקמפיינים', renderers[id]); });
 Object.entries(PEOPLE).forEach(([id, { all }]) => { msPeople[id] = multiSelect($('fp-' + id), all, renderers[id]); });
 document.querySelectorAll('[data-clear]').forEach(b => b.addEventListener('click', () => clearTable(b.dataset.clear)));
 $('clearAll').addEventListener('click', () => {
   $('from').value = toInput(state.minDate); $('to').value = toInput(state.maxDate);
+  $('hourFrom').value = '0'; $('hourTo').value = '23';
   Object.keys(renderers).forEach(id => {
     msTable[id].clear();
     const t = tables[id]; if (t) { t.q = ''; t.sort = null; t.dir = -1; }
