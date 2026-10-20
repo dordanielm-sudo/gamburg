@@ -73,6 +73,27 @@ function Skip-Once($file, $reason) {
 
 $runStart = Get-Date
 
+# --- התאמת שם תיקייה בין Drive לשרת -------------------------------------
+# השמות בשני הצדדים לא זהים: גרש נשמט בשרת, סדר שם פרטי/משפחה מתהפך,
+# ולפעמים נוסף שם בן זוג. לכן ההתאמה נעשית בשלבים, מהמדויק לסובלני,
+# ותמיד בתוך אותו מספר לקוח - כדי שקבצים לא ייפלו אצל לקוח אחר.
+
+# כל גרסאות הגרש והמרכאה הבודדת שנראות זהות על המסך
+$AposPattern = "[" + [char]0x0027 + [char]0x05F3 + [char]0x2019 + [char]0x2018 + [char]0x0060 + "]"
+
+function Normalize-Name($name) {
+    (($name -replace $AposPattern, '') -replace '\s+', ' ').Trim()
+}
+
+# מפתח שלא תלוי בסדר המילים: המספר בסוגריים, ואחריו המילים ממוינות
+function Get-NameKey($name) {
+    $n = Normalize-Name $name
+    if ($n -match '^(\(\d+\))\s*(.*)$') { $id = $Matches[1]; $rest = $Matches[2] }
+    else { $id = ''; $rest = $n }
+    $words = @($rest -split ' ' | Where-Object { $_ }) | Sort-Object
+    "$id|" + ($words -join ' ')
+}
+
 Log "START"
 
 # ריצה ראשונה: רק רושמים את הזמן ויוצאים. שום דבר קיים לא מועתק רטרואקטיבית.
@@ -104,6 +125,19 @@ try {
         exit
     }
 
+    # אינדקס תיקיות השרת לפי שם מנורמל ולפי מפתח חסר-סדר
+    $byNorm = @{}
+    $byKey  = @{}
+    foreach ($d in (Get-ChildItem -LiteralPath $TargetRoot -Directory -ErrorAction SilentlyContinue)) {
+        $n = Normalize-Name $d.Name
+        if (!$byNorm.ContainsKey($n)) { $byNorm[$n] = @() }
+        $byNorm[$n] += $d.Name
+
+        $k = Get-NameKey $d.Name
+        if (!$byKey.ContainsKey($k)) { $byKey[$k] = @() }
+        $byKey[$k] += $d.Name
+    }
+
     $clients = Get-ChildItem -LiteralPath $SourceRoot -Directory
     $copied = 0
     $tooOld = 0
@@ -113,17 +147,40 @@ try {
 
         # תיקייה כפולה ב-Drive מוצגת ב-Windows עם סיומת " (1)" / " (2)" וכו'.
         # היעד בשרת הוא תמיד התיקייה ללא הסיומת.
-        $targetName = $client.Name -replace ' \(\d+\)$', ''
+        $baseName = $client.Name -replace ' \(\d+\)$', ''
+        if ($baseName -ne $client.Name) {
+            Log "DUPLICATE: $($client.Name) -> $baseName"
+        }
+
+        # שלב 1: שם זהה בשרת
+        $targetName = $null
+        if (Test-Path -LiteralPath (Join-Path $TargetRoot $baseName)) {
+            $targetName = $baseName
+        }
+        else {
+            # שלב 2: שם זהה אחרי נירמול גרשים ורווחים
+            $cands = @(@($byNorm[(Normalize-Name $baseName)]) | Where-Object { $_ })
+            # שלב 3: אותן מילים בסדר אחר
+            if ($cands.Count -eq 0) {
+                $cands = @(@($byKey[(Get-NameKey $baseName)]) | Where-Object { $_ })
+            }
+
+            $unique = @($cands | Select-Object -Unique)
+            if ($unique.Count -eq 1) {
+                $targetName = $unique[0]
+                Log "MATCHED: $baseName -> $targetName"
+            }
+            elseif ($unique.Count -gt 1) {
+                Log "SKIP: ambiguous server folders for $baseName : $($unique -join ' | ')"
+                continue
+            }
+            else {
+                Log "SKIP: no server folder for $($client.Name)"
+                continue
+            }
+        }
+
         $targetPath = Join-Path $TargetRoot $targetName
-
-        if (!(Test-Path -LiteralPath $targetPath)) {
-            Log "SKIP: no server folder for $($client.Name)"
-            continue
-        }
-
-        if ($targetName -ne $client.Name) {
-            Log "DUPLICATE: $($client.Name) -> $targetName"
-        }
 
         $files = Get-ChildItem -LiteralPath $sourcePath -Recurse -File -ErrorAction SilentlyContinue
 
