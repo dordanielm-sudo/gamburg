@@ -96,6 +96,52 @@ function Get-NameKey($name) {
     "$id|" + ($words -join ' ')
 }
 
+# מתאים שם תת-תיקייה ב-Drive לשם המקביל בשרת. גם כאן השמות לא זהים: בעדכנית
+# נוסף לפעמים שם נוסף - "(1130_0)אלזם יקיר יעקב" מול "(1130_0)אלזם יקיר" ב-Drive.
+# התחילית בסוגריים היא המפתח האמיתי. מחזיר את שם התיקייה בשרת, או $null.
+$segCache = @{}
+function Resolve-Segment($parentPath, $segment) {
+    $ck = "$parentPath|$segment"
+    if ($segCache.ContainsKey($ck)) { return $segCache[$ck] }
+
+    $result = $null
+    if (Test-Path -LiteralPath (Join-Path $parentPath $segment)) {
+        $result = $segment
+    }
+    else {
+        $dirs = @(Get-ChildItem -LiteralPath $parentPath -Directory -ErrorAction SilentlyContinue)
+
+        # שם זהה אחרי נירמול גרשים ורווחים
+        $norm = Normalize-Name $segment
+        $hit = @($dirs | Where-Object { (Normalize-Name $_.Name) -eq $norm })
+
+        # תחילית זהה בסוגריים, למשל "(1130_0)"
+        if ($hit.Count -ne 1 -and $segment -match '^(\([^)]+\))') {
+            $byPrefix = @($dirs | Where-Object { $_.Name.StartsWith($Matches[1]) })
+            if ($byPrefix.Count -eq 1) { $hit = $byPrefix }
+            elseif ($byPrefix.Count -gt 1) {
+                Log "AMBIGUOUS SUBFOLDER under $parentPath for $segment : $(($byPrefix.Name) -join ' | ')"
+                $segCache[$ck] = $null
+                return $null
+            }
+        }
+
+        # אותן מילים בסדר אחר
+        if ($hit.Count -ne 1) {
+            $key = Get-NameKey $segment
+            $hit = @($dirs | Where-Object { (Get-NameKey $_.Name) -eq $key })
+        }
+
+        if ($hit.Count -eq 1) {
+            $result = $hit[0].Name
+            Log "MATCHED SUBFOLDER: $segment -> $result"
+        }
+    }
+
+    $segCache[$ck] = $result
+    return $result
+}
+
 Log "START"
 
 # ריצה ראשונה: רק רושמים את הזמן ויוצאים. שום דבר קיים לא מועתק רטרואקטיבית.
@@ -213,10 +259,21 @@ try {
                 # -----------------------------------
 
                 $relativePath = $file.FullName.Substring($sourcePath.Length + 1)
-                $destFile = Join-Path $targetPath $relativePath
-                $destDir = Split-Path $destFile -Parent
 
-                if (Test-Path -LiteralPath $destDir) {
+                # פותרים כל מקטע תיקייה בנתיב בנפרד, כי השם בשרת עשוי להיות שונה
+                $parts    = $relativePath -split '\\'
+                $fileName = $parts[-1]
+                $dirParts = if ($parts.Count -gt 1) { @($parts[0..($parts.Count - 2)]) } else { @() }
+
+                $destDir = $targetPath
+                foreach ($part in $dirParts) {
+                    $resolved = Resolve-Segment $destDir $part
+                    if (!$resolved) { $destDir = $null; break }
+                    $destDir = Join-Path $destDir $resolved
+                }
+                $destFile = if ($destDir) { Join-Path $destDir $fileName } else { $null }
+
+                if ($destDir -and (Test-Path -LiteralPath $destDir)) {
                     Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force -ErrorAction Stop
 
                     # רישום קובץ שהועתק בהצלחה
@@ -225,7 +282,7 @@ try {
                     $copied++
                 } else {
                     # תת-תיקייה שקיימת ב-Drive ואין לה מקבילה בשרת. נרשם פעם אחת לקובץ.
-                    Skip-Once $file "No destination folder: $destDir"
+                    Skip-Once $file "No destination folder under $targetPath for $relativePath"
                 }
             } catch {
                 Log "ERROR: $($_.Exception.Message)"
