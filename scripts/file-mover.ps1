@@ -35,6 +35,11 @@ $FilteredWords = @()
 # של שבועות, ועדיין מונע הצפה של ההיסטוריה כולה.
 $MaxAgeDays = 30
 
+# כשבשרת יש כמה תיקיות עם אותה תחילית לאותו לקוח - למשל "(1130_0)אלזם יקיר"
+# ו-"(1130_0)אלזם יקיר יעקב" - אין דרך לדעת מהשרת לאיזו מהן עדכנית מפנה.
+# $true = להעתיק לכולן, כדי שהקובץ יימצא בכל מצב. $false = לדלג ולרשום בלוג.
+$PushToAllMatches = $true
+
 # יצירת תיקיית הלוג אם היא לא קיימת - אחרת כל כתיבה ללוג נכשלת בשקט
 $LogDir = Split-Path $LogFile -Parent
 if (!(Test-Path -LiteralPath $LogDir)) {
@@ -96,45 +101,61 @@ function Get-NameKey($name) {
     "$id|" + ($words -join ' ')
 }
 
-# מתאים שם תת-תיקייה ב-Drive לשם המקביל בשרת. גם כאן השמות לא זהים: בעדכנית
+# מתאים שם תת-תיקייה ב-Drive לשמות המקבילים בשרת. השמות לא זהים: בעדכנית
 # נוסף לפעמים שם נוסף - "(1130_0)אלזם יקיר יעקב" מול "(1130_0)אלזם יקיר" ב-Drive.
-# התחילית בסוגריים היא המפתח האמיתי. מחזיר את שם התיקייה בשרת, או $null.
+# התחילית בסוגריים היא המפתח האמיתי. מחזיר מערך שמות (לרוב אחד).
 $segCache = @{}
-function Resolve-Segment($parentPath, $segment) {
+$dirCache = @{}
+function Get-SubDirs($parentPath) {
+    if (!$dirCache.ContainsKey($parentPath)) {
+        $dirCache[$parentPath] = @(Get-ChildItem -LiteralPath $parentPath -Directory -ErrorAction SilentlyContinue)
+    }
+    return $dirCache[$parentPath]
+}
+
+function Resolve-SegmentAll($parentPath, $segment) {
     $ck = "$parentPath|$segment"
     if ($segCache.ContainsKey($ck)) { return $segCache[$ck] }
 
-    $result = $null
+    $dirs   = Get-SubDirs $parentPath
+    $result = @()
+
+    # כל התיקיות שחולקות את התחילית בסוגריים - אותו לקוח, אותו חוצץ
+    if ($segment -match '^(\([^)]+\))') {
+        $byPrefix = @($dirs | Where-Object { $_.Name.StartsWith($Matches[1]) })
+        if ($byPrefix.Count -gt 1) {
+            if ($PushToAllMatches) {
+                $result = @($byPrefix.Name)
+                Log "PUSH TO ALL: $segment -> $($result -join ' | ')"
+            }
+            else {
+                Log "AMBIGUOUS SUBFOLDER under $parentPath for $segment : $(($byPrefix.Name) -join ' | ')"
+            }
+            $segCache[$ck] = $result
+            return $result
+        }
+        if ($byPrefix.Count -eq 1) {
+            $result = @($byPrefix[0].Name)
+            if ($result[0] -ne $segment) { Log "MATCHED SUBFOLDER: $segment -> $($result[0])" }
+            $segCache[$ck] = $result
+            return $result
+        }
+    }
+
+    # אין תחילית, או שאין התאמה לפיה: שם מדויק, מנורמל, ואז מילים בסדר אחר
     if (Test-Path -LiteralPath (Join-Path $parentPath $segment)) {
-        $result = $segment
+        $result = @($segment)
     }
     else {
-        $dirs = @(Get-ChildItem -LiteralPath $parentPath -Directory -ErrorAction SilentlyContinue)
-
-        # שם זהה אחרי נירמול גרשים ורווחים
         $norm = Normalize-Name $segment
-        $hit = @($dirs | Where-Object { (Normalize-Name $_.Name) -eq $norm })
-
-        # תחילית זהה בסוגריים, למשל "(1130_0)"
-        if ($hit.Count -ne 1 -and $segment -match '^(\([^)]+\))') {
-            $byPrefix = @($dirs | Where-Object { $_.Name.StartsWith($Matches[1]) })
-            if ($byPrefix.Count -eq 1) { $hit = $byPrefix }
-            elseif ($byPrefix.Count -gt 1) {
-                Log "AMBIGUOUS SUBFOLDER under $parentPath for $segment : $(($byPrefix.Name) -join ' | ')"
-                $segCache[$ck] = $null
-                return $null
-            }
-        }
-
-        # אותן מילים בסדר אחר
+        $hit  = @($dirs | Where-Object { (Normalize-Name $_.Name) -eq $norm })
         if ($hit.Count -ne 1) {
             $key = Get-NameKey $segment
             $hit = @($dirs | Where-Object { (Get-NameKey $_.Name) -eq $key })
         }
-
         if ($hit.Count -eq 1) {
-            $result = $hit[0].Name
-            Log "MATCHED SUBFOLDER: $segment -> $result"
+            $result = @($hit[0].Name)
+            Log "MATCHED SUBFOLDER: $segment -> $($result[0])"
         }
     }
 
@@ -173,19 +194,6 @@ try {
         exit
     }
 
-    # אינדקס תיקיות השרת לפי שם מנורמל ולפי מפתח חסר-סדר
-    $byNorm = @{}
-    $byKey  = @{}
-    foreach ($d in (Get-ChildItem -LiteralPath $TargetRoot -Directory -ErrorAction SilentlyContinue)) {
-        $n = Normalize-Name $d.Name
-        if (!$byNorm.ContainsKey($n)) { $byNorm[$n] = @() }
-        $byNorm[$n] += $d.Name
-
-        $k = Get-NameKey $d.Name
-        if (!$byKey.ContainsKey($k)) { $byKey[$k] = @() }
-        $byKey[$k] += $d.Name
-    }
-
     $clients = Get-ChildItem -LiteralPath $SourceRoot -Directory
     $copied = 0
     $tooOld = 0
@@ -200,35 +208,12 @@ try {
             Log "DUPLICATE: $($client.Name) -> $baseName"
         }
 
-        # שלב 1: שם זהה בשרת
-        $targetName = $null
-        if (Test-Path -LiteralPath (Join-Path $TargetRoot $baseName)) {
-            $targetName = $baseName
+        $targetNames = Resolve-SegmentAll $TargetRoot $baseName
+        if ($targetNames.Count -eq 0) {
+            Log "SKIP: no server folder for $($client.Name)"
+            continue
         }
-        else {
-            # שלב 2: שם זהה אחרי נירמול גרשים ורווחים
-            $cands = @(@($byNorm[(Normalize-Name $baseName)]) | Where-Object { $_ })
-            # שלב 3: אותן מילים בסדר אחר
-            if ($cands.Count -eq 0) {
-                $cands = @(@($byKey[(Get-NameKey $baseName)]) | Where-Object { $_ })
-            }
-
-            $unique = @($cands | Select-Object -Unique)
-            if ($unique.Count -eq 1) {
-                $targetName = $unique[0]
-                Log "MATCHED: $baseName -> $targetName"
-            }
-            elseif ($unique.Count -gt 1) {
-                Log "SKIP: ambiguous server folders for $baseName : $($unique -join ' | ')"
-                continue
-            }
-            else {
-                Log "SKIP: no server folder for $($client.Name)"
-                continue
-            }
-        }
-
-        $targetPath = Join-Path $TargetRoot $targetName
+        $targetPaths = @($targetNames | ForEach-Object { Join-Path $TargetRoot $_ })
 
         $files = Get-ChildItem -LiteralPath $sourcePath -Recurse -File -ErrorAction SilentlyContinue
 
@@ -260,29 +245,39 @@ try {
 
                 $relativePath = $file.FullName.Substring($sourcePath.Length + 1)
 
-                # פותרים כל מקטע תיקייה בנתיב בנפרד, כי השם בשרת עשוי להיות שונה
+                # פותרים כל מקטע תיקייה בנתיב בנפרד, כי השם בשרת עשוי להיות שונה,
+                # ויכולות להיות כמה תיקיות מתאימות לאותו לקוח.
                 $parts    = $relativePath -split '\\'
                 $fileName = $parts[-1]
                 $dirParts = if ($parts.Count -gt 1) { @($parts[0..($parts.Count - 2)]) } else { @() }
 
-                $destDir = $targetPath
+                $destDirs = $targetPaths
                 foreach ($part in $dirParts) {
-                    $resolved = Resolve-Segment $destDir $part
-                    if (!$resolved) { $destDir = $null; break }
-                    $destDir = Join-Path $destDir $resolved
+                    $next = @()
+                    foreach ($dir in $destDirs) {
+                        foreach ($m in (Resolve-SegmentAll $dir $part)) {
+                            $next += (Join-Path $dir $m)
+                        }
+                    }
+                    $destDirs = @($next | Select-Object -Unique)
+                    if ($destDirs.Count -eq 0) { break }
                 }
-                $destFile = if ($destDir) { Join-Path $destDir $fileName } else { $null }
 
-                if ($destDir -and (Test-Path -LiteralPath $destDir)) {
-                    Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force -ErrorAction Stop
-
-                    # רישום קובץ שהועתק בהצלחה
-                    Log "SUCCESS: Copied $($file.Name) to $destFile"
-
-                    $copied++
-                } else {
+                if ($destDirs.Count -eq 0) {
                     # תת-תיקייה שקיימת ב-Drive ואין לה מקבילה בשרת. נרשם פעם אחת לקובץ.
-                    Skip-Once $file "No destination folder under $targetPath for $relativePath"
+                    Skip-Once $file "No destination folder under $($targetPaths -join ' | ') for $relativePath"
+                }
+                else {
+                    foreach ($dir in $destDirs) {
+                        if (!(Test-Path -LiteralPath $dir)) { continue }
+                        $destFile = Join-Path $dir $fileName
+                        Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force -ErrorAction Stop
+
+                        # רישום קובץ שהועתק בהצלחה
+                        Log "SUCCESS: Copied $($file.Name) to $destFile"
+
+                        $copied++
+                    }
                 }
             } catch {
                 Log "ERROR: $($_.Exception.Message)"
