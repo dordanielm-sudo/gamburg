@@ -49,6 +49,10 @@ const CONFIG = {
 
   TOP_KEYWORDS: 15,
 
+  // נתונים מלפני התאריך הזה (yyyymmdd) לא נכנסים בכלל - לא לדשבורד ולא
+  // לאתר. היסטוריה ישנה רק מכבידה על הטעינה.
+  MIN_DATE: 20250101,
+
   // כותרות העמודות (מספר שמות אפשריים לכל עמודה). המיקום לא משנה -
   // הסקריפט מחפש את שורת הכותרות בעשר השורות הראשונות.
   // עמודות טבלת הלידים לפי אות. נקבע לפי אות ולא לפי כותרת: כותרת עם תו
@@ -437,6 +441,11 @@ function readLeads() {
       if (campaign) skipped++;
       continue;
     }
+    // ליד שנוצר וגם עודכן לפני MIN_DATE - לא רלוונטי, מדלגים מוקדם.
+    if (dayOf(created) < CONFIG.MIN_DATE) {
+      const m = cols.saleDate >= 0 ? parsePeriod(row[cols.saleDate]) : null;
+      if (!m || dayOf(m) < CONFIG.MIN_DATE) continue;
+    }
     const base = {
       campaign: campaign || '(ללא מקור)',
       keyword: cols.keyword >= 0 ? normalizeText(row[cols.keyword]) : '',
@@ -685,6 +694,13 @@ function costDays(entry, today) {
 // ---------------------------------------------------------------- עיבוד
 
 function indexData(leads, costs) {
+  // כל רשומה נבדקת לפי התאריך שלה: ליד שנוצר ב-2024 ונמכר ב-2025 - הליד
+  // לא נספר, המכירה כן.
+  const min = CONFIG.MIN_DATE, minMonth = monthOfDay(min);
+  leads.rows = leads.rows.filter(l => l.day >= min);
+  leads.warm = leads.warm.filter(l => l.day >= min);
+  leads.hours = leads.hours.filter(h => h.day >= min);
+  costs.entries = costs.entries.filter(c => c.month >= minMonth && (!c.day || c.day >= min));
   const months = new Set();
   const campaignNames = new Map(); // מפתח השוואה -> שם לתצוגה
   const register = name => {
