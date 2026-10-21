@@ -222,12 +222,25 @@ function writeSiteData(ss, data) {
   // האטה כל רענון, והאתר ממילא לא קורא אותה.
   const sheet = ss.getSheetByName(SITE_DATA_SHEET_NAME) || ss.insertSheet(SITE_DATA_SHEET_NAME);
   sheet.clear();
-  sheet.getRange(1, 1, 4, 2).setValues([
+  // טווח התאריכים שקיים בפועל בכל מקור - כדי לדעת מאיזה תאריך יש נתונים.
+  const span = days => {
+    let min = Infinity, max = 0;
+    days.forEach(d => { if (d) { if (d < min) min = d; if (d > max) max = d; } });
+    const fmt = d => `${d % 100}/${Math.floor(d / 100) % 100}/${Math.floor(d / 10000)}`;
+    return max ? `${fmt(min)} עד ${fmt(max)}` : 'אין';
+  };
+  const rows = [
     ['עודכן', updated],
+    ['לידים - תאריך יצירה (C)', span(data.leads.filter(l => l.leads).map(l => l.day))],
+    ['מכירות - תאריך עדכון אחרון (M)', span(data.leads.filter(l => l.sales).map(l => l.day))],
+    ['כל תאריכי העדכון (M)', span(data.hours.map(h => h.day))],
+    ['מחממות - ימי עבודה', span(data.warm.map(l => l.day))],
+    ['עלויות', span(Array.from(groups.values()).filter(g => g.type === 'cost').map(g => g.date))],
     ['שורות נתונים', groups.size],
     ['גודל דחוס לאתר (KB)', Math.round(payload.length / 1024)],
-    ['הערה', 'הנתונים לאתר נשמרים דחוסים בזיכרון של הסקריפט ונשלחים דרך doGet'],
-  ]);
+  ];
+  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
+  sheet.getRange(1, 1, rows.length, 1).setFontWeight('bold');
 }
 
 /**

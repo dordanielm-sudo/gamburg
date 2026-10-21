@@ -682,7 +682,8 @@ function setData(ds) {
   for (const r of ds.records) if (r.date) { if (r.date < minD) minD = r.date; if (r.date > maxD) maxD = r.date; }
   state.minDate = maxD ? minD : ymd(new Date());
   state.maxDate = maxD || ymd(new Date());
-  $('updated').textContent = ds.updated ? `הנתונים עודכנו ${ds.updated}` : '';
+  $('updated').textContent = (ds.updated ? `הנתונים עודכנו ${ds.updated} · ` : '') +
+    `יש נתונים מ-${dayLabel(state.minDate)} עד ${dayLabel(state.maxDate)}`;
   const campaigns = [...new Set(ds.records.map(r => r.campaign))].sort((a, b) => a.localeCompare(b, 'he'));
   Object.values(msTable).forEach(ms => ms.setOptions(campaigns));
   Object.entries(PEOPLE).forEach(([id, { field }]) => {
