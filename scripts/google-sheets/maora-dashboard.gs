@@ -40,6 +40,9 @@ const CONFIG = {
   // יום עבודה ללידים של מחממות: מ-16:00 עד 16:00 למחרת; ליד מחמישי 16:00
   // עד ראשון 16:00 נספר ביום ראשון (ימי עבודה א'-ה').
   LEAD_DAY_CUTOFF_HOUR: 16,
+  // שעות חיתוך קודמות, לפי תאריך: עד 20/10/2026 כולל יום העבודה היה
+  // 19:00 עד 19:00 (חמישי 19:00 עד ראשון 19:00). מ-21/10/2026 - השעה למעלה.
+  LEAD_DAY_CUTOFF_HISTORY: [{ until: 20261020, hour: 19 }],
   // קמפיינים (עמודה D) שלא נספרים בעמודה "מכירות בלי לקוח קיים ושחלוף".
   // התאמה לפי הכלה: "לקוח קיים משימור לקוחות" גם נחשב "לקוח קיים".
   WARMER_EXCLUDED_CAMPAIGNS: ['לקוח קיים', 'שחלוף'],
@@ -611,13 +614,19 @@ function daysDiff(fromDay, toDay) {
   return Math.round((t(toDay) - t(fromDay)) / 864e5);
 }
 
+// שעת החיתוך שבתוקף ביום מסוים (yyyymmdd).
+function cutoffHourFor(day) {
+  const past = CONFIG.LEAD_DAY_CUTOFF_HISTORY.filter(c => day <= c.until).sort((a, b) => a.until - b.until)[0];
+  return past ? past.hour : CONFIG.LEAD_DAY_CUTOFF_HOUR;
+}
+
 function leadWorkDay(v) {
   const p = dateParts(v);
   if (!p) return null;
   const { y, m, d } = p;
   const h = p.h === null ? 0 : p.h;
   const date = new Date(Date.UTC(y, m - 1, d));
-  if (h >= CONFIG.LEAD_DAY_CUTOFF_HOUR) date.setUTCDate(date.getUTCDate() + 1);
+  if (h >= cutoffHourFor(y * 10000 + m * 100 + d)) date.setUTCDate(date.getUTCDate() + 1);
   while (date.getUTCDay() === 5 || date.getUTCDay() === 6) date.setUTCDate(date.getUTCDate() + 1);
   return date.getUTCFullYear() * 10000 + (date.getUTCMonth() + 1) * 100 + date.getUTCDate();
 }
