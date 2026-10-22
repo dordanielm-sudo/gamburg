@@ -194,6 +194,7 @@ try {
         exit
     }
 
+    $foreignLogged = @{}
     $clients = Get-ChildItem -LiteralPath $SourceRoot -Directory
     $copied = 0
     $tooOld = 0
@@ -218,11 +219,29 @@ try {
         # קובץ שיושב בשורש תיקיית הלקוח ב-Drive חייב להיכנס בשרת לתת-תיקייה
         # הפנימית - "(711_0)", "(711_1)" וכו' - כי משם עדכנית קוראת. שורש
         # תיקיית הלקוח אינו יעד לגיטימי.
+        # תת-תיקייה לגיטימית חייבת לשאת את מספר הלקוח עצמו: "(711_" ולא כל
+        # תיקייה שנראית כמו חוצץ. בשרת נמצאו תיקיות ממוקמות בטעות אצל לקוח אחר -
+        # למשל "(877_0)אדוט ורדה" בתוך "(711)גמבורג חנן" - ובלי הבדיקה הזאת
+        # קבצים של לקוח אחד היו נכתבים לתיק של אחר.
+        $clientId  = if ($baseName -match '^\((\d+)\)') { $Matches[1] } else { $null }
+        $ownPrefix = "(" + $clientId + "_"
+
         $rootDests = @()
-        foreach ($tp in $targetPaths) {
-            $rootDests += @(Get-SubDirs $tp |
-                Where-Object { $_.Name -match '^\([^)]*_[^)]*\)' } |
-                ForEach-Object { $_.FullName })
+        if ($clientId) {
+            foreach ($tp in $targetPaths) {
+                foreach ($sub in (Get-SubDirs $tp)) {
+                    if ($sub.Name.StartsWith($ownPrefix)) {
+                        $rootDests += $sub.FullName
+                    }
+                    elseif ($sub.Name -match '^\([^)]*_[^)]*\)') {
+                        # חוצץ של לקוח אחר שיושב כאן בטעות. לא יעד, ומדווח פעם אחת.
+                        if (!$foreignLogged.ContainsKey($sub.FullName)) {
+                            Log "FOREIGN SUBFOLDER: $($sub.Name) sits under $baseName - not a destination"
+                            $foreignLogged[$sub.FullName] = $true
+                        }
+                    }
+                }
+            }
         }
         $rootDests = @($rootDests | Select-Object -Unique)
 
