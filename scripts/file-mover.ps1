@@ -232,7 +232,10 @@ try {
             $rootDests = $targetPaths
         }
         elseif ($rootDests.Count -gt 1) {
-            Log "ROOT FILES -> ALL INNER: $baseName -> $(($rootDests | ForEach-Object { Split-Path $_ -Leaf }) -join ' | ')"
+            # הנתיב ביחס ל-Docs, לא רק שם התיקייה: שתי תיקיות פנימיות של אותו לקוח
+            # יכולות לשאת שם זהה תחת אבות שונים, ואז שם בלבד נראה ככפילות.
+            $shown = $rootDests | ForEach-Object { $_.Substring($TargetRoot.Length).TrimStart('\') }
+            Log "ROOT FILES -> ALL INNER: $baseName -> $($shown -join '  ||  ')"
         }
 
         $files = Get-ChildItem -LiteralPath $sourcePath -Recurse -File -ErrorAction SilentlyContinue
