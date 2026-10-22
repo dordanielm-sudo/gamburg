@@ -104,8 +104,10 @@ function Get-NameKey($name) {
 # מתאים שם תת-תיקייה ב-Drive לשמות המקבילים בשרת. השמות לא זהים: בעדכנית
 # נוסף לפעמים שם נוסף - "(1130_0)אלזם יקיר יעקב" מול "(1130_0)אלזם יקיר" ב-Drive.
 # התחילית בסוגריים היא המפתח האמיתי. מחזיר מערך שמות (לרוב אחד).
-$segCache = @{}
-$dirCache = @{}
+$segCache       = @{}
+$dirCache       = @{}
+$foreignLogged  = @{}
+$currentClientId = $null
 function Get-SubDirs($parentPath) {
     if (!$dirCache.ContainsKey($parentPath)) {
         $dirCache[$parentPath] = @(Get-ChildItem -LiteralPath $parentPath -Directory -ErrorAction SilentlyContinue)
@@ -116,6 +118,17 @@ function Get-SubDirs($parentPath) {
 function Resolve-SegmentAll($parentPath, $segment) {
     $ck = "$parentPath|$segment"
     if ($segCache.ContainsKey($ck)) { return $segCache[$ck] }
+
+    # חוצץ של לקוח אחר אינו יעד, גם כשנתיב ה-Drive מצביע עליו במפורש.
+    # המבנה השגוי קיים גם ב-Drive, ושיקוף נאמן שלו מעביר קבצים לתיק הלא נכון.
+    if ($currentClientId -and $segment -match '^\((\d+)_' -and $Matches[1] -ne $currentClientId) {
+        if (!$foreignLogged.ContainsKey($ck)) {
+            Log "FOREIGN PATH: $segment under client $currentClientId - not copied"
+            $foreignLogged[$ck] = $true
+        }
+        $segCache[$ck] = @()
+        return @()
+    }
 
     $dirs   = Get-SubDirs $parentPath
     $result = @()
@@ -194,7 +207,6 @@ try {
         exit
     }
 
-    $foreignLogged = @{}
     $clients = Get-ChildItem -LiteralPath $SourceRoot -Directory
     $copied = 0
     $tooOld = 0
@@ -225,6 +237,7 @@ try {
         # קבצים של לקוח אחד היו נכתבים לתיק של אחר.
         $clientId  = if ($baseName -match '^\((\d+)\)') { $Matches[1] } else { $null }
         $ownPrefix = "(" + $clientId + "_"
+        $currentClientId = $clientId
 
         $rootDests = @()
         if ($clientId) {
