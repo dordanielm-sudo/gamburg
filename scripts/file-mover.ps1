@@ -215,6 +215,26 @@ try {
         }
         $targetPaths = @($targetNames | ForEach-Object { Join-Path $TargetRoot $_ })
 
+        # קובץ שיושב בשורש תיקיית הלקוח ב-Drive חייב להיכנס בשרת לתת-תיקייה
+        # הפנימית - "(711_0)", "(711_1)" וכו' - כי משם עדכנית קוראת. שורש
+        # תיקיית הלקוח אינו יעד לגיטימי.
+        $rootDests = @()
+        foreach ($tp in $targetPaths) {
+            $rootDests += @(Get-SubDirs $tp |
+                Where-Object { $_.Name -match '^\([^)]*_[^)]*\)' } |
+                ForEach-Object { $_.FullName })
+        }
+        $rootDests = @($rootDests | Select-Object -Unique)
+
+        if ($rootDests.Count -eq 0) {
+            # אין תת-תיקייה בשרת. לא מאבדים את הקובץ - מניחים אותו בשורש ומתעדים.
+            Log "NO INNER FOLDER: $baseName - root files stay in the client folder"
+            $rootDests = $targetPaths
+        }
+        elseif ($rootDests.Count -gt 1) {
+            Log "ROOT FILES -> ALL INNER: $baseName -> $(($rootDests | ForEach-Object { Split-Path $_ -Leaf }) -join ' | ')"
+        }
+
         $files = Get-ChildItem -LiteralPath $sourcePath -Recurse -File -ErrorAction SilentlyContinue
 
         foreach ($file in $files) {
@@ -251,7 +271,9 @@ try {
                 $fileName = $parts[-1]
                 $dirParts = if ($parts.Count -gt 1) { @($parts[0..($parts.Count - 2)]) } else { @() }
 
-                $destDirs = $targetPaths
+                # שורש ב-Drive -> תת-התיקיות הפנימיות בשרת. אחרת מתרגמים מקטע-מקטע.
+                $destDirs = if ($dirParts.Count -eq 0) { $rootDests } else { $targetPaths }
+
                 foreach ($part in $dirParts) {
                     $next = @()
                     foreach ($dir in $destDirs) {
