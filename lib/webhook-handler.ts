@@ -1,6 +1,18 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getWebhookValue, logWebhookCall } from "@/lib/webhook-config";
+
+// `!==` on two strings stops at the first differing character, so how long
+// a wrong guess takes to be rejected says how much of it was right. Hashing
+// both sides first gives timingSafeEqual the equal-length buffers it needs
+// without leaking the secret's length either.
+function secretMatches(given: string | null, expected: string): boolean {
+  if (given === null) return false;
+  const a = createHash("sha256").update(given).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
+}
 
 type HandlerResult = {
   status: number;
@@ -29,7 +41,7 @@ export async function runIncomingWebhook(
   const secret = request.headers.get("x-webhook-secret");
   const expected = await getWebhookValue(admin, key, envSecretVar);
 
-  if (!expected || secret !== expected) {
+  if (!expected || !secretMatches(secret, expected)) {
     const json = { error: "unauthorized" };
     await logWebhookCall(admin, key, "unauthorized", 401, null, json);
     return NextResponse.json(json, { status: 401 });
