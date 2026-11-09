@@ -221,6 +221,7 @@ function writeSiteData(ss, data) {
   if (data.skippedWarm) updated += ` · ${data.skippedWarm} לידים של מחממות בלי תאריך עדכון אחרון לא נכללו`;
   const payload = buildSitePayload(Array.from(groups.values()), updated);
   cacheSitePayload(payload);
+  storeSitePayload(ss, payload);
 
   // הלשונית מציגה רק סטטוס. כתיבת כל השורות לגיליון (עשרות אלפי שורות)
   // האטה כל רענון, והאתר ממילא לא קורא אותה.
@@ -242,6 +243,9 @@ function writeSiteData(ss, data) {
     ['עלויות', span(Array.from(groups.values()).filter(g => g.type === 'cost').map(g => g.date))],
     ['שורות נתונים', groups.size],
     ['גודל דחוס לאתר (KB)', Math.round(payload.length / 1024)],
+    ['חישוב תאריכים מהיר', nativeDates === false
+      ? 'לא - אזור הזמן של הסקריפט שונה מזה של הגיליון. ב-Apps Script: הגדרות הפרויקט ← אזור זמן ← Asia/Jerusalem'
+      : 'כן'],
   ];
   sheet.getRange(1, 1, rows.length, 2).setValues(rows);
   sheet.getRange(1, 1, rows.length, 1).setFontWeight('bold');
@@ -287,7 +291,33 @@ function cacheSitePayload(text) {
   const n = Math.ceil(text.length / SITE_CACHE_CHUNK);
   for (let i = 0; i < n; i++) chunks['site_v2_' + i] = text.slice(i * SITE_CACHE_CHUNK, (i + 1) * SITE_CACHE_CHUNK);
   chunks.site_v2_n = String(n);
-  CacheService.getScriptCache().putAll(chunks, 21600);
+  try {
+    CacheService.getScriptCache().putAll(chunks, 21600);
+  } catch (err) {
+    // גדול מדי לזיכרון המהיר - doGet יקרא מהעותק הקבוע בלשונית הנסתרת.
+  }
+}
+
+// עותק קבוע של הנתונים לאתר בלשונית נסתרת (חלקים של 45,000 תווים לתא),
+// כדי ש-doGet לא יצטרך לבנות אותם מחדש - בנייה מחדש לקחה כמה דקות, והאתר
+// חיכה לה. קריאת כמה עשרות תאים לוקחת שנייה.
+const PAYLOAD_SHEET_NAME = '_site_payload';
+const PAYLOAD_CELL = 45000;
+
+function storeSitePayload(ss, payload) {
+  const sheet = ss.getSheetByName(PAYLOAD_SHEET_NAME) || ss.insertSheet(PAYLOAD_SHEET_NAME);
+  if (!sheet.isSheetHidden()) sheet.hideSheet();
+  const parts = [];
+  for (let i = 0; i < payload.length; i += PAYLOAD_CELL) parts.push([payload.slice(i, i + PAYLOAD_CELL)]);
+  sheet.clearContents();
+  if (sheet.getMaxRows() < parts.length) sheet.insertRowsAfter(sheet.getMaxRows(), parts.length - sheet.getMaxRows());
+  sheet.getRange(1, 1, parts.length, 1).setNumberFormat('@').setValues(parts);
+}
+
+function storedSitePayload() {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(PAYLOAD_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 1) return null;
+  return sheet.getRange(1, 1, sheet.getLastRow(), 1).getValues().map(r => r[0]).join('');
 }
 
 function cachedSitePayload() {
@@ -313,9 +343,15 @@ function doGet(e) {
   }
   let payload = cachedSitePayload();
   if (payload === null) {
-    // הזיכרון פג (למשל אחרי שהרענון השעתי לא רץ) - בונים מחדש פעם אחת.
-    refreshSiteData();
-    payload = cachedSitePayload() || '';
+    // הזיכרון המהיר פג - קוראים את העותק הקבוע (שנייה), לא בונים מחדש (דקות).
+    payload = storedSitePayload();
+    if (payload) {
+      cacheSitePayload(payload);
+    } else {
+      // רק בפעם הראשונה, לפני שהרענון רץ אי פעם.
+      refreshSiteData();
+      payload = cachedSitePayload() || '';
+    }
   }
   return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.TEXT);
 }
@@ -415,12 +451,14 @@ function findHeader(headers, aliases) {
 
 function readLeads() {
   const sheet = openSheet(CONFIG.LEADS_SPREADSHEET_ID, CONFIG.LEADS_SHEET_NAME);
-  const values = sheet.getDataRange().getValues();
   const headerRow = 0;
   const cols = {};
   Object.keys(CONFIG.LEADS_COLUMN_LETTERS).forEach(key => {
     cols[key] = columnIndex(CONFIG.LEADS_COLUMN_LETTERS[key]);
   });
+  // קוראים רק עד העמודה האחרונה שצריך (M), לא את כל עמודות הטבלה.
+  const lastCol = Math.max.apply(null, Object.keys(cols).map(k => cols[k])) + 1;
+  const values = sheet.getRange(1, 1, Math.max(sheet.getLastRow(), 1), lastCol).getValues();
   const saleStatuses = CONFIG.SALE_STATUSES.map(normalizeText);
   const warmerSaleStatuses = CONFIG.WARMER_SALE_STATUSES.map(normalizeText);
   const pensionStatuses = CONFIG.PENSION_STATUSES.map(normalizeText);
@@ -621,10 +659,7 @@ function readCampaignMap(ss, leads) {
  */
 // { y, m, d, h } מתאריך אמיתי או מטקסט "dd/mm/yyyy hh:mm". h = null כשאין שעה.
 function dateParts(v) {
-  if (v instanceof Date && !isNaN(v)) {
-    const [y, m, d, h] = Utilities.formatDate(v, spreadsheetTimeZone(), 'yyyy-MM-dd-HH').split('-').map(Number);
-    return { y, m, d, h };
-  }
+  if (v instanceof Date && !isNaN(v)) return dateFields(v);
   const match = normalizeText(v).match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})(?:\s+(\d{1,2}):\d{2})?/);
   if (!match) return null;
   return { y: +match[3], m: +match[2], d: +match[1], h: match[4] === undefined ? null : +match[4] };
@@ -1115,8 +1150,8 @@ function parsePeriod(v) {
   if (v instanceof Date && !isNaN(v)) {
     // לפי אזור הזמן של הקובץ, לא של הסקריפט: ליד מ-01/07 00:02 שעון ישראל
     // הוא עדיין 30/06 ב-UTC.
-    const ymd = Utilities.formatDate(v, spreadsheetTimeZone(), 'yyyyMMdd');
-    return { month: `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}`, day: Number(ymd), range: null };
+    const f = dateFields(v);
+    return { month: `${f.y}-${String(f.m).padStart(2, '0')}`, day: f.y * 10000 + f.m * 100 + f.d, range: null };
   }
   const s = normalizeText(v);
   if (!s) return null;
@@ -1137,6 +1172,21 @@ function parsePeriod(v) {
     return month ? { month, range: null } : null;
   }
   return null;
+}
+
+/**
+ * שנה, חודש, יום ושעה של תאריך מהגיליון, באזור הזמן של הגיליון.
+ * Utilities.formatDate היא קריאה לשירות של Google, וארבע קריאות כאלה לכל
+ * שורת ליד (C ושלוש פעמים M) הפכו את הרענון ליותר מ-6 דקות - והוא נעצר.
+ * כשאזור הזמן של הסקריפט זהה לזה של הגיליון, שעון ה-JavaScript המקומי
+ * כבר נמצא באזור הזמן הנכון, וקריאת השדות ממנו כמעט חינמית.
+ */
+let nativeDates = null;
+function dateFields(v) {
+  if (nativeDates === null) nativeDates = Session.getScriptTimeZone() === spreadsheetTimeZone();
+  if (nativeDates) return { y: v.getFullYear(), m: v.getMonth() + 1, d: v.getDate(), h: v.getHours() };
+  const [y, m, d, h] = Utilities.formatDate(v, spreadsheetTimeZone(), 'yyyy-MM-dd-HH').split('-').map(Number);
+  return { y, m, d, h };
 }
 
 // נקרא פעם אחת ונשמר: קריאה לשירות של Google לכל שורת ליד הופכת אלפי
