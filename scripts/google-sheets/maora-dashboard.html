@@ -14,7 +14,6 @@
   // ומדביקים כאן את הקוד שהוא מייצר. הסיסמה עצמה לא נשמרת בקובץ.
   const ENCRYPTED_SOURCE = '';
   const TITLE = 'דשבורד קמפיינים';
-  const TOP_KEYWORDS = 15;
 </script>
 <style>
   :root {
@@ -316,6 +315,7 @@
     </section>
     <section class="card">
       <h2>מילות מפתח</h2>
+      <p class="ins-intro" id="kwNote" hidden>אין בגיליון העלויות עלות לכל מילת מפתח, ולכן העלויות כאן משוערות: העלות של כל קמפיין מתחלקת בין מילות המפתח שלו לפי מספר הלידים שכל מילה הביאה.</p>
       <div class="subfilters">
         <div class="field"><span>קמפיינים</span><div id="fc-tKeywords"></div></div>
         <button type="button" class="ghost clear" data-clear="tKeywords">מחיקת סינונים</button>
@@ -802,12 +802,47 @@ function renderMonths() {
     [...a.byMonth.entries()].map(([m, b]) => row(m, b)), row('סה"כ', a.total));
 }
 
+/**
+ * עלות לכל מילת מפתח. כשבגיליון העלויות יש עמודת "מילת מפתח" - העלות האמיתית.
+ * אחרת - הערכה: העלות של כל קמפיין בטווח שנבחר מתחלקת בין מילות המפתח שלו
+ * לפי החלק שלהן בלידים של הקמפיין (לידים בלי מילת מפתח לוקחים את החלק שלהם
+ * ולא מוצגים). למשל קמפיין שעלה ₪1,000 עם 100 לידים, 30 מהם במילה X -
+ * ל-X נזקפים ₪300.
+ */
+function estimateKeywordCosts(a, id) {
+  if (state.records.some(r => r.type === 'cost' && r.keyword)) return false; // יש עלות אמיתית
+  const { from, to } = range();
+  const hr = hourRange(), campaigns = msTable[id].selected;
+  const kwByCampaign = new Map(); // מילה -> (קמפיין -> לידים)
+  for (const r of state.records) {
+    if (r.type !== 'lead' || !r.keyword || !r.leads) continue;
+    if (r.date < from || r.date > to || !inSet(campaigns, r.campaign) || !passHour(r, hr)) continue;
+    if (!kwByCampaign.has(r.keyword)) kwByCampaign.set(r.keyword, new Map());
+    const m = kwByCampaign.get(r.keyword);
+    m.set(r.campaign, (m.get(r.campaign) || 0) + r.leads);
+  }
+  for (const [kw, b] of a.byKeyword) {
+    b.cost = 0; b.hasCost = false;
+    for (const [campaign, leads] of kwByCampaign.get(kw) || []) {
+      const c = a.byCampaign.get(campaign);
+      if (!c || !c.hasCost || !c.leads) continue;
+      b.cost += c.cost * leads / c.leads;
+      b.hasCost = true;
+    }
+  }
+  return true;
+}
+
 function renderKeywords() {
   const a = tableAgg('tKeywords');
-  table($('tKeywords'), [C.name('מילת מפתח')].concat(perfCols()),
+  const estimated = estimateKeywordCosts(a, 'tKeywords');
+  const cols = [C.name('מילת מפתח')].concat(perfCols());
+  if (estimated) cols.forEach(c => { if (c.h.startsWith('עלות')) c.h += ' (משוערת)'; });
+  $('kwNote').hidden = !estimated;
+  table($('tKeywords'), cols,
     [...a.byKeyword.entries()].filter(([, b]) => b.leads > 0)
       .sort((p, q) => (q[1].leads - p[1].leads) || (q[1].premium - p[1].premium))
-      .map(([k, b]) => perfRow(k, b)), null, { limit: TOP_KEYWORDS });
+      .map(([k, b]) => perfRow(k, b)));
 }
 
 const renderers = { tCampaigns: renderCampaigns, tMonths: renderMonths, tKeywords: renderKeywords, tReps: renderReps, tWarmers: renderWarmers };
