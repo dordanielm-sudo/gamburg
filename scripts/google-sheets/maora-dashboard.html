@@ -677,6 +677,9 @@ const PEOPLE = { tReps: { field: 'rep', all: 'כל הנציגים' }, tWarmers: 
 function setData(ds) {
   state.records = ds.records;
   state.fields = ds.fields || [];
+  // מקורות שיש להם לידים. קמפיין עם עלות שלא נמצא כאן - העלות שלו לא שויכה
+  // לאף מקור בפלנדו (חסר בלשונית "שמות קמפיינים").
+  state.leadCampaigns = new Set(ds.records.filter(r => r.type === 'lead' && r.leads).map(r => r.campaign));
   // לולאה ולא Math.min(...dates): עם מאות אלפי שורות הפריסה חורגת ממגבלת הדפדפן.
   let minD = Infinity, maxD = 0;
   for (const r of ds.records) if (r.date) { if (r.date < minD) minD = r.date; if (r.date > maxD) maxD = r.date; }
@@ -745,7 +748,7 @@ function render() {
     ['עלות קמפיינים', F.money(x.cost)], ['עלות לליד', F.money1(x.costPerLead)],
     ['עלות לסגירה', F.money(x.costPerSale)], ['עלות פרמיה (עלות ÷ פרמיה)', F.ratio(x.costToPremium)],
     ['קמפיינים פעילים', F.int(active)],
-  ].map(([l, v]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`).join('');
+  ].concat(unassignedCost(a) > 0 ? [['עלות לא משויכת למקור', F.money(unassignedCost(a))]] : []).map(([l, v]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`).join('');
 
   const unit = daily ? 'יום' : 'חודש';
   $('chLeadsT').textContent = `לידים לפי ${unit}`;
@@ -783,11 +786,14 @@ const tableAgg = id => {
   return aggregate(state.records, { from, to, campaigns: msTable[id].selected, daily: false });
 };
 
+const isUnassigned = (name, b) => b.hasCost && b.cost > 0 && !state.leadCampaigns.has(name);
+const unassignedCost = a => [...a.byCampaign.entries()].reduce((n, [name, b]) => n + (isUnassigned(name, b) ? b.cost : 0), 0);
+
 function renderCampaigns() {
   const a = tableAgg('tCampaigns');
   table($('tCampaigns'), [C.name('שם קמפיין')].concat(perfCols()),
     [...a.byCampaign.entries()].sort((p, q) => (q[1].leads - p[1].leads) || (q[1].cost - p[1].cost))
-      .map(([n, b]) => perfRow(n, b)), perfRow('סה"כ', a.total));
+      .map(([n, b]) => perfRow(isUnassigned(n, b) ? `${n} (לא משויך)` : n, b)), perfRow('סה"כ', a.total));
 }
 
 function renderMonths() {

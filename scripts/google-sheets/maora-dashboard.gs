@@ -74,6 +74,7 @@ const CONFIG = {
     campaign: ['שם קמפיין', 'קמפיין', 'מקור הליד'],
     cost: ['עלות קמפיין', 'עלות'],
     keyword: ['מילת מפתח'], // לא חובה - אם קיימת, מחושבת גם עלות לכל מילת מפתח
+    account: ['שם החשבון', 'חשבון'], // לא חובה - נכתב בעמודה A כשקמפיין נוסף אוטומטית למיפוי
   },
 };
 
@@ -253,32 +254,44 @@ function writeSiteData(ss, data) {
   // עלויות שנרשמו על שם שאין לו אף ליד - בדרך כלל קמפיין שחסר בלשונית
   // "שמות קמפיינים", או שם בעמודה C שלא כתוב כמו "מקור הליד" בפלנדו.
   const withLeads = new Set(data.leads.filter(l => l.leads).map(l => l.campaignKey));
+  // עלות שנרשמה על שם בלי לידים - לפי שם הקמפיין המקורי בגיליון העלויות.
   const orphan = new Map();
+  let totalCost = 0, orphanCost = 0;
   data.costs.forEach(c => {
+    totalCost += c.cost;
     if (withLeads.has(c.campaignKey)) return;
-    const name = data.campaignNames.get(c.campaignKey);
-    orphan.set(name, (orphan.get(name) || 0) + c.cost);
+    orphanCost += c.cost;
+    const key = c.rawCampaign || data.campaignNames.get(c.campaignKey);
+    const o = orphan.get(key) || { cost: 0, account: c.account || '', target: data.campaignNames.get(c.campaignKey) };
+    o.cost += c.cost;
+    orphan.set(key, o);
   });
   const d = data.costDiag;
   const sample = list => (list.length ? `${list.length} (למשל שורות ${list.slice(0, 5).join(', ')})` : '0');
-  const diagRows = d ? [
+  const shekel = v => Math.round(v).toLocaleString('en-US');
+  const diagRows = (d ? [
     ...d.columns,
     ['שורות עלות שנקראו', d.used + (d.dateFallback ? ` (מתוכן ${d.dateFallback} עם תאריך מעמודה אחרת)` : '')],
     ['דולגו - בלי תאריך', sample(d.skipped['בלי תאריך'])],
     ['דולגו - בלי עלות מספרית', sample(d.skipped['בלי עלות מספרית'])],
-  ] : [];
-  if (diagRows.length) {
-    sheet.getRange(rows.length + 2, 1, diagRows.length, 2).setValues(diagRows);
-    sheet.getRange(rows.length + 2, 1, diagRows.length, 1).setFontWeight('bold');
-  }
+  ] : []).concat([
+    ['סה"כ עלות שנקראה', shekel(totalCost)],
+    ['משויך למקורות בפלנדו', shekel(totalCost - orphanCost)],
+    ['לא משויך', orphanCost ? `${shekel(orphanCost)} - לבחור מקור בשורות הצהובות בלשונית "${CAMPAIGN_MAP_SHEET_NAME}"` : '0 - הכל משויך'],
+  ]);
+  sheet.getRange(rows.length + 2, 1, diagRows.length, 2).setValues(diagRows);
+  sheet.getRange(rows.length + 2, 1, diagRows.length, 1).setFontWeight('bold');
+
   const start = rows.length + 3 + diagRows.length;
-  const list = Array.from(orphan.entries()).sort((a, b) => b[1] - a[1]);
+  const list = Array.from(orphan.entries()).sort((a, b) => b[1].cost - a[1].cost);
   const sources = Array.from(withLeads).map(k => data.campaignNames.get(k)).sort((a, b) => a.localeCompare(b, 'he'));
-  const block = [['עלויות בלי לידים', list.length ? 'סה"כ עלות' : 'אין - כל העלויות משויכות', list.length ? 'הצעה למקור בפלנדו' : '']]
-    .concat(list.map(([name, cost]) => [name, Math.round(cost), suggestSource(name, sources)]));
-  sheet.getRange(start, 1, block.length, 3).setValues(block);
-  sheet.getRange(start, 1, 1, 3).setFontWeight('bold');
-  if (list.length) addUnmappedToCampaignMap(ss, list.map(([name]) => name), sources);
+  if (list.length) {
+    const block = [['עלות לא משויכת - קמפיין בגיליון העלויות', 'סה"כ עלות', 'הצעה למקור בפלנדו']]
+      .concat(list.map(([name, o]) => [name, Math.round(o.cost), suggestSource(name, sources)]));
+    sheet.getRange(start, 1, block.length, 3).setValues(block);
+    sheet.getRange(start, 1, 1, 3).setFontWeight('bold');
+  }
+  syncCampaignMap(ss, list, sources);
 }
 
 /**
@@ -300,35 +313,43 @@ function suggestSource(name, sources) {
 }
 
 /**
- * מוסיף ללשונית "שמות קמפיינים" שורה לכל קמפיין מגוגל שהעלות שלו לא שויכה,
- * עם רשימה נפתחת של המקורות בפלנדו בעמודה C והצעה בעמודה A. העלות נכנסת
- * לדשבורד ברענון הבא אחרי שבוחרים מקור. שם שכבר מופיע בעמודה B או C לא
- * נוסף שוב (שם שמופיע ב-C ואין לו לידים הוא מקור שכתוב אחרת מאשר בפלנדו).
+ * שומר על הלשונית "שמות קמפיינים" מסודרת בכל רענון:
+ * 1. עמודה C (מקור בפלנדו) מקבלת בכל השורות רשימה נפתחת של המקורות שיש להם
+ *    לידים. שם שכתוב אחרת מאשר בפלנדו מסומן מיד בסימון האדום של Google.
+ * 2. קמפיין מגיליון העלויות שהעלות שלו לא שויכה ולא מופיע בלשונית נוסף
+ *    בסוף, כמו שאר השורות: A = שם החשבון, B = שם הקמפיין, C ריק לבחירה
+ *    (צהוב), וההצעה כהערה על התא. העלות נכנסת ברענון שאחרי הבחירה.
+ *    שורה שכבר קיימת לא נוספת שוב.
  */
-function addUnmappedToCampaignMap(ss, names, sources) {
+function syncCampaignMap(ss, orphans, sources) {
   const sheet = ss.getSheetByName(CAMPAIGN_MAP_SHEET_NAME);
   if (!sheet) return;
   const values = sheet.getDataRange().getValues();
-  const existing = new Set();
-  values.forEach(r => { existing.add(matchKey(r[1])); existing.add(matchKey(r[2])); });
-  const fresh = names.filter(n => !existing.has(matchKey(n)));
-  if (!fresh.length) return;
+  const inB = new Set(values.map(r => matchKey(r[1])));
+  const inC = new Set(values.map(r => matchKey(r[2])));
+  // שם שמופיע ב-C בלי לידים הוא מקור שכתוב אחרת מבפלנדו - הרשימה הנפתחת
+  // מסמנת אותו; לא מוסיפים אותו כקמפיין.
+  const fresh = orphans.filter(([name]) => !inB.has(matchKey(name)) && !inC.has(matchKey(name)));
   const HEADER = 'נוספו אוטומטית - לבחור מקור בעמודה C';
   const hasHeader = values.some(r => normalizeText(r[0]) === HEADER);
-  const rows = (hasHeader ? [] : [['', '', ''], [HEADER, '', '']])
-    .concat(fresh.map(n => {
-      const hint = suggestSource(n, sources);
-      return [hint ? `הצעה: ${hint}` : 'לבחור מקור', n, ''];
+  if (fresh.length) {
+    const rows = (hasHeader ? [] : [['', '', ''], [HEADER, '', '']])
+      .concat(fresh.map(([name, o]) => [o.account || '', name, '']));
+    const first = sheet.getLastRow() + 1;
+    sheet.getRange(first, 1, rows.length, 3).setValues(rows);
+    if (!hasHeader) sheet.getRange(first + 1, 1, 1, 3).setFontWeight('bold');
+    const firstNew = first + rows.length - fresh.length;
+    sheet.getRange(firstNew, 1, fresh.length, 3).setBackground('#fff4c2');
+    sheet.getRange(firstNew, 3, fresh.length, 1).setNotes(fresh.map(([name]) => {
+      const hint = suggestSource(name, sources);
+      return [hint ? `הצעה: ${hint}` : ''];
     }));
-  const first = sheet.getLastRow() + 1;
-  sheet.getRange(first, 1, rows.length, 3).setValues(rows);
-  const added = sheet.getRange(first + rows.length - fresh.length, 1, fresh.length, 3);
-  added.setBackground('#fff4c2');
-  if (sources.length) {
-    sheet.getRange(first + rows.length - fresh.length, 3, fresh.length, 1).setDataValidation(
+  }
+  const last = sheet.getLastRow();
+  if (sources.length && last > 1) {
+    sheet.getRange(2, 3, last - 1, 1).setDataValidation(
       SpreadsheetApp.newDataValidation().requireValueInList(sources.slice(0, 500), true).setAllowInvalid(true).build());
   }
-  if (!hasHeader) sheet.getRange(first + 1, 1, 1, 3).setFontWeight('bold');
 }
 
 /**
@@ -692,6 +713,8 @@ function readCosts(campaignMap) {
         day: period.day,
         campaign,
         keyword: cols.keyword >= 0 ? normalizeText(row[cols.keyword]) : '',
+        account: cols.account >= 0 ? normalizeText(row[cols.account]) : '',
+        rawCampaign,
         cost: cost * share,
         range: period.range,
       });
