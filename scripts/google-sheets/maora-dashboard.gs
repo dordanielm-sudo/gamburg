@@ -579,14 +579,16 @@ function readCosts(campaignMap) {
     const rawCampaign = normalizeText(row[cols.campaign]);
     const period = parsePeriod(row[cols.date]);
     if (cost === null || !rawCampaign || !period || isTotalLabel(rawCampaign)) continue;
-    const campaign = campaignMap ? campaignMap(rawCampaign, firstDayOf(period)) : rawCampaign;
-    entries.push({
-      month: period.month,
-      day: period.day,
-      campaign,
-      keyword: cols.keyword >= 0 ? normalizeText(row[cols.keyword]) : '',
-      cost,
-      range: period.range,
+    const targets = campaignMap ? campaignMap(rawCampaign, firstDayOf(period), period.month) : [[rawCampaign, 1]];
+    targets.forEach(([campaign, share]) => {
+      entries.push({
+        month: period.month,
+        day: period.day,
+        campaign,
+        keyword: cols.keyword >= 0 ? normalizeText(row[cols.keyword]) : '',
+        cost: cost * share,
+        range: period.range,
+      });
     });
   }
 
@@ -624,6 +626,7 @@ function readCampaignMap(ss, leads) {
     .map(name => ({ name, key: matchKey(name) }))
     .filter(k => k.key.length >= 4)
     .sort((a, b) => b.key.length - a.key.length);
+  // קמפיין בגוגל יכול להופיע בכמה שורות - אחת לכל מקור ליד בפלנדו.
   const rules = new Map();
   sheet.getDataRange().getValues().forEach((row, i) => {
     const google = normalizeText(row[1]);
@@ -642,13 +645,43 @@ function readCampaignMap(ss, leads) {
       }
     }
     if (!plando && !before) return;
-    rules.set(matchKey(google), { plando: plando || before, until, before });
+    // עמודה D (לא חובה): אחוז קבוע מהעלות למקור הזה, למשל 60 ו-40.
+    const pct = toNumber(String(row[3] === undefined ? '' : row[3]).replace('%', ''));
+    const key = matchKey(google);
+    if (!rules.has(key)) rules.set(key, []);
+    rules.get(key).push({ plando: plando || before, until, before, pct: pct > 0 ? pct : null });
   });
-  return (name, day) => {
-    const rule = rules.get(matchKey(name));
-    if (!rule) return name;
-    if (rule.until && day && day < rule.until) return rule.before;
-    return rule.plando;
+
+  // לידים לכל מקור בכל חודש - לחלוקת עלות לפי חלק הלידים.
+  const leadsByMonth = new Map();
+  leads.rows.forEach(l => {
+    if (!l.leads) return;
+    const k = matchKey(l.campaign) + '|' + l.month;
+    leadsByMonth.set(k, (leadsByMonth.get(k) || 0) + l.leads);
+  });
+
+  /**
+   * מחזיר [[שם בפלנדו, חלק מהעלות], ...]. קמפיין עם מקור אחד - חלק 1.
+   * כמה מקורות: לפי האחוזים בעמודה D אם מולאו בכל השורות, אחרת לפי מספר
+   * הלידים של כל מקור באותו חודש, ובחודש בלי לידים - שווה בשווה.
+   */
+  return (name, day, month) => {
+    const list = rules.get(matchKey(name));
+    if (!list) return [[name, 1]];
+    const targets = new Map();
+    list.forEach(rule => {
+      const target = rule.until && day && day < rule.until ? rule.before : rule.plando;
+      const t = targets.get(target) || { pct: 0, allPct: true };
+      if (rule.pct) t.pct += rule.pct; else t.allPct = false;
+      targets.set(target, t);
+    });
+    const names = Array.from(targets.keys());
+    if (names.length === 1) return [[names[0], 1]];
+    const weights = names.every(n => targets.get(n).allPct)
+      ? names.map(n => targets.get(n).pct)
+      : names.map(n => leadsByMonth.get(matchKey(n) + '|' + month) || 0);
+    const sum = weights.reduce((a, b) => a + b, 0);
+    return names.map((n, i) => [n, sum ? weights[i] / sum : 1 / names.length]);
   };
 }
 
