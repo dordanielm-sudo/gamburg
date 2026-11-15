@@ -644,7 +644,11 @@ function readCampaignMap(ss, leads) {
     .sort((a, b) => b.key.length - a.key.length);
   // קמפיין בגוגל יכול להופיע בכמה שורות - אחת לכל מקור ליד בפלנדו.
   const rules = new Map();
-  sheet.getDataRange().getValues().forEach((row, i) => {
+  const values = sheet.getDataRange().getValues();
+  // אחוז קבוע לחלוקה - רק מעמודה שהכותרת שלה מכילה "אחוז" (לא חובה). עמודה
+  // לפי מיקום הייתה תופסת עמודות אחרות, כמו "מזהה למערכת חיצוניות" ב-D.
+  const pctCol = (values[0] || []).findIndex(h => normalizeText(h).includes('אחוז'));
+  values.forEach((row, i) => {
     const google = normalizeText(row[1]);
     const plando = normalizeText(row[2]);
     if (i === 0 || !google) return;
@@ -661,8 +665,7 @@ function readCampaignMap(ss, leads) {
       }
     }
     if (!plando && !before) return;
-    // עמודה D (לא חובה): אחוז קבוע מהעלות למקור הזה, למשל 60 ו-40.
-    const pct = toNumber(String(row[3] === undefined ? '' : row[3]).replace('%', ''));
+    const pct = pctCol >= 0 ? toNumber(String(row[pctCol] === undefined ? '' : row[pctCol]).replace('%', '')) : null;
     const key = matchKey(google);
     if (!rules.has(key)) rules.set(key, []);
     rules.get(key).push({ plando: plando || before, until, before, pct: pct > 0 ? pct : null });
@@ -678,7 +681,7 @@ function readCampaignMap(ss, leads) {
 
   /**
    * מחזיר [[שם בפלנדו, חלק מהעלות], ...]. קמפיין עם מקור אחד - חלק 1.
-   * כמה מקורות: לפי האחוזים בעמודה D אם מולאו בכל השורות, אחרת לפי מספר
+   * כמה מקורות: לפי עמודת "אחוז" אם מולאה בכל השורות, אחרת לפי מספר
    * הלידים של כל מקור באותו חודש, ובחודש בלי לידים - שווה בשווה.
    */
   return (name, day, month) => {
