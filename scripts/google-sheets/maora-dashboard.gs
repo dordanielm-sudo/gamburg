@@ -249,6 +249,22 @@ function writeSiteData(ss, data) {
   ];
   sheet.getRange(1, 1, rows.length, 2).setValues(rows);
   sheet.getRange(1, 1, rows.length, 1).setFontWeight('bold');
+
+  // עלויות שנרשמו על שם שאין לו אף ליד - בדרך כלל קמפיין שחסר בלשונית
+  // "שמות קמפיינים", או שם בעמודה C שלא כתוב כמו "מקור הליד" בפלנדו.
+  const withLeads = new Set(data.leads.filter(l => l.leads).map(l => l.campaignKey));
+  const orphan = new Map();
+  data.costs.forEach(c => {
+    if (withLeads.has(c.campaignKey)) return;
+    const name = data.campaignNames.get(c.campaignKey);
+    orphan.set(name, (orphan.get(name) || 0) + c.cost);
+  });
+  const start = rows.length + 2;
+  const list = Array.from(orphan.entries()).sort((a, b) => b[1] - a[1]);
+  const block = [['עלויות בלי לידים - לבדוק את "שמות קמפיינים"', list.length ? 'סה"כ עלות' : 'אין - כל העלויות משויכות']]
+    .concat(list.map(([name, cost]) => [name, Math.round(cost)]));
+  sheet.getRange(start, 1, block.length, 2).setValues(block);
+  sheet.getRange(start, 1, 1, 2).setFontWeight('bold');
 }
 
 /**
@@ -1159,7 +1175,9 @@ function normalizeText(v) {
 // מפתח השוואה בין שני הגיליונות: אותו קמפיין נכתב לפעמים עם רווחים או
 // סימני פיסוק מעט שונים ("( כספים אבודים )" מול "(כספים אבודים)").
 function matchKey(name) {
-  return normalizeText(name).replace(/[\s"'״׳()\-–_.]/g, '').toLowerCase();
+  // רק אותיות וספרות: "Aramapp | שיחות | פנסיה", "Aramapp - שיחות - פנסיה"
+  // ו-"aramapp שיחות פנסיה" הם אותו קמפיין.
+  return normalizeText(name).replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
 }
 
 function isTotalLabel(text) {
@@ -1192,6 +1210,12 @@ function parsePeriod(v) {
   if (m) {
     const month = ym(+m[4], +m[3]);
     return month ? { month, range: { start: +m[1], end: +m[2] } } : null;
+  }
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); // 2026-11-09 (כמו בייצוא מגוגל אדס)
+  if (m) {
+    const month = ym(+m[1], +m[2]);
+    return month && +m[3] >= 1 && +m[3] <= 31
+      ? { month, day: +m[1] * 10000 + +m[2] * 100 + +m[3], range: null } : null;
   }
   m = s.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
   if (m) {
