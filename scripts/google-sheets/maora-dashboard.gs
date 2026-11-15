@@ -259,7 +259,19 @@ function writeSiteData(ss, data) {
     const name = data.campaignNames.get(c.campaignKey);
     orphan.set(name, (orphan.get(name) || 0) + c.cost);
   });
-  const start = rows.length + 2;
+  const d = data.costDiag;
+  const sample = list => (list.length ? `${list.length} (למשל שורות ${list.slice(0, 5).join(', ')})` : '0');
+  const diagRows = d ? [
+    ['גיליון העלויות - עמודות', d.columns],
+    ['שורות עלות שנקראו', d.used + (d.dateFallback ? ` (מתוכן ${d.dateFallback} עם תאריך מעמודה אחרת)` : '')],
+    ['דולגו - בלי תאריך', sample(d.skipped['בלי תאריך'])],
+    ['דולגו - בלי עלות מספרית', sample(d.skipped['בלי עלות מספרית'])],
+  ] : [];
+  if (diagRows.length) {
+    sheet.getRange(rows.length + 2, 1, diagRows.length, 2).setValues(diagRows);
+    sheet.getRange(rows.length + 2, 1, diagRows.length, 1).setFontWeight('bold');
+  }
+  const start = rows.length + 3 + diagRows.length;
   const list = Array.from(orphan.entries()).sort((a, b) => b[1] - a[1]);
   const block = [['עלויות בלי לידים - לבדוק את "שמות קמפיינים"', list.length ? 'סה"כ עלות' : 'אין - כל העלויות משויכות']]
     .concat(list.map(([name, cost]) => [name, Math.round(cost)]));
@@ -589,12 +601,37 @@ function readCosts(campaignMap) {
   // גיליון עלויות של דוח ידני חוזר על שורות כותרת ושורות סה"כ בכל בלוק -
   // מדלגים על כל שורה בלי עלות מספרית או עם שם קמפיין שהוא סיכום.
   const entries = [];
+  // אבחון: מה נקרא ועל מה דולג, כדי שעלות "נעלמת" תופיע בלשונית הסטטוס.
+  const letter = i => (i < 0 ? '-' : i < 26 ? String.fromCharCode(65 + i)
+    : String.fromCharCode(64 + Math.floor(i / 26)) + String.fromCharCode(65 + (i % 26)));
+  const diag = {
+    columns: ['date', 'campaign', 'cost'].map(k => `${k === 'date' ? 'תאריך' : k === 'campaign' ? 'קמפיין' : 'עלות'}`
+      + ` = עמודה ${letter(cols[k])} ("${normalizeText(values[headerRow][cols[k]])}")`).join(' · '),
+    used: 0, dateFallback: 0,
+    skipped: { 'בלי תאריך': [], 'בלי עלות מספרית': [] },
+  };
+  const skip = (reason, r) => { diag.skipped[reason].push(r + 1); };
   for (let r = headerRow + 1; r < values.length; r++) {
     const row = values[r];
     const cost = toNumber(row[cols.cost]);
     const rawCampaign = normalizeText(row[cols.campaign]);
-    const period = parsePeriod(row[cols.date]);
-    if (cost === null || !rawCampaign || !period || isTotalLabel(rawCampaign)) continue;
+    if (!rawCampaign || isTotalLabel(rawCampaign)) continue; // שורות ריקות / סיכום
+    let period = parsePeriod(row[cols.date]);
+    let fromOtherColumn = false;
+    if (!period) {
+      // ייצוא של גוגל אדס שם לפעמים את התאריך בעמודה אחרת מזו שבכותרת -
+      // מחפשים תאריך מלא בשאר התאים של השורה.
+      for (let c = 0; c < row.length && !period; c++) {
+        if (c === cols.cost || c === cols.campaign) continue;
+        const p = row[c] instanceof Date || /^\d{4}-\d{1,2}-\d{1,2}|^\d{1,2}[\/.]\d{1,2}[\/.]\d{4}/.test(normalizeText(row[c]))
+          ? parsePeriod(row[c]) : null;
+        if (p && p.day) { period = p; fromOtherColumn = true; }
+      }
+    }
+    if (!period) { skip('בלי תאריך', r); continue; }
+    if (cost === null) { skip('בלי עלות מספרית', r); continue; }
+    diag.used++;
+    if (fromOtherColumn) diag.dateFallback++;
     const targets = campaignMap ? campaignMap(rawCampaign, firstDayOf(period), period.month) : [[rawCampaign, 1]];
     targets.forEach(([campaign, share]) => {
       entries.push({
@@ -623,6 +660,7 @@ function readCosts(campaignMap) {
   return {
     entries: plain.concat(Array.from(latest.values())),
     hasKeywords: cols.keyword >= 0,
+    diag,
   };
 }
 
@@ -828,6 +866,7 @@ function indexData(leads, costs) {
     skippedLeads: leads.skipped,
     skippedSales: leads.skippedSales,
     skippedWarm: leads.skippedWarm,
+    costDiag: costs.diag,
     costs: costs.entries,
     hasKeywordCosts: costs.hasKeywords && costs.entries.some(c => c.keyword),
     months: Array.from(months).sort(),
