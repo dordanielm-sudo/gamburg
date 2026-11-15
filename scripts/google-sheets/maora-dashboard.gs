@@ -648,10 +648,24 @@ function readCampaignMap(ss, leads) {
   // אחוז קבוע לחלוקה - רק מעמודה שהכותרת שלה מכילה "אחוז" (לא חובה). עמודה
   // לפי מיקום הייתה תופסת עמודות אחרות, כמו "מזהה למערכת חיצוניות" ב-D.
   const pctCol = (values[0] || []).findIndex(h => normalizeText(h).includes('אחוז'));
+  // הלשונית מחולקת לקטעים: שורת כותרת עם תאריך בעמודה A ("מקור ליד חדש
+  // מתאריך 13/10/2026") פותחת קטע שתקף מהתאריך הזה; שורת כותרת בלי תאריך
+  // ובלי שם בגוגל ("החשבונות ללא שינוי") פותחת קטע שתקף תמיד.
+  let sectionFrom = 0;
   values.forEach((row, i) => {
+    if (i === 0) return;
+    const label = normalizeText(row[0]);
     const google = normalizeText(row[1]);
     const plando = normalizeText(row[2]);
-    if (i === 0 || !google) return;
+    const sectionDate = label.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
+    if (sectionDate) {
+      sectionFrom = +sectionDate[3] * 10000 + +sectionDate[2] * 100 + +sectionDate[1];
+      return;
+    }
+    if (!google) {
+      if (label) sectionFrom = 0;
+      return;
+    }
     let until = null, before = null;
     const note = normalizeText(row[7]);
     const dateMatch = note.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
@@ -668,7 +682,7 @@ function readCampaignMap(ss, leads) {
     const pct = pctCol >= 0 ? toNumber(String(row[pctCol] === undefined ? '' : row[pctCol]).replace('%', '')) : null;
     const key = matchKey(google);
     if (!rules.has(key)) rules.set(key, []);
-    rules.get(key).push({ plando: plando || before, until, before, pct: pct > 0 ? pct : null });
+    rules.get(key).push({ plando: plando || before, until, before, pct: pct > 0 ? pct : null, from: sectionFrom });
   });
 
   // לידים לכל מקור בכל חודש - לחלוקת עלות לפי חלק הלידים.
@@ -685,8 +699,15 @@ function readCampaignMap(ss, leads) {
    * הלידים של כל מקור באותו חודש, ובחודש בלי לידים - שווה בשווה.
    */
   return (name, day, month) => {
-    const list = rules.get(matchKey(name));
-    if (!list) return [[name, 1]];
+    const all = rules.get(matchKey(name));
+    if (!all) return [[name, 1]];
+    // שורות מהקטע העדכני ביותר שכבר התחיל ביום העלות גוברות על הקודמות:
+    // "איתור כספים אבודים" הולך ל"בדיקת תיק ביטוחי" עד 12/10 ול"איתור ובדיקת
+    // תיק פנסיוני" מ-13/10, ולא מתחלק ביניהם.
+    const valid = all.filter(r => !r.from || (day && day >= r.from));
+    if (!valid.length) return [[name, 1]];
+    const latest = Math.max.apply(null, valid.map(r => r.from));
+    const list = valid.filter(r => r.from === latest);
     const targets = new Map();
     list.forEach(rule => {
       const target = rule.until && day && day < rule.until ? rule.before : rule.plando;
