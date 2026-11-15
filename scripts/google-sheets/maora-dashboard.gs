@@ -262,7 +262,7 @@ function writeSiteData(ss, data) {
   const d = data.costDiag;
   const sample = list => (list.length ? `${list.length} (למשל שורות ${list.slice(0, 5).join(', ')})` : '0');
   const diagRows = d ? [
-    ['גיליון העלויות - עמודות', d.columns],
+    ...d.columns,
     ['שורות עלות שנקראו', d.used + (d.dateFallback ? ` (מתוכן ${d.dateFallback} עם תאריך מעמודה אחרת)` : '')],
     ['דולגו - בלי תאריך', sample(d.skipped['בלי תאריך'])],
     ['דולגו - בלי עלות מספרית', sample(d.skipped['בלי עלות מספרית'])],
@@ -273,10 +273,62 @@ function writeSiteData(ss, data) {
   }
   const start = rows.length + 3 + diagRows.length;
   const list = Array.from(orphan.entries()).sort((a, b) => b[1] - a[1]);
-  const block = [['עלויות בלי לידים - לבדוק את "שמות קמפיינים"', list.length ? 'סה"כ עלות' : 'אין - כל העלויות משויכות']]
-    .concat(list.map(([name, cost]) => [name, Math.round(cost)]));
-  sheet.getRange(start, 1, block.length, 2).setValues(block);
-  sheet.getRange(start, 1, 1, 2).setFontWeight('bold');
+  const sources = Array.from(withLeads).map(k => data.campaignNames.get(k)).sort((a, b) => a.localeCompare(b, 'he'));
+  const block = [['עלויות בלי לידים', list.length ? 'סה"כ עלות' : 'אין - כל העלויות משויכות', list.length ? 'הצעה למקור בפלנדו' : '']]
+    .concat(list.map(([name, cost]) => [name, Math.round(cost), suggestSource(name, sources)]));
+  sheet.getRange(start, 1, block.length, 3).setValues(block);
+  sheet.getRange(start, 1, 1, 3).setFontWeight('bold');
+  if (list.length) addUnmappedToCampaignMap(ss, list.map(([name]) => name), sources);
+}
+
+/**
+ * המקור בפלנדו שהשם שלו הכי דומה לשם הקמפיין בגוגל (מילים משותפות), או ''.
+ * רק הצעה - השיוך עצמו נעשה כשבוחרים מקור בעמודה C.
+ */
+function suggestSource(name, sources) {
+  const words = t => new Set(normalizeText(t).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 1));
+  const a = words(name);
+  let best = '', bestScore = 0;
+  sources.forEach(src => {
+    const b = words(src);
+    let common = 0;
+    a.forEach(w => { if (b.has(w)) common++; });
+    const score = common / (a.size + b.size - common || 1);
+    if (score > bestScore) { bestScore = score; best = src; }
+  });
+  return best;
+}
+
+/**
+ * מוסיף ללשונית "שמות קמפיינים" שורה לכל קמפיין מגוגל שהעלות שלו לא שויכה,
+ * עם רשימה נפתחת של המקורות בפלנדו בעמודה C והצעה בעמודה A. העלות נכנסת
+ * לדשבורד ברענון הבא אחרי שבוחרים מקור. שם שכבר מופיע בעמודה B או C לא
+ * נוסף שוב (שם שמופיע ב-C ואין לו לידים הוא מקור שכתוב אחרת מאשר בפלנדו).
+ */
+function addUnmappedToCampaignMap(ss, names, sources) {
+  const sheet = ss.getSheetByName(CAMPAIGN_MAP_SHEET_NAME);
+  if (!sheet) return;
+  const values = sheet.getDataRange().getValues();
+  const existing = new Set();
+  values.forEach(r => { existing.add(matchKey(r[1])); existing.add(matchKey(r[2])); });
+  const fresh = names.filter(n => !existing.has(matchKey(n)));
+  if (!fresh.length) return;
+  const HEADER = 'נוספו אוטומטית - לבחור מקור בעמודה C';
+  const hasHeader = values.some(r => normalizeText(r[0]) === HEADER);
+  const rows = (hasHeader ? [] : [['', '', ''], [HEADER, '', '']])
+    .concat(fresh.map(n => {
+      const hint = suggestSource(n, sources);
+      return [hint ? `הצעה: ${hint}` : 'לבחור מקור', n, ''];
+    }));
+  const first = sheet.getLastRow() + 1;
+  sheet.getRange(first, 1, rows.length, 3).setValues(rows);
+  const added = sheet.getRange(first + rows.length - fresh.length, 1, fresh.length, 3);
+  added.setBackground('#fff4c2');
+  if (sources.length) {
+    sheet.getRange(first + rows.length - fresh.length, 3, fresh.length, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(sources.slice(0, 500), true).setAllowInvalid(true).build());
+  }
+  if (!hasHeader) sheet.getRange(first + 1, 1, 1, 3).setFontWeight('bold');
 }
 
 /**
@@ -605,8 +657,9 @@ function readCosts(campaignMap) {
   const letter = i => (i < 0 ? '-' : i < 26 ? String.fromCharCode(65 + i)
     : String.fromCharCode(64 + Math.floor(i / 26)) + String.fromCharCode(65 + (i % 26)));
   const diag = {
-    columns: ['date', 'campaign', 'cost'].map(k => `${k === 'date' ? 'תאריך' : k === 'campaign' ? 'קמפיין' : 'עלות'}`
-      + ` = עמודה ${letter(cols[k])} ("${normalizeText(values[headerRow][cols[k]])}")`).join(' · '),
+    columns: ['date', 'campaign', 'cost'].map(k => [
+      `גיליון העלויות - עמודת ${k === 'date' ? 'תאריך' : k === 'campaign' ? 'קמפיין' : 'עלות'}`,
+      `${letter(cols[k])} ("${normalizeText(values[headerRow][cols[k]])}")`]),
     used: 0, dateFallback: 0,
     skipped: { 'בלי תאריך': [], 'בלי עלות מספרית': [] },
   };
