@@ -117,7 +117,65 @@ function onOpen() {
     .addItem('קישור לאתר', 'showSiteLink')
     .addSeparator()
     .addItem('התקנה (פעם אחת)', 'setup')
+    .addItem('איפוס מלא והתקנה מחדש', 'resetAll')
     .addToUi();
+}
+
+/**
+ * מוחק את כל מה שהסקריפט יצר, ובונה מחדש מאפס. לא נוגע בטבלת הלידים,
+ * בגיליון העלויות ובשורות שנכתבו ידנית ב"שמות קמפיינים".
+ * נמחקים: הטריגרים, הזיכרון המהיר של הנתונים לאתר, הלשוניות "דשבורד",
+ * "נתונים לאתר" ו-"_site_payload", השורות שנוספו אוטומטית ב"שמות קמפיינים"
+ * שעוד לא נבחר להן מקור (שורות שכבר בחרת להן מקור נשארות), והרשימות
+ * הנפתחות והצבע הצהוב שהסקריפט שם שם. מפתח הקישור לאתר נשמר, כך שהאתר
+ * ממשיך לעבוד בלי ליצור קוד חדש.
+ */
+function resetAll() {
+  const ui = SpreadsheetApp.getUi();
+  const answer = ui.alert('איפוס מלא',
+    'יימחקו: הטריגרים, הנתונים השמורים לאתר, הלשוניות "דשבורד", "נתונים לאתר" ו-"_site_payload", '
+    + 'והשורות הצהובות שנוספו אוטומטית ב"שמות קמפיינים" ועדיין אין להן מקור.\n\n'
+    + 'לא ייגעו: טבלת הלידים, גיליון העלויות, והשורות שכתבת ב"שמות קמפיינים".\n\n'
+    + 'אחר כך הכל ייבנה מחדש (לוקח עד כמה דקות). להמשיך?', ui.ButtonSet.YES_NO);
+  if (answer !== ui.Button.YES) return;
+  const ss = SpreadsheetApp.getActive();
+
+  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+
+  const cache = CacheService.getScriptCache();
+  const keys = ['site_v2_n', 'site_csv_n'];
+  for (let i = 0; i < 300; i++) keys.push('site_v2_' + i, 'site_csv_' + i);
+  cache.removeAll(keys);
+
+  [CONFIG.DASHBOARD_SHEET_NAME, SITE_DATA_SHEET_NAME, PAYLOAD_SHEET_NAME].forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (sh && ss.getSheets().length > 1) ss.deleteSheet(sh);
+  });
+
+  const map = ss.getSheetByName(CAMPAIGN_MAP_SHEET_NAME);
+  if (map && map.getLastRow() > 1) {
+    const last = map.getLastRow();
+    const values = map.getRange(1, 1, last, 3).getValues();
+    const header = values.findIndex(r => normalizeText(r[0]) === AUTO_ADDED_HEADER);
+    if (header >= 0) {
+      // מלמטה למעלה, כדי שמחיקת שורה לא תזיז את השורות שעוד לא נבדקו.
+      let kept = 0;
+      for (let r = last - 1; r > header; r--) {
+        if (normalizeText(values[r][2])) { kept++; continue; }
+        if (normalizeText(values[r][1])) map.deleteRow(r + 1);
+      }
+      if (!kept) {
+        map.deleteRow(header + 1);
+        if (header > 0 && !values[header - 1].some(v => normalizeText(v))) map.deleteRow(header);
+      }
+    }
+    const rows = Math.max(map.getLastRow() - 1, 1);
+    map.getRange(2, 3, rows, 1).clearDataValidations().clearNote();
+  }
+
+  setup();
+  ui.alert('האיפוס הסתיים', 'הכל נבנה מחדש. עכשיו: פריסה ← ניהול פריסות ← גרסה חדשה (אם החלפת קוד), '
+    + 'ובאתר ללחוץ "התנתקות" ולהיכנס שוב.', ui.ButtonSet.OK);
 }
 
 /** מתקין רענון אוטומטי בכל שעה + רענון מיידי כשמשנים מסנן בדשבורד. */
@@ -321,6 +379,8 @@ function suggestSource(name, sources) {
  *    (צהוב), וההצעה כהערה על התא. העלות נכנסת ברענון שאחרי הבחירה.
  *    שורה שכבר קיימת לא נוספת שוב.
  */
+const AUTO_ADDED_HEADER = 'נוספו אוטומטית - לבחור מקור בעמודה C';
+
 function syncCampaignMap(ss, orphans, sources) {
   const sheet = ss.getSheetByName(CAMPAIGN_MAP_SHEET_NAME);
   if (!sheet) return;
@@ -330,7 +390,7 @@ function syncCampaignMap(ss, orphans, sources) {
   // שם שמופיע ב-C בלי לידים הוא מקור שכתוב אחרת מבפלנדו - הרשימה הנפתחת
   // מסמנת אותו; לא מוסיפים אותו כקמפיין.
   const fresh = orphans.filter(([name]) => !inB.has(matchKey(name)) && !inC.has(matchKey(name)));
-  const HEADER = 'נוספו אוטומטית - לבחור מקור בעמודה C';
+  const HEADER = AUTO_ADDED_HEADER;
   const hasHeader = values.some(r => normalizeText(r[0]) === HEADER);
   if (fresh.length) {
     const rows = (hasHeader ? [] : [['', '', ''], [HEADER, '', '']])
