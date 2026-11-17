@@ -21,6 +21,10 @@ const CONFIG = {
 
   COSTS_SPREADSHEET_ID: '',
   COSTS_SHEET_NAME: '',
+  // קבצי עלויות נוספים (למשל חשבון גוגל אדס אחר). כל קובץ: ID ושם לשונית
+  // (ריק = הלשונית הראשונה). העמודות מזוהות בכל קובץ לפי הכותרות שלו.
+  // דוגמה: [{ id: '1AbC...xyz', sheet: '' }, { id: '1DeF...uvw', sheet: 'עלויות' }]
+  EXTRA_COSTS_SOURCES: [],
 
   DASHBOARD_SHEET_NAME: 'דשבורד',
   DASHBOARD_TITLE: 'דשבורד קמפיינים',
@@ -70,11 +74,12 @@ const CONFIG = {
     saleDate: 'M',   // תאריך עדכון אחרון - יום המכירה
   },
   COSTS_COLUMNS: {
-    date: ['תאריך', 'חודש', 'תקופה'],
-    campaign: ['שם קמפיין', 'קמפיין', 'מקור הליד'],
-    cost: ['עלות קמפיין', 'עלות'],
+    // כולל הכותרות באנגלית של ייצוא מגוגל אדס.
+    date: ['תאריך', 'חודש', 'תקופה', 'Day', 'Date'],
+    campaign: ['שם קמפיין', 'קמפיין', 'מקור הליד', 'Campaign', 'Campaign name'],
+    cost: ['עלות קמפיין', 'עלות', 'Cost'],
     keyword: ['מילת מפתח'], // לא חובה - אם קיימת, מחושבת גם עלות לכל מילת מפתח
-    account: ['שם החשבון', 'חשבון'], // לא חובה - נכתב בעמודה A כשקמפיין נוסף אוטומטית למיפוי
+    account: ['שם החשבון', 'חשבון', 'Account', 'Account name'], // לא חובה - נכתב בעמודה A כשקמפיין נוסף אוטומטית למיפוי
   },
 };
 
@@ -815,27 +820,58 @@ function readLeads() {
   return { rows, warm, hours, skipped, skippedSales, skippedWarm };
 }
 
+/**
+ * קורא את כל קבצי העלויות (הראשי + EXTRA_COSTS_SOURCES) ומחבר את העלויות.
+ */
 function readCosts(campaignMap) {
-  const sheet = openSheet(CONFIG.COSTS_SPREADSHEET_ID, CONFIG.COSTS_SHEET_NAME);
+  const sources = [{ id: CONFIG.COSTS_SPREADSHEET_ID, sheet: CONFIG.COSTS_SHEET_NAME }]
+    .concat(CONFIG.EXTRA_COSTS_SOURCES || []);
+  // אבחון: מה נקרא ועל מה דולג, כדי שעלות "נעלמת" תופיע בלשונית הסטטוס.
+  const diag = {
+    columns: [], used: 0, dateFallback: 0,
+    byGoogle: new Map(), // שם בגיליון העלויות -> { cost, targets, first, last }
+    skipped: { 'בלי תאריך': [], 'בלי עלות מספרית': [] },
+  };
+  let entries = [];
+  let hasKeywords = false;
+  sources.forEach((source, i) => {
+    const label = sources.length > 1 ? `קובץ עלויות ${i + 1}` : 'גיליון העלויות';
+    const part = readCostSheet(campaignMap, source, diag, label);
+    entries = entries.concat(part.entries);
+    hasKeywords = hasKeywords || part.hasKeywords;
+  });
+
+  // תקופות "1-6/08/2025" ואחריה "1-28/08/2025" הן צילומי מצב מצטברים של
+  // אותו חודש - סכימה שלהן הייתה סופרת את העלות פעמיים. לכל חודש+קמפיין+
+  // יום התחלה נשאר רק הצילום המאוחר ביותר. תקופות עם ימי התחלה שונים
+  // (1-7, 8-14...) לא חופפות ולכן נסכמות.
+  const latest = new Map();
+  const plain = [];
+  entries.forEach(e => {
+    if (!e.range) { plain.push(e); return; }
+    const key = [e.month, e.campaign, e.keyword, e.range.start].join('|');
+    const prev = latest.get(key);
+    if (!prev || e.range.end >= prev.range.end) latest.set(key, e);
+  });
+  return { entries: plain.concat(Array.from(latest.values())), hasKeywords, diag };
+}
+
+function readCostSheet(campaignMap, source, diag, label) {
+  const sheet = openSheet(source.id, source.sheet);
   const values = sheet.getDataRange().getValues();
   const { headerRow, cols } = locateColumns(values, CONFIG.COSTS_COLUMNS,
-    ['date', 'campaign', 'cost'], 'גיליון העלויות');
+    ['date', 'campaign', 'cost'], label);
 
   // גיליון עלויות של דוח ידני חוזר על שורות כותרת ושורות סה"כ בכל בלוק -
   // מדלגים על כל שורה בלי עלות מספרית או עם שם קמפיין שהוא סיכום.
   const entries = [];
-  // אבחון: מה נקרא ועל מה דולג, כדי שעלות "נעלמת" תופיע בלשונית הסטטוס.
   const letter = i => (i < 0 ? '-' : i < 26 ? String.fromCharCode(65 + i)
     : String.fromCharCode(64 + Math.floor(i / 26)) + String.fromCharCode(65 + (i % 26)));
-  const diag = {
-    columns: ['date', 'campaign', 'cost'].map(k => [
-      `גיליון העלויות - עמודת ${k === 'date' ? 'תאריך' : k === 'campaign' ? 'קמפיין' : 'עלות'}`,
-      `${letter(cols[k])} ("${normalizeText(values[headerRow][cols[k]])}")`]),
-    used: 0, dateFallback: 0,
-    byGoogle: new Map(), // שם בגיליון העלויות -> { cost, targets, first, last }
-    skipped: { 'בלי תאריך': [], 'בלי עלות מספרית': [] },
-  };
-  const skip = (reason, r) => { diag.skipped[reason].push(r + 1); };
+  ['date', 'campaign', 'cost'].forEach(k => diag.columns.push([
+    `${label} - עמודת ${k === 'date' ? 'תאריך' : k === 'campaign' ? 'קמפיין' : 'עלות'}`,
+    `${letter(cols[k])} ("${normalizeText(values[headerRow][cols[k]])}")`]));
+  const multi = label !== 'גיליון העלויות';
+  const skip = (reason, r) => { diag.skipped[reason].push(multi ? `${label} שורה ${r + 1}` : r + 1); };
   for (let r = headerRow + 1; r < values.length; r++) {
     const row = values[r];
     const cost = toNumber(row[cols.cost]);
@@ -879,23 +915,7 @@ function readCosts(campaignMap) {
     });
   }
 
-  // תקופות "1-6/08/2025" ואחריה "1-28/08/2025" הן צילומי מצב מצטברים של
-  // אותו חודש - סכימה שלהן הייתה סופרת את העלות פעמיים. לכל חודש+קמפיין+
-  // יום התחלה נשאר רק הצילום המאוחר ביותר. תקופות עם ימי התחלה שונים
-  // (1-7, 8-14...) לא חופפות ולכן נסכמות.
-  const latest = new Map();
-  const plain = [];
-  entries.forEach(e => {
-    if (!e.range) { plain.push(e); return; }
-    const key = [e.month, e.campaign, e.keyword, e.range.start].join('|');
-    const prev = latest.get(key);
-    if (!prev || e.range.end >= prev.range.end) latest.set(key, e);
-  });
-  return {
-    entries: plain.concat(Array.from(latest.values())),
-    hasKeywords: cols.keyword >= 0,
-    diag,
-  };
+  return { entries, hasKeywords: cols.keyword >= 0 };
 }
 
 /**
