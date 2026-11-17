@@ -420,6 +420,26 @@ function writeAttribution(ss, data) {
     'מאילו קמפיינים בגיליון העלויות (עלות)']];
   sheet.getRange(1, 1, 1, header[0].length).setValues(header).setFontWeight('bold');
   if (rows.length) sheet.getRange(2, 1, rows.length, header[0].length).setValues(rows);
+
+  // טבלה שנייה: כל קמפיין בגיליון העלויות - לאן העלות שלו נשלחה.
+  const g = data.costDiag && data.costDiag.byGoogle;
+  if (!g || !g.size) return;
+  const withLeads = new Set(data.leads.filter(l => l.leads).map(l => matchKey(data.campaignNames.get(l.campaignKey))));
+  const fmt = d => `${d % 100}/${Math.floor(d / 100) % 100}/${Math.floor(d / 10000)}`;
+  const min = CONFIG.MIN_DATE;
+  const rows2 = Array.from(g.entries()).sort((x, y) => y[1].cost - x[1].cost).map(([name, v]) => {
+    const targets = Array.from(v.targets.entries());
+    const unmapped = targets.length === 1 && matchKey(targets[0][0]) === matchKey(name);
+    const status = v.last < min ? `לפני ${fmt(min)} - לא נכלל`
+      : unmapped ? 'לא נמצא בלשונית "שמות קמפיינים"'
+      : targets.some(([t]) => !withLeads.has(matchKey(t))) ? 'מקור בלי לידים - לבדוק את הכתיב בעמודה C' : 'תקין';
+    return [name, Math.round(v.cost), `${fmt(v.first)} עד ${fmt(v.last)}`,
+      unmapped ? '' : targets.map(([t, c]) => `${t} (${Math.round(c).toLocaleString('en-US')})`).join(' · '), status];
+  });
+  const at = rows.length + 4;
+  sheet.getRange(at, 1, 1, 5).setValues([['קמפיין בגיליון העלויות', 'עלות שנקראה', 'תאריכים', 'נשלח אל (מקור בפלנדו)', 'מצב']])
+    .setFontWeight('bold');
+  sheet.getRange(at + 1, 1, rows2.length, 5).setValues(rows2);
 }
 
 /**
@@ -812,6 +832,7 @@ function readCosts(campaignMap) {
       `גיליון העלויות - עמודת ${k === 'date' ? 'תאריך' : k === 'campaign' ? 'קמפיין' : 'עלות'}`,
       `${letter(cols[k])} ("${normalizeText(values[headerRow][cols[k]])}")`]),
     used: 0, dateFallback: 0,
+    byGoogle: new Map(), // שם בגיליון העלויות -> { cost, targets, first, last }
     skipped: { 'בלי תאריך': [], 'בלי עלות מספרית': [] },
   };
   const skip = (reason, r) => { diag.skipped[reason].push(r + 1); };
@@ -837,6 +858,13 @@ function readCosts(campaignMap) {
     diag.used++;
     if (fromOtherColumn) diag.dateFallback++;
     const targets = campaignMap ? campaignMap(rawCampaign, firstDayOf(period), period.month) : [[rawCampaign, 1]];
+    const g = diag.byGoogle.get(rawCampaign) || { cost: 0, targets: new Map(), first: Infinity, last: 0 };
+    const day = firstDayOf(period);
+    g.cost += cost;
+    g.first = Math.min(g.first, day);
+    g.last = Math.max(g.last, day);
+    targets.forEach(([t, share]) => g.targets.set(t, (g.targets.get(t) || 0) + cost * share));
+    diag.byGoogle.set(rawCampaign, g);
     targets.forEach(([campaign, share]) => {
       entries.push({
         month: period.month,
