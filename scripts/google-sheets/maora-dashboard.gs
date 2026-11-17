@@ -147,7 +147,7 @@ function resetAll() {
   for (let i = 0; i < 300; i++) keys.push('site_v2_' + i, 'site_csv_' + i);
   cache.removeAll(keys);
 
-  [CONFIG.DASHBOARD_SHEET_NAME, SITE_DATA_SHEET_NAME, PAYLOAD_SHEET_NAME].forEach(name => {
+  [CONFIG.DASHBOARD_SHEET_NAME, SITE_DATA_SHEET_NAME, PAYLOAD_SHEET_NAME, ATTRIBUTION_SHEET_NAME].forEach(name => {
     const sh = ss.getSheetByName(name);
     if (sh && ss.getSheets().length > 1) ss.deleteSheet(sh);
   });
@@ -350,6 +350,49 @@ function writeSiteData(ss, data) {
     sheet.getRange(start, 1, 1, 3).setFontWeight('bold');
   }
   syncCampaignMap(ss, list, sources);
+  writeAttribution(ss, data);
+}
+
+/**
+ * לשונית "שיוך עלויות": לכל מקור בפלנדו - כמה לידים, כמה עלות שויכה אליו
+ * ומאילו קמפיינים בגוגל, בכל התקופה ובחודש הנוכחי. בודקים כאן שקמפיין
+ * מגוגל הגיע למקור הנכון, בלי מסננים של האתר.
+ */
+const ATTRIBUTION_SHEET_NAME = 'שיוך עלויות';
+
+function writeAttribution(ss, data) {
+  const tz = Session.getScriptTimeZone();
+  const thisMonth = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
+  const by = new Map();
+  const get = key => {
+    if (!by.has(key)) by.set(key, { leads: 0, cost: 0, costMonth: 0, from: new Map() });
+    return by.get(key);
+  };
+  data.leads.forEach(l => { if (l.leads) get(l.campaignKey).leads += l.leads; });
+  data.costs.forEach(c => {
+    const a = get(c.campaignKey);
+    a.cost += c.cost;
+    if (c.month === thisMonth) a.costMonth += c.cost;
+    const src = c.rawCampaign || '';
+    a.from.set(src, (a.from.get(src) || 0) + c.cost);
+  });
+  const rows = Array.from(by.entries())
+    .sort((x, y) => y[1].cost - x[1].cost || y[1].leads - x[1].leads)
+    .map(([key, a]) => [
+      data.campaignNames.get(key),
+      a.leads,
+      Math.round(a.cost),
+      Math.round(a.costMonth),
+      !a.leads && a.cost ? 'לא משויך - אין לידים למקור הזה' : '',
+      Array.from(a.from.entries()).sort((x, y) => y[1] - x[1])
+        .map(([n, v]) => `${n} (${Math.round(v).toLocaleString('en-US')})`).join(' · '),
+    ]);
+  const sheet = ss.getSheetByName(ATTRIBUTION_SHEET_NAME) || ss.insertSheet(ATTRIBUTION_SHEET_NAME);
+  sheet.clear();
+  const header = [['מקור בפלנדו', 'לידים (כל התקופה)', 'עלות משויכת (כל התקופה)', 'עלות החודש', 'מצב',
+    'מאילו קמפיינים בגיליון העלויות (עלות)']];
+  sheet.getRange(1, 1, 1, header[0].length).setValues(header).setFontWeight('bold');
+  if (rows.length) sheet.getRange(2, 1, rows.length, header[0].length).setValues(rows);
 }
 
 /**
