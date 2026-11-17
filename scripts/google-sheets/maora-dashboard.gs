@@ -214,9 +214,14 @@ function refreshDashboard() {
     ss.toast('בונה את הדשבורד...', 'דשבורד', -1);
     const data = indexData(leads, costs);
     writeSiteData(ss, data);
-    const filters = resolveFilters(readFilters(sheet), data);
-    render(sheet, data, filters);
+    safely(ss, 'ציור לשונית הדשבורד', () => render(sheet, data, resolveFilters(readFilters(sheet), data)));
     ss.toast(`הדשבורד עודכן (${leads.rows.reduce((n, l) => n + l.leads, 0)} לידים)`, 'דשבורד', 5);
+  } catch (err) {
+    // שגיאה בקריאת הנתונים עצמם - מציגים אותה במקום להיעצר בשקט.
+    const ss = SpreadsheetApp.getActive();
+    reportProblem(ss, 'הרענון', err);
+    ss.toast('הרענון נכשל: ' + (err && err.message), 'דשבורד', 30);
+    throw err;
   } finally {
     lock.releaseLock();
   }
@@ -349,8 +354,30 @@ function writeSiteData(ss, data) {
     sheet.getRange(start, 1, block.length, 3).setValues(block);
     sheet.getRange(start, 1, 1, 3).setFontWeight('bold');
   }
-  syncCampaignMap(ss, list, sources);
-  writeAttribution(ss, data);
+  // כל שלב רץ בנפרד: שגיאה באחד לא עוצרת את האחרים, ונכתבת בלשונית הזו.
+  safely(ss, 'לשונית "שיוך עלויות"', () => writeAttribution(ss, data));
+  safely(ss, 'עדכון "שמות קמפיינים"', () => syncCampaignMap(ss, list, sources));
+}
+
+// מריץ שלב; אם הוא נכשל - כותב את השגיאה באדום בלשונית "נתונים לאתר" וממשיך.
+function safely(ss, stage, fn) {
+  try {
+    fn();
+  } catch (err) {
+    reportProblem(ss, stage, err);
+  }
+}
+
+function reportProblem(ss, stage, err) {
+  try {
+    const sheet = ss.getSheetByName(SITE_DATA_SHEET_NAME) || ss.insertSheet(SITE_DATA_SHEET_NAME);
+    const row = sheet.getLastRow() + 2;
+    sheet.getRange(row, 1, 1, 2)
+      .setValues([[`שגיאה ב${stage}`, String((err && err.stack) || (err && err.message) || err).slice(0, 1000)]])
+      .setFontColor('#c62f2f').setFontWeight('bold');
+  } catch (ignored) {
+    // אין לאן לכתוב - השגיאה עדיין תופיע ב"הפעלות" של Apps Script.
+  }
 }
 
 /**
